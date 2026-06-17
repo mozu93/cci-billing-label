@@ -51,16 +51,16 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "CCI請求書システム v${{ steps.ver.outputs.VERSION }}"
+          name: "CCI請求書・ラベル発行システム v${{ steps.ver.outputs.VERSION }}"
           body: |
-            ## CCI請求書システム v${{ steps.ver.outputs.VERSION }}
+            ## CCI請求書・ラベル発行システム v${{ steps.ver.outputs.VERSION }}
 
             ### インストール方法
-            1. 下記の `CCIBilling_Setup_${{ steps.ver.outputs.VERSION }}.exe` をダウンロード
+            1. 下記の `CCIBillingLabel_Setup_${{ steps.ver.outputs.VERSION }}.exe` をダウンロード
             2. ダウンロードしたファイルをダブルクリックして実行
             3. 画面の指示に従ってインストール
 
             ※ 管理者権限は不要です。
-          files: installer_output/CCIBilling_Setup_${{ steps.ver.outputs.VERSION }}.exe
+          files: installer_output/CCIBillingLabel_Setup_${{ steps.ver.outputs.VERSION }}.exe
           draft: false
           prerelease: false

@@ -10,7 +10,7 @@ from typing import Optional
 
 from packaging.version import Version
 
-GITHUB_API_URL = "https://api.github.com/repos/mozu93/cci-billing/releases/latest"
+GITHUB_API_URL = "https://api.github.com/repos/mozu93/cci-billing-label/releases/latest"
 _TIMEOUT = 8
 
 
@@ -30,7 +30,7 @@ def check_latest_version() -> Optional[dict]:
         req = urllib.request.Request(
             GITHUB_API_URL,
             headers={"Accept": "application/vnd.github+json",
-                     "User-Agent": "cci-billing-updater"},
+                     "User-Agent": "cci-billing-label-updater"},
         )
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -53,10 +53,10 @@ def download_new_exe(url: str, progress_callback=None) -> Optional[str]:
     成功時はダウンロード先パスを返す。失敗時は None。
     """
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "cci-billing-updater"})
+        req = urllib.request.Request(url, headers={"User-Agent": "cci-billing-label-updater"})
         with urllib.request.urlopen(req, timeout=60) as resp:
             total = int(resp.headers.get("Content-Length", -1))
-            fd, tmp_path = tempfile.mkstemp(suffix=".exe", prefix="cci_billing_new_")
+            fd, tmp_path = tempfile.mkstemp(suffix=".exe", prefix="cci_billing_label_new_")
             received = 0
             with os.fdopen(fd, "wb") as f:
                 while True:
@@ -77,7 +77,7 @@ def launch_updater(new_exe_path: str, current_exe_path: str):
     updater.bat を %TEMP% に生成して起動し、アプリを終了する。
     bat は: 3秒待機（アプリ終了を待つ）→ インストーラーを起動 → 自己削除
     """
-    bat_fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="cci_billing_updater_")
+    bat_fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="cci_billing_label_updater_")
     with os.fdopen(bat_fd, "w", encoding="cp932") as f:
         f.write("@echo off\r\n")
         f.write("timeout /t 3 /nobreak > nul\r\n")
