@@ -8,7 +8,7 @@ def test_label_layouts_populated():
     assert "a_one_28185" in LABEL_LAYOUTS
     assert "a_one_28187" in LABEL_LAYOUTS
     assert "a_one_51002" in LABEL_LAYOUTS
-    assert "a4_4split"   in LABEL_LAYOUTS
+    assert "a4_4split" not in LABEL_LAYOUTS
 
 
 def test_font_options_not_empty():

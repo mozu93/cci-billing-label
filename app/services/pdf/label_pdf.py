@@ -9,7 +9,6 @@ LABEL_LAYOUTS に仕様を追加するだけで新しいサイズを登録でき
   "a_one_28185" : A-ONE 28185  A4 3列×6行  70×42.3mm  上余白21.5mm
   "a_one_28187" : A-ONE 28187  A4 2列×6行  84×42mm    上余白22.5mm
   "a_one_51002" : A-ONE 51002  A4 2列×5行  91×55mm    上余白11mm（名札用）
-  "a4_4split"   : A4 横長4分割 A4 1列×4行  210×74.25mm（プレートモード用）
 """
 from dataclasses import dataclass, field
 import re
@@ -112,17 +111,6 @@ LABEL_LAYOUTS: dict[str, LabelLayout] = {
         gap_h_mm       = 0.0,
         gap_v_mm       = 0.0,
     ),
-    "a4_4split": LabelLayout(
-        name           = "A4 横長4分割  (A4 / 1列×4行 / 200×74.25mm)",
-        cols           = 1,
-        rows           = 4,
-        label_w_mm     = 200.0,
-        label_h_mm     = 74.25,
-        margin_top_mm  = 0.0,
-        margin_left_mm = 0.0,
-        gap_h_mm       = 0.0,
-        gap_v_mm       = 0.0,
-    ),
 }
 
 DEFAULT_LAYOUT_KEY = "a_one_28185"
@@ -170,13 +158,8 @@ def generate_label_pdf(
     c = Canvas(output_path, pagesize=(page_w, page_h))
     c.setTitle("宛名ラベル")
 
-    draw_entries = (
-        [e for e in entries for _ in range(2)]
-        if layout_key == "a4_4split" else list(entries)
-    )
-
     slot = 0
-    for entry in draw_entries:
+    for entry in entries:
         if slot > 0 and slot % per_page == 0:
             c.showPage()
 
@@ -186,22 +169,7 @@ def generate_label_pdf(
         x0, y0 = _label_origin(col, row, layout)
 
         mode = batch_mode if entry.entry_mode == "inherit" else entry.entry_mode
-
-        if layout_key == "a4_4split":
-            _PLATE_SHIFT = 7.5 * mm
-            plate_offset = -_PLATE_SHIFT if row in (0, 3) else 0.0
-            if row % 2 == 0:
-                c.saveState()
-                c.translate(x0 + lw / 2, y0 + lh / 2)
-                c.rotate(180)
-                _draw_label(c, entry, -lw / 2, -lh / 2, lw, lh, mode, font, barcode_enabled,
-                            plate_y_offset=plate_offset)
-                c.restoreState()
-            else:
-                _draw_label(c, entry, x0, y0, lw, lh, mode, font, barcode_enabled,
-                            plate_y_offset=plate_offset)
-        else:
-            _draw_label(c, entry, x0, y0, lw, lh, mode, font, barcode_enabled)
+        _draw_label(c, entry, x0, y0, lw, lh, mode, font, barcode_enabled)
         slot += 1
 
     c.save()
@@ -232,8 +200,7 @@ def _split_line(text: str, font: str, fs: float, max_w: float) -> tuple[str, str
 
 
 def _draw_label(c, entry, x0: float, y0: float, w: float, h: float, mode: str,
-                font: str = "MSPGothic", barcode_enabled: bool = False,
-                plate_y_offset: float = 0.0):
+                font: str = "MSPGothic", barcode_enabled: bool = False):
     c.saveState()
 
     company      = entry.company_name or ""
@@ -251,8 +218,6 @@ def _draw_label(c, entry, x0: float, y0: float, w: float, h: float, mode: str,
                         barcode_enabled, barcode_addr)
     elif mode == "nametag":
         _draw_nametag(c, x0, y0, w, h, company, title, person, font)
-    elif mode == "split4":
-        _draw_split4(c, x0, y0, w, h, company, font, plate_y_offset)
     else:
         _draw_normal(c, x0, y0, w, h, company, postal, addr1, addr2, title, person, font,
                      barcode_enabled, barcode_addr)
@@ -577,56 +542,3 @@ def _draw_simple(c, x0, y0, w, h, company, font: str = "MSPGothic"):
     c.drawString(x0 + w - P - gw, cur_y, "御中")
 
 
-def _draw_split4(c, x0, y0, w, h, company, font: str = "MSPGothic",
-                 y_offset: float = 0.0):
-    if not company:
-        return
-
-    P       = 4.0 * mm
-    inner_w = w - 2 * P
-    inner_h = h
-
-    lines = [ln for ln in company.split("\n") if ln]
-    if not lines:
-        return
-
-    n = len(lines)
-    LINE_H = 1.08 if n > 1 else 1.4
-
-    V_PAD        = 3.0 * mm if n > 1 else 0.0
-    inner_h_eff  = inner_h - 2 * V_PAD
-
-    widest = max(lines, key=lambda ln: stringWidth(ln, font, 150.0))
-    fs_h   = min(inner_h_eff / ((n - 1) * LINE_H + 1.4), 125.0)
-    fs     = min(_fit_text(widest, font, fs_h, inner_w, min_size=8.0), fs_h)
-    line_h = fs * LINE_H
-
-    start_y = y0 + h / 2 + (n - 1) * line_h / 2 - fs * 0.3 + y_offset
-
-    bold = n > 1 or (n == 1 and len(lines[0]) >= 6)
-    c.setFont(font, fs)
-    c.setFillColor(black)
-    if bold:
-        c.setStrokeColor(black)
-        c.setLineWidth(fs * 0.025)
-
-    for i, line in enumerate(lines):
-        cur_y = start_y - i * line_h
-        mode  = 2 if bold else 0
-
-        if len(line) == 2:
-            pad = stringWidth(" ", font, fs) / 4
-            cw  = [stringWidth(ch, font, fs) for ch in line]
-            gap = inner_w - 2 * pad - sum(cw)
-            x   = x0 + P + pad
-            for j, ch in enumerate(line):
-                c.drawString(x, cur_y, ch, mode=mode)
-                x += cw[j] + (gap if j == 0 else 0)
-        else:
-            nchars = len(line)
-            line_w = stringWidth(line, font, fs)
-            gap    = (inner_w - line_w) / (nchars - 1) if nchars > 1 else 0
-            x      = x0 + P
-            for ch in line:
-                c.drawString(x, cur_y, ch, mode=mode)
-                x += stringWidth(ch, font, fs) + gap

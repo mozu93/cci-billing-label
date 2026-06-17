@@ -28,8 +28,15 @@ LABEL_MODES = [
     ("宛名（氏名なし）", "no_person"),
     ("事業所名のみ",     "simple"),
     ("名札",            "nametag"),
-    ("卓上プレート",     "split4"),
 ]
+
+# モード → 用紙レイアウトの自動連動
+_MODE_TO_LAYOUT = {
+    "normal":    "a_one_28185",   # 3列×6行
+    "no_person": "a_one_28185",   # 3列×6行
+    "simple":    "a_one_28187",   # 2列×6行
+    "nametag":   "a_one_51002",   # 名札 2列×5行
+}
 
 # ソート対象列 → _rows_data キーのマッピング
 _SORT_KEYS = {
@@ -151,26 +158,25 @@ class LabelIssuanceTab(QWidget):
         filter_row.addStretch()
         layout.addLayout(filter_row)
 
-        # ── アクション行（モード / 用紙 / フォント / 生成ボタン / 検索） ─
+        # ── アクション行（モード / フォント / 生成ボタン / 検索） ─────────
         action_row = QHBoxLayout()
         from app.services.pdf.label_pdf import (
-            LABEL_LAYOUTS, FONT_OPTIONS, DEFAULT_LAYOUT_KEY, DEFAULT_FONT_KEY
+            LABEL_LAYOUTS, FONT_OPTIONS, DEFAULT_FONT_KEY
         )
 
         action_row.addWidget(QLabel("モード："))
         self._mode_combo = QComboBox()
         for label, _ in LABEL_MODES:
             self._mode_combo.addItem(label)
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         action_row.addWidget(self._mode_combo)
 
+        # モードに連動する用紙表示ラベル（読み取り専用）
         action_row.addWidget(QLabel("用紙："))
-        self._layout_combo = QComboBox()
-        for key, lo in LABEL_LAYOUTS.items():
-            self._layout_combo.addItem(lo.name, key)
-        idx = self._layout_combo.findData(DEFAULT_LAYOUT_KEY)
-        if idx >= 0:
-            self._layout_combo.setCurrentIndex(idx)
-        action_row.addWidget(self._layout_combo)
+        self._layout_label = QLabel()
+        self._layout_label.setStyleSheet("color: #374151; min-width: 200px;")
+        action_row.addWidget(self._layout_label)
+        self._on_mode_changed()  # 初期値を設定
 
         action_row.addWidget(QLabel("フォント："))
         self._font_combo = QComboBox()
@@ -237,6 +243,13 @@ class LabelIssuanceTab(QWidget):
         self._table.horizontalHeader().sectionResized.connect(
             lambda _l, _o, _n: self._reposition_header_chk()
         )
+
+    def _on_mode_changed(self):
+        from app.services.pdf.label_pdf import LABEL_LAYOUTS
+        mode_key = LABEL_MODES[self._mode_combo.currentIndex()][1]
+        layout_key = _MODE_TO_LAYOUT.get(mode_key, "a_one_28185")
+        lo = LABEL_LAYOUTS.get(layout_key)
+        self._layout_label.setText(lo.name if lo else layout_key)
 
     def _reposition_header_chk(self):
         hdr = self._table.horizontalHeader()
@@ -470,7 +483,7 @@ class LabelIssuanceTab(QWidget):
         ]
 
         batch_mode = LABEL_MODES[self._mode_combo.currentIndex()][1]
-        layout_key = self._layout_combo.currentData()
+        layout_key = _MODE_TO_LAYOUT.get(batch_mode, "a_one_28185")
         font_key   = self._font_combo.currentText()
 
         from app.utils.pdf_helpers import get_pdf_output_dir
