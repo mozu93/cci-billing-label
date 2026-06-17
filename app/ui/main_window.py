@@ -22,9 +22,26 @@ class MainWindow(QMainWindow):
         from app.version import __version__
         menubar = self.menuBar()
         help_menu = menubar.addMenu("ヘルプ")
+        act_manual = QAction("使い方マニュアル", self)
+        act_manual.triggered.connect(self._open_manual)
+        help_menu.addAction(act_manual)
+        help_menu.addSeparator()
         act_about = QAction("バージョン情報", self)
         act_about.triggered.connect(self._show_about)
         help_menu.addAction(act_about)
+
+    def _open_manual(self):
+        import os, sys
+        from pathlib import Path
+        if getattr(sys, "frozen", False):
+            base = Path(sys._MEIPASS)
+        else:
+            base = Path(__file__).parent.parent.parent
+        manual = base / "docs" / "manual" / "manual.html"
+        if manual.exists():
+            os.startfile(str(manual))
+        else:
+            QMessageBox.warning(self, "マニュアル", f"マニュアルファイルが見つかりません:\n{manual}")
 
     def _build_tabs(self):
         central = QWidget()

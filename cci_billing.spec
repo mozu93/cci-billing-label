@@ -4,6 +4,7 @@ from PyInstaller.utils.hooks import collect_data_files
 datas = []
 datas += collect_data_files('reportlab')
 datas += [('assets', 'assets')]
+datas += [('docs/manual/manual.html', 'docs/manual')]
 
 a = Analysis(
     ['main.py'],

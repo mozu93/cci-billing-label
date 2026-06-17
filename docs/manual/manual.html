@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CCI請求書・ラベル発行システム 使い方マニュアル</title>
+<style>
+  :root {
+    --blue:   #2563EB;
+    --blue-l: #EFF6FF;
+    --green:  #16A34A;
+    --green-l:#F0FDF4;
+    --red:    #DC2626;
+    --red-l:  #FEF2F2;
+    --amber:  #D97706;
+    --amber-l:#FFFBEB;
+    --gray:   #374151;
+    --gray-l: #F9FAFB;
+    --border: #E5E7EB;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Meiryo", "Yu Gothic", sans-serif;
+    font-size: 14px;
+    color: var(--gray);
+    background: #fff;
+    line-height: 1.7;
+  }
+  /* ── ナビゲーション ── */
+  nav {
+    position: fixed; top: 0; left: 0; width: 230px; height: 100vh;
+    background: var(--gray-l); border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 20px 0;
+  }
+  nav .nav-title {
+    font-size: 12px; font-weight: bold; color: #6B7280;
+    padding: 0 16px 8px; text-transform: uppercase; letter-spacing: .05em;
+  }
+  nav a {
+    display: block; padding: 6px 16px; color: var(--gray);
+    text-decoration: none; font-size: 13px; border-left: 3px solid transparent;
+  }
+  nav a:hover { background: var(--border); }
+  nav a.active { border-left-color: var(--blue); color: var(--blue); background: var(--blue-l); font-weight: bold; }
+  nav a.sub { padding-left: 28px; font-size: 12px; color: #6B7280; }
+  /* ── メインコンテンツ ── */
+  main {
+    margin-left: 230px; padding: 40px 48px; max-width: 960px;
+  }
+  h1 { font-size: 26px; color: #111827; border-bottom: 2px solid var(--blue); padding-bottom: 12px; margin-bottom: 8px; }
+  .version { font-size: 12px; color: #9CA3AF; margin-bottom: 32px; }
+  h2 {
+    font-size: 20px; color: #111827; margin: 48px 0 16px;
+    padding: 10px 16px; background: var(--blue-l);
+    border-left: 4px solid var(--blue); border-radius: 0 6px 6px 0;
+  }
+  h3 { font-size: 16px; color: #1D4ED8; margin: 28px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h4 { font-size: 14px; font-weight: bold; color: var(--gray); margin: 20px 0 8px; }
+  p { margin-bottom: 10px; }
+  ul, ol { padding-left: 24px; margin-bottom: 12px; }
+  li { margin-bottom: 4px; }
+  /* ── テーブル ── */
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 13px; }
+  th { background: #F3F4F6; color: #374151; font-weight: bold; text-align: left;
+       padding: 8px 12px; border: 1px solid var(--border); }
+  td { padding: 7px 12px; border: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: #FAFAFA; }
+  /* ── 吹き出し ── */
+  .note, .warn, .tip, .danger {
+    padding: 12px 16px; border-radius: 6px; margin: 16px 0; font-size: 13px;
+  }
+  .note   { background: var(--blue-l);  border-left: 4px solid var(--blue);  }
+  .tip    { background: var(--green-l); border-left: 4px solid var(--green); }
+  .warn   { background: var(--amber-l); border-left: 4px solid var(--amber); }
+  .danger { background: var(--red-l);   border-left: 4px solid var(--red);   }
+  .note::before   { content: "ℹ️ "; }
+  .tip::before    { content: "✅ "; }
+  .warn::before   { content: "⚠️ "; }
+  .danger::before { content: "🔴 "; }
+  /* ── バッジ ── */
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    font-size: 11px; font-weight: bold; margin: 0 2px;
+  }
+  .badge-blue   { background: var(--blue);  color: #fff; }
+  .badge-green  { background: var(--green); color: #fff; }
+  .badge-gray   { background: #6B7280;      color: #fff; }
+  .badge-red    { background: var(--red);   color: #fff; }
+  .badge-amber  { background: var(--amber); color: #fff; }
+  /* ── キーボード ── */
+  kbd {
+    display: inline-block; padding: 2px 7px; border: 1px solid #ccc;
+    border-radius: 4px; background: #F3F4F6; font-family: monospace; font-size: 12px;
+  }
+  /* ── ステップ番号 ── */
+  .steps { counter-reset: step; list-style: none; padding: 0; }
+  .steps li {
+    counter-increment: step;
+    padding: 8px 8px 8px 44px;
+    position: relative; margin-bottom: 6px;
+    background: var(--gray-l); border-radius: 6px;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute; left: 12px; top: 8px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--blue); color: #fff;
+    font-size: 12px; font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* ── TOC ── */
+  #toc { background: var(--gray-l); border: 1px solid var(--border); border-radius: 8px; padding: 16px 24px; margin-bottom: 32px; }
+  #toc h3 { border: none; margin: 0 0 8px; font-size: 14px; }
+  #toc ul { margin: 0; }
+  #toc a { color: var(--blue); }
+  /* ── セクション区切り ── */
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-title">目次</div>
+  <a href="#overview">概要</a>
+  <a href="#install">インストール・起動</a>
+  <a href="#counter">単発発行</a>
+  <a class="sub" href="#counter-invoice">請求書</a>
+  <a class="sub" href="#counter-receipt">領収書</a>
+  <a href="#batch">まとめて発行</a>
+  <a class="sub" href="#batch-create">データ作成</a>
+  <a class="sub" href="#batch-invoice">請求書発行</a>
+  <a class="sub" href="#batch-receipt">領収書発行</a>
+  <a class="sub" href="#batch-payment">入金管理</a>
+  <a href="#label">宛名ラベル発行</a>
+  <a class="sub" href="#label-filter">絞り込み</a>
+  <a class="sub" href="#label-table">テーブル操作</a>
+  <a class="sub" href="#label-pdf">PDF生成</a>
+  <a href="#reissue">修正・再発行</a>
+  <a href="#master">登録・マスタ</a>
+  <a class="sub" href="#master-staff">スタッフ管理</a>
+  <a class="sub" href="#master-category">業務名</a>
+  <a class="sub" href="#master-template">請求項目テンプレート</a>
+  <a class="sub" href="#master-member">会員マスタ</a>
+  <a href="#settings">設定</a>
+  <a class="sub" href="#settings-company">発行元情報</a>
+  <a class="sub" href="#settings-email">メール設定</a>
+  <a class="sub" href="#settings-backup">バックアップ</a>
+  <a class="sub" href="#settings-log">操作ログ</a>
+  <a class="sub" href="#settings-admin">管理者機能</a>
+  <a href="#update">バージョンアップ</a>
+</nav>
+
+<main>
+
+<h1>CCI請求書・ラベル発行システム<br>使い方マニュアル</h1>
+<p class="version">対象バージョン: v2.1.4 ／ 最終更新: 2026年6月</p>
+
+<div id="toc">
+  <h3>このマニュアルについて</h3>
+  <ul>
+    <li>商工会議所向けの請求書・領収書・宛名ラベル発行アプリの操作ガイドです。</li>
+    <li>各機能はウィンドウ上部のタブで切り替えます。</li>
+    <li>データはアプリと同じフォルダに自動保存されます（バックアップ推奨）。</li>
+  </ul>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="overview">概要</h2>
+
+<p>このアプリは、商工会議所が会員向けに発行する<strong>請求書・領収書・宛名ラベル</strong>をまとめて管理・印刷できるシステムです。</p>
+
+<table>
+  <tr><th>タブ名</th><th>主な用途</th></tr>
+  <tr><td><strong>単発発行</strong></td><td>1件単位で請求書・領収書を手入力して発行</td></tr>
+  <tr><td><strong>まとめて発行</strong></td><td>案件（プロジェクト）単位で一括発行・入金管理</td></tr>
+  <tr><td><strong>宛名ラベル発行</strong></td><td>会員リストから宛名ラベル・名札を印刷</td></tr>
+  <tr><td><strong>修正・再発行</strong></td><td>発行済み書類の内容修正・PDF再出力</td></tr>
+  <tr><td><strong>登録・マスタ</strong></td><td>スタッフ・業務名・請求テンプレート・会員情報の管理</td></tr>
+  <tr><td><strong>設定</strong></td><td>発行元情報・メール・バックアップ・操作ログ</td></tr>
+</table>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="install">インストール・起動</h2>
+
+<h3>初回インストール</h3>
+<ol class="steps">
+  <li>GitHub のリリースページから <code>CCIBillingLabel_Setup_x.x.x.exe</code> をダウンロードします。</li>
+  <li>ダウンロードしたファイルをダブルクリックして実行します。</li>
+  <li>画面の指示に従ってインストールを完了します（管理者権限は不要です）。</li>
+  <li>デスクトップまたはスタートメニューの「CCI請求書・ラベル発行システム」を起動します。</li>
+</ol>
+
+<div class="note">インストール先はデフォルトで <code>%LOCALAPPDATA%\CCIBillingLabel</code> になります。変更は不要です。</div>
+
+<h3>起動時の動作</h3>
+<ul>
+  <li>起動直後に自動バックアップが実行されます（ステータスバーに完了メッセージが表示されます）。</li>
+  <li>新しいバージョンがある場合、画面上部に黄色い通知バーが表示されます（<a href="#update">バージョンアップ</a>参照）。</li>
+</ul>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="counter">単発発行</h2>
+
+<p>1件ずつ手入力して請求書または領収書を発行します。宛先や金額が毎回異なる場合に使います。</p>
+
+<h3 id="counter-invoice">請求書の発行</h3>
+<ol class="steps">
+  <li>「単発発行」タブ →「請求書」サブタブを開きます。</li>
+  <li>宛先・件名・担当スタッフ・請求項目を入力します。</li>
+  <li>「PDF生成・発行」ボタンをクリックします。</li>
+  <li>PDFが自動的に開きます。印刷してご使用ください。</li>
+</ol>
+
+<h4>主な入力項目</h4>
+<table>
+  <tr><th>項目</th><th>説明</th></tr>
+  <tr><td>宛先</td><td>会員の事業所名・氏名</td></tr>
+  <tr><td>件名</td><td>案件名（例：令和6年度 年会費）</td></tr>
+  <tr><td>発行日</td><td>デフォルトは本日の日付</td></tr>
+  <tr><td>担当スタッフ</td><td>スタッフ管理で登録済みのスタッフを選択</td></tr>
+  <tr><td>請求項目</td><td>項目名・単価・数量・税区分（テンプレートから選択可能）</td></tr>
+  <tr><td>備考</td><td>振込先・支払期限など（任意）</td></tr>
+</table>
+
+<div class="tip">よく使う項目は「登録・マスタ」→「請求項目テンプレート」に登録しておくと、ワンクリックで入力できます。</div>
+
+<h3 id="counter-receipt">領収書の発行</h3>
+<ol class="steps">
+  <li>「単発発行」タブ →「領収書」サブタブを開きます。</li>
+  <li>宛先・金額・担当者・但し書きを入力します。</li>
+  <li>「PDF生成・発行」ボタンをクリックします。</li>
+</ol>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="batch">まとめて発行</h2>
+
+<p>案件（プロジェクト）単位で会員を一括管理し、請求書・領収書をまとめて発行します。年会費・講座料など同じ案件で複数名に発行する場合に使います。</p>
+
+<h3 id="batch-create">① データ作成</h3>
+<ol class="steps">
+  <li>「まとめて発行」タブ →「データ作成」サブタブを開きます。</li>
+  <li>「＋ 新規案件」ボタンで案件を作成します（年度・業務区分・件名・発行元を設定）。</li>
+  <li>会員マスタからメンバーを追加するか、会員リストをインポートします。</li>
+  <li>各メンバーの金額・請求項目を確認・調整します。</li>
+</ol>
+
+<h3 id="batch-invoice">② 請求書発行</h3>
+<ol class="steps">
+  <li>「請求書発行」サブタブを開きます。</li>
+  <li>発行する案件と対象メンバーを選択します。</li>
+  <li>「一括PDF生成」ボタンをクリックします。</li>
+  <li>全メンバー分の請求書PDFがまとめて生成・開かれます。</li>
+</ol>
+
+<h3 id="batch-receipt">③ 領収書発行</h3>
+<ol class="steps">
+  <li>「領収書発行」サブタブを開きます。</li>
+  <li>入金済みのメンバーを選択して「領収書発行」をクリックします。</li>
+</ol>
+
+<h3 id="batch-payment">④ 入金管理</h3>
+<ol class="steps">
+  <li>「入金管理」サブタブを開きます。</li>
+  <li>入金があったメンバーの行を選択し、「入金記録」ボタンで入金日・金額を登録します。</li>
+  <li>状態が「入金済み」に変わります。領収書が発行できるようになります。</li>
+</ol>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="label">宛名ラベル発行</h2>
+
+<p>案件の会員リストから宛名ラベルや名札を印刷します。市販のラベル用紙（A-ONE 28185・28187・51002）に対応しています。</p>
+
+<h3 id="label-filter">① 絞り込みと件名選択</h3>
+
+<table>
+  <tr><th>項目</th><th>説明</th></tr>
+  <tr><td>年度</td><td>「すべての年度」を選ぶと全案件を表示。特定年度に絞ることも可能。</td></tr>
+  <tr><td>業務区分</td><td>業務の種類でフィルタ。「すべて」でフィルタなし。</td></tr>
+  <tr><td>件名</td><td>案件を選択するとメンバー一覧が表示されます。</td></tr>
+  <tr><td>検索</td><td>事業所名・代表者名でリアルタイム絞り込み。</td></tr>
+</table>
+
+<h3 id="label-table">② テーブル操作</h3>
+
+<h4>列の説明</h4>
+<table>
+  <tr><th>列名</th><th>編集</th><th>説明</th></tr>
+  <tr><td>☑</td><td>—</td><td>PDF出力対象の選択チェック</td></tr>
+  <tr><td>会員番号</td><td>不可</td><td>会員マスタの番号</td></tr>
+  <tr><td>事業所名</td><td><span class="badge badge-green">可</span></td><td>ラベルに印刷する事業所名</td></tr>
+  <tr><td>フリガナ</td><td>不可</td><td>ソート用。ラベルには印刷されません。</td></tr>
+  <tr><td>代表者名</td><td><span class="badge badge-green">可</span></td><td>氏名欄に印刷</td></tr>
+  <tr><td>役職・所属</td><td><span class="badge badge-green">可</span></td><td>役職欄に印刷</td></tr>
+  <tr><td>郵便番号</td><td>不可</td><td>〒マークと一緒に印刷</td></tr>
+  <tr><td>住所</td><td><span class="badge badge-green">可</span></td><td>住所欄に印刷</td></tr>
+</table>
+
+<h4>チェックの選択</h4>
+<table>
+  <tr><th>操作</th><th>動作</th></tr>
+  <tr><td>チェック列をクリック</td><td>1行のチェックをオン/オフ</td></tr>
+  <tr><td><kbd>Shift</kbd> + クリック</td><td>前回クリックした行から現在の行まで範囲選択</td></tr>
+  <tr><td>ヘッダーの☑をクリック</td><td>全行を一括選択・解除</td></tr>
+</table>
+
+<h4>セルの編集</h4>
+<ul>
+  <li>編集可能なセルをダブルクリック（または選択してクリック）すると編集モードになります。</li>
+  <li><kbd>Enter</kbd> で確定、<kbd>Tab</kbd> で次のセルへ移動します。</li>
+  <li>長い事業所名・役職名は <kbd>Alt</kbd> + <kbd>Enter</kbd> で折り返し（改行）を入力できます。テーブル上では「 ｜ 」で表示され、PDF には改行で印刷されます。</li>
+</ul>
+
+<h4>ヘッダークリックでソート</h4>
+<p>列ヘッダーをクリックすると昇順（▲）・降順（▼）でソートできます。ソート後もチェック状態は保持されます。</p>
+
+<h3 id="label-pdf">③ モード・用紙・PDF生成</h3>
+
+<h4>モードの選択</h4>
+<table>
+  <tr><th>モード</th><th>内容</th><th>用途</th></tr>
+  <tr><td>宛名（氏名あり）</td><td>〒住所 ＋ 事業所名 ＋ 役職 ＋「○○ 様」</td><td>通常の封筒宛名</td></tr>
+  <tr><td>宛名（氏名なし）</td><td>〒住所 ＋ 事業所名「御中」</td><td>担当者不明の封筒宛名</td></tr>
+  <tr><td>事業所名のみ</td><td>事業所名「御中」のみ</td><td>内封筒など簡易ラベル</td></tr>
+  <tr><td>名札</td><td>事業所名 ＋ 役職 ＋ 代表者名（大文字）</td><td>会議・イベントの名札</td></tr>
+</table>
+
+<h4>用紙の選択</h4>
+<table>
+  <tr><th>用紙型番</th><th>サイズ</th><th>配置</th><th>モード</th></tr>
+  <tr><td>A-ONE 28185</td><td>70×42.3mm</td><td>3列×6行（18枚/A4）</td><td>宛名・事業所名のみ</td></tr>
+  <tr><td>A-ONE 28187</td><td>84×42mm</td><td>2列×6行（12枚/A4）</td><td>宛名・事業所名のみ</td></tr>
+  <tr><td>A-ONE 51002</td><td>91×55mm</td><td>2列×5行（10枚/A4）</td><td>名札（固定）</td></tr>
+</table>
+
+<div class="note">「名札」モードは A-ONE 51002 固定です。宛名・事業所名のみモードでは 28185（3列）と 28187（2列）を選択できます。</div>
+
+<h4>フォントの選択</h4>
+<p>印刷に使用するフォントを選べます（お使いの Windows にインストール済みのフォントが表示されます）。</p>
+<table>
+  <tr><th>フォント名</th><th>特徴</th></tr>
+  <tr><td>MSPゴシック（既定）</td><td>読みやすい標準ゴシック体</td></tr>
+  <tr><td>MSP明朝</td><td>格式ある明朝体</td></tr>
+  <tr><td>メイリオ</td><td>視認性の高いモダンフォント</td></tr>
+  <tr><td>UD教科書体</td><td>ユニバーサルデザイン書体</td></tr>
+  <tr><td>HGR丸ゴシック</td><td>柔らかい印象の丸ゴシック</td></tr>
+</table>
+
+<h4>PDF生成の手順</h4>
+<ol class="steps">
+  <li>モード・用紙・フォントを選択します。</li>
+  <li>対象メンバーのチェックボックスをオンにします（ヘッダーの☑で全選択可）。</li>
+  <li>「ラベルPDF生成」ボタンをクリックします。</li>
+  <li>PDFが自動的に開きます。プリンターで印刷してください。</li>
+</ol>
+
+<div class="tip">ステータスバーに「X 件表示 ／ チェック済み Y 件」と表示されます。生成前に件数を確認してください。</div>
+<div class="warn">セルを編集した内容（折り返し・住所修正等）はデータベースには保存されません。PDF生成のみに反映されます。</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="reissue">修正・再発行</h2>
+
+<p>発行済みの請求書・領収書の内容を修正したり、PDFを再出力したりします。</p>
+
+<h3>書類の検索</h3>
+<table>
+  <tr><th>絞り込み項目</th><th>説明</th></tr>
+  <tr><td>年度</td><td>発行年度で絞り込み</td></tr>
+  <tr><td>業務区分</td><td>業務の種類で絞り込み</td></tr>
+  <tr><td>件名</td><td>案件名で絞り込み</td></tr>
+  <tr><td>種別</td><td>請求書 / 領収書 / すべて</td></tr>
+  <tr><td>検索ボックス</td><td>宛先・件名のキーワード検索</td></tr>
+</table>
+
+<h3>内容修正</h3>
+<ol class="steps">
+  <li>修正したい書類の行を選択します。</li>
+  <li>「内容修正」ボタンをクリックします（「発行済み」状態の書類のみ有効）。</li>
+  <li>修正ダイアログで内容を変更し、保存します。</li>
+</ol>
+
+<div class="note">内容修正は「発行済み」ステータスの書類のみ可能です。領収書には内容修正はありません（再発行のみ）。</div>
+
+<h3>再発行（PDF再出力）</h3>
+<ol class="steps">
+  <li>再発行したい書類の行を選択します。</li>
+  <li>「再発行（PDF再出力）」ボタンをクリックします。</li>
+  <li>保存先を指定してPDFを出力します。</li>
+</ol>
+
+<div class="note">再発行した操作は操作ログに記録されます。</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="master">登録・マスタ</h2>
+
+<p>システムで使用する各種マスタデータを管理します。最初に設定しておくと、発行作業がスムーズになります。</p>
+
+<h3 id="master-staff">スタッフ管理</h3>
+<p>書類に印字する担当者を登録します。</p>
+<ul>
+  <li>「＋ 新規スタッフ」で登録。名前は一意（重複不可）です。</li>
+  <li>退職等で使わなくなったスタッフは「無効化」できます（削除ではないので履歴は残ります）。</li>
+</ul>
+
+<h3 id="master-category">業務名（業務区分）</h3>
+<p>請求書・領収書・案件を分類する業務区分を登録します。</p>
+<ul>
+  <li>例：「年会費」「研修費」「会場費」など</li>
+  <li>一度登録した業務名は変更・削除できます。</li>
+</ul>
+
+<h3 id="master-template">請求項目テンプレート</h3>
+<p>よく使う請求項目をテンプレートとして登録します。</p>
+
+<h4>テンプレートの登録</h4>
+<ol class="steps">
+  <li>「＋ 新規テンプレート」ボタンをクリックします。</li>
+  <li>各項目を入力して「登録」をクリックします。</li>
+</ol>
+
+<h4>入力項目</h4>
+<table>
+  <tr><th>項目</th><th>説明</th></tr>
+  <tr><td>業務名</td><td>登録済みの業務区分から選択（必須）</td></tr>
+  <tr><td>項目名・但し書き</td><td>請求書に印字されるテキスト（必須）</td></tr>
+  <tr><td>単価</td><td>0〜9,999,999円</td></tr>
+  <tr><td>単位</td><td>既定値「式」</td></tr>
+  <tr><td>税区分</td><td>消費税10% / 消費税8% / 非課税 / 不課税</td></tr>
+</table>
+
+<div class="tip">テンプレートは「単発発行」「まとめて発行」の請求項目入力画面から呼び出せます。登録しておくと手入力の手間が省けます。</div>
+
+<h3 id="master-member">会員マスタ</h3>
+<p>会員の住所録（マスタデータ）をCSV/Excelからインポートします。</p>
+
+<ul>
+  <li>インポートできる項目：会員番号・事業所名・フリガナ・代表者名・役職・郵便番号・住所</li>
+  <li>既存データへの追記・上書きが選択できます。</li>
+  <li>インポートした会員は「まとめて発行」の案件に追加できます。</li>
+</ul>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="settings">設定</h2>
+
+<h3 id="settings-company">発行元情報</h3>
+<p>請求書・領収書のヘッダーに印字される商工会議所の情報を登録します。</p>
+<table>
+  <tr><th>項目</th><th>説明</th></tr>
+  <tr><td>商工会議所名</td><td>書類ヘッダーに大きく印字</td></tr>
+  <tr><td>代表者名</td><td>代表者として印字</td></tr>
+  <tr><td>郵便番号・住所</td><td>発行元住所</td></tr>
+  <tr><td>電話番号・FAX</td><td>連絡先</td></tr>
+  <tr><td>ロゴ画像</td><td>書類に印字するロゴ（PNG/JPG）</td></tr>
+</table>
+
+<div class="warn">発行元情報は全ての書類に反映されます。変更した場合は既発行書類の再発行が必要です。</div>
+
+<h3 id="settings-email">メール設定</h3>
+<p>請求書メール送信や督促メールの送信設定です。</p>
+<ul>
+  <li>SMTPサーバー・ポート・認証情報を設定します。</li>
+  <li>Gmailを使う場合はアプリパスワードを使用してください。</li>
+</ul>
+
+<h3 id="settings-backup">バックアップ</h3>
+<p>データベースの自動バックアップを設定します。</p>
+<ul>
+  <li>起動時に自動でバックアップが作成されます（ステータスバーに完了メッセージが表示されます）。</li>
+  <li>バックアップ先フォルダ・世代数を設定できます。</li>
+  <li>手動バックアップも実行できます。</li>
+</ul>
+
+<h3 id="settings-log">操作ログ</h3>
+<p>誰が・いつ・何をしたかの履歴を確認できます。</p>
+
+<h4>絞り込み</h4>
+<table>
+  <tr><th>項目</th><th>説明</th></tr>
+  <tr><td>開始日・終了日</td><td>期間を指定（既定: 過去1ヶ月）</td></tr>
+  <tr><td>操作フィルタ</td><td>発行 / 内容修正 / 再発行 / 入金記録 / メール送信 など</td></tr>
+  <tr><td>検索ボックス</td><td>担当者・操作・詳細でキーワード検索</td></tr>
+</table>
+
+<h4>CSV出力</h4>
+<p>「CSV出力」ボタンで表示中のログをCSVファイルとして保存できます。監査・報告書作成にご活用ください。</p>
+
+<h3 id="settings-admin">管理者機能</h3>
+
+<div class="danger">管理者機能のボタンはデータを削除します。操作前に必ずバックアップを取ってください。元に戻すことはできません。</div>
+
+<table>
+  <tr><th>機能</th><th>削除されるデータ</th><th>残るデータ</th></tr>
+  <tr>
+    <td><strong>発行番号リセット</strong></td>
+    <td>発行済み書類・入金記録</td>
+    <td>案件・会員・スタッフ・テンプレートなど</td>
+  </tr>
+  <tr>
+    <td><strong>業務データ初期化</strong></td>
+    <td>案件・書類・入金記録・会員マスタ・操作ログ</td>
+    <td>スタッフ・発行元・業務名・テンプレート</td>
+  </tr>
+  <tr>
+    <td><strong>全データ削除</strong></td>
+    <td>発行元情報以外のすべて</td>
+    <td>発行元情報のみ</td>
+  </tr>
+</table>
+
+<div class="note">管理者機能は管理者権限を持つスタッフでログインしている場合にのみ表示されます。</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="update">バージョンアップ</h2>
+
+<p>新しいバージョンがリリースされると、アプリ起動時に画面上部に黄色い通知バーが表示されます。</p>
+
+<ol class="steps">
+  <li>通知バーの「ダウンロード」ボタンをクリックします。インストーラーが自動的にダウンロードされます。</li>
+  <li>ダウンロードが完了すると「今すぐ更新して再起動」ボタンが表示されます。</li>
+  <li>ボタンをクリックするとインストーラーが起動し、アプリが自動的に終了します。</li>
+  <li>インストーラーの指示に従って更新を完了します。</li>
+</ol>
+
+<div class="note">更新中にデータが失われることはありません。ただし、念のため更新前にバックアップを取ることをお勧めします。</div>
+
+<h3>手動でのアップデート</h3>
+<p>通知バーが表示されない場合や、手動で最新版をインストールしたい場合は、以下から最新のインストーラーをダウンロードしてください：</p>
+<p><code>https://github.com/mozu93/cci-billing-label/releases</code></p>
+<p>既存のアプリの上から上書きインストールできます。データは保持されます。</p>
+
+<hr>
+<p style="text-align:center; color:#9CA3AF; font-size:12px;">
+  CCI請求書・ラベル発行システム マニュアル ／ v2.1.4
+</p>
+
+</main>
+
+<script>
+  // スクロール連動ナビゲーション
+  const sections = document.querySelectorAll('h2[id], h3[id]');
+  const navLinks  = document.querySelectorAll('nav a');
+  const observer  = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(a => a.classList.remove('active'));
+        const active = document.querySelector(`nav a[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-10% 0px -80% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>
