@@ -30,14 +30,6 @@ LABEL_MODES = [
     ("名札",            "nametag"),
 ]
 
-# モード → 用紙レイアウトの自動連動
-_MODE_TO_LAYOUT = {
-    "normal":    "a_one_28185",   # 3列×6行
-    "no_person": "a_one_28185",   # 3列×6行
-    "simple":    "a_one_28187",   # 2列×6行
-    "nametag":   "a_one_51002",   # 名札 2列×5行
-}
-
 # ソート対象列 → _rows_data キーのマッピング
 _SORT_KEYS = {
     COL_NUM:  "member_number",
@@ -171,11 +163,10 @@ class LabelIssuanceTab(QWidget):
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         action_row.addWidget(self._mode_combo)
 
-        # モードに連動する用紙表示ラベル（読み取り専用）
         action_row.addWidget(QLabel("用紙："))
-        self._layout_label = QLabel()
-        self._layout_label.setStyleSheet("color: #374151; min-width: 200px;")
-        action_row.addWidget(self._layout_label)
+        self._layout_combo = QComboBox()
+        self._layout_combo.setMinimumWidth(200)
+        action_row.addWidget(self._layout_combo)
         self._on_mode_changed()  # 初期値を設定
 
         action_row.addWidget(QLabel("フォント："))
@@ -247,9 +238,18 @@ class LabelIssuanceTab(QWidget):
     def _on_mode_changed(self):
         from app.services.pdf.label_pdf import LABEL_LAYOUTS
         mode_key = LABEL_MODES[self._mode_combo.currentIndex()][1]
-        layout_key = _MODE_TO_LAYOUT.get(mode_key, "a_one_28185")
-        lo = LABEL_LAYOUTS.get(layout_key)
-        self._layout_label.setText(lo.name if lo else layout_key)
+        self._layout_combo.blockSignals(True)
+        self._layout_combo.clear()
+        if mode_key == "nametag":
+            lo = LABEL_LAYOUTS["a_one_51002"]
+            self._layout_combo.addItem(lo.name, "a_one_51002")
+            self._layout_combo.setEnabled(False)
+        else:
+            for key in ("a_one_28185", "a_one_28187"):
+                lo = LABEL_LAYOUTS[key]
+                self._layout_combo.addItem(lo.name, key)
+            self._layout_combo.setEnabled(True)
+        self._layout_combo.blockSignals(False)
 
     def _reposition_header_chk(self):
         hdr = self._table.horizontalHeader()
@@ -483,7 +483,7 @@ class LabelIssuanceTab(QWidget):
         ]
 
         batch_mode = LABEL_MODES[self._mode_combo.currentIndex()][1]
-        layout_key = _MODE_TO_LAYOUT.get(batch_mode, "a_one_28185")
+        layout_key = self._layout_combo.currentData() or "a_one_28185"
         font_key   = self._font_combo.currentText()
 
         from app.utils.pdf_helpers import get_pdf_output_dir
