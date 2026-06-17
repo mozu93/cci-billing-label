@@ -4,7 +4,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QLabel, QHeaderView, QComboBox, QLineEdit, QMessageBox,
-    QCheckBox,
+    QCheckBox, QPlainTextEdit, QAbstractItemDelegate, QStyledItemDelegate,
 )
 from PyQt6.QtCore import Qt, QTimer
 
@@ -13,11 +13,15 @@ from app.services.project_service import get_projects, get_project_members
 from app.services.category_service import get_active_categories
 
 COL_CHK  = 0
-COL_NUM  = 1
-COL_ORG  = 2
-COL_KANA = 3
-COL_REP  = 4
-COL_POST = 5
+COL_NUM  = 1   # 会員番号（編集不可）
+COL_ORG  = 2   # 事業所名（Alt+Enter 折り返し可）
+COL_KANA = 3   # フリガナ（編集不可）
+COL_REP  = 4   # 代表者名（Alt+Enter 折り返し可）
+COL_DEPT = 5   # 役職・所属（Alt+Enter 折り返し可）
+COL_POST = 6   # 郵便番号（編集不可）
+COL_ADDR = 7   # 住所（編集可）
+
+_HEADERS = ["", "会員番号", "事業所名", "フリガナ", "代表者名", "役職・所属", "郵便番号", "住所"]
 
 LABEL_MODES = [
     ("宛名（氏名あり）", "normal"),
@@ -27,17 +31,58 @@ LABEL_MODES = [
     ("卓上プレート",     "split4"),
 ]
 
+# ソート対象列 → _rows_data キーのマッピング
+_SORT_KEYS = {
+    COL_NUM:  "member_number",
+    COL_ORG:  "org_name",
+    COL_KANA: "org_kana",
+    COL_REP:  "rep_name",
+    COL_DEPT: "dept",
+    COL_POST: "postal_code",
+    COL_ADDR: "address",
+}
 
-class _LabelEntryAdapter:
-    def __init__(self, pm):
-        self.company_name    = pm.organization_name or ""
-        self.postal_code     = pm.postal_code or ""
-        self.address1        = pm.address or ""
-        self.address2        = pm.address2 or ""
-        self.title           = pm.department or ""
-        self.person_name     = pm.representative_name or ""
-        self.barcode_address = ""
-        self.entry_mode      = "inherit"
+
+class _MultilineDelegate(QStyledItemDelegate):
+    """Alt+Enter で改行を挿入できるセル用デリゲート"""
+
+    def createEditor(self, parent, option, index):
+        editor = QPlainTextEdit(parent)
+        editor.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        editor.setStyleSheet("background: white; border: 1px solid #2563EB;")
+        editor.installEventFilter(self)
+        return editor
+
+    def setEditorData(self, editor, index):
+        editor.setPlainText(index.data(Qt.ItemDataRole.EditRole) or "")
+        editor.selectAll()
+
+    def setModelData(self, editor, model, index):
+        model.setData(index, editor.toPlainText(), Qt.ItemDataRole.EditRole)
+
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(option.rect)
+
+    def displayText(self, value, locale):
+        return (value or "").replace("\n", " ｜ ")
+
+    def eventFilter(self, obj, event):
+        if isinstance(obj, QPlainTextEdit) and event.type() == event.Type.KeyPress:
+            key  = event.key()
+            mods = event.modifiers()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if mods & Qt.KeyboardModifier.AltModifier:
+                    obj.insertPlainText("\n")
+                    return True
+                self.commitData.emit(obj)
+                self.closeEditor.emit(obj, QAbstractItemDelegate.EndEditHint.NoHint)
+                return True
+            if key == Qt.Key.Key_Tab:
+                self.commitData.emit(obj)
+                self.closeEditor.emit(obj, QAbstractItemDelegate.EndEditHint.NoHint)
+                return True
+        return super().eventFilter(obj, event)
 
 
 class _CheckableTable(QTableWidget):
@@ -74,8 +119,10 @@ class _CheckableTable(QTableWidget):
 class LabelIssuanceTab(QWidget):
     def __init__(self):
         super().__init__()
-        self._all_projects: list = []
-        self._pm_data: list = []
+        self._all_projects: list[dict] = []
+        self._rows_data: list[dict] = []   # ORM 非依存の plain dict
+        self._sort_col: int = -1
+        self._sort_asc: bool = True
         self._build()
         self._load_projects()
 
@@ -152,22 +199,32 @@ class LabelIssuanceTab(QWidget):
         layout.addLayout(action_row)
 
         # ── テーブル ─────────────────────────────────────────────────────
-        self._table = _CheckableTable(0, 6)
-        self._table.setHorizontalHeaderLabels(
-            ["", "会員番号", "事業所名", "フリガナ", "代表者名", "郵便番号"]
-        )
+        self._table = _CheckableTable(0, len(_HEADERS))
+        self._table.setHorizontalHeaderLabels(_HEADERS)
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(COL_CHK,  QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(COL_NUM,  QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(COL_ORG,  QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(COL_KANA, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(COL_KANA, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(COL_REP,  QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(COL_DEPT, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(COL_POST, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(COL_ADDR, QHeaderView.ResizeMode.Stretch)
         self._table.setColumnWidth(COL_CHK,  30)
-        self._table.setColumnWidth(COL_NUM,  80)
-        self._table.setColumnWidth(COL_REP, 100)
-        self._table.setColumnWidth(COL_POST, 90)
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setColumnWidth(COL_NUM,  70)
+        self._table.setColumnWidth(COL_KANA, 120)
+        self._table.setColumnWidth(COL_REP,  100)
+        self._table.setColumnWidth(COL_DEPT, 120)
+        self._table.setColumnWidth(COL_POST, 80)
+        self._table.setEditTriggers(
+            QTableWidget.EditTrigger.DoubleClicked |
+            QTableWidget.EditTrigger.SelectedClicked
+        )
+        _delegate = _MultilineDelegate(self._table)
+        for col in (COL_ORG, COL_REP, COL_DEPT):
+            self._table.setItemDelegateForColumn(col, _delegate)
+        hdr.sectionClicked.connect(self._on_header_clicked)
+        hdr.setSortIndicatorShown(True)
         self._table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self._table)
 
@@ -204,21 +261,79 @@ class LabelIssuanceTab(QWidget):
         if item.column() == COL_CHK:
             self._update_status()
 
+    def _on_header_clicked(self, col: int):
+        if col == COL_CHK or col not in _SORT_KEYS:
+            return
+        # ソート前にチェック済み行の member_number を記録して復元する
+        checked_nums = {
+            self._table.item(r, COL_NUM).text()
+            for r in range(self._table.rowCount())
+            if self._table.item(r, COL_CHK)
+            and self._table.item(r, COL_CHK).checkState() == Qt.CheckState.Checked
+            and self._table.item(r, COL_NUM)
+        }
+        if self._sort_col == col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = True
+        key = _SORT_KEYS[col]
+        self._rows_data.sort(
+            key=lambda d: (d[key] or "").lower(),
+            reverse=not self._sort_asc,
+        )
+        self._populate_table()
+        self._update_sort_headers()
+        # チェック状態を復元
+        self._table.blockSignals(True)
+        for r in range(self._table.rowCount()):
+            num_item = self._table.item(r, COL_NUM)
+            chk_item = self._table.item(r, COL_CHK)
+            if num_item and chk_item and num_item.text() in checked_nums:
+                chk_item.setCheckState(Qt.CheckState.Checked)
+        self._table.blockSignals(False)
+        self._update_status()
+
+    def _update_sort_headers(self):
+        for col, base in enumerate(_HEADERS):
+            if col == self._sort_col:
+                label = base + (" ▲" if self._sort_asc else " ▼")
+            else:
+                label = base
+            item = self._table.horizontalHeaderItem(col)
+            if item:
+                item.setText(label)
+            else:
+                self._table.setHorizontalHeaderItem(col, QTableWidgetItem(label))
+        self._table.horizontalHeader().setSortIndicator(
+            self._sort_col,
+            Qt.SortOrder.AscendingOrder if self._sort_asc else Qt.SortOrder.DescendingOrder,
+        )
+
     def _load_projects(self):
         with get_session() as session:
-            self._all_projects = get_projects(session)
-            cats = get_active_categories(session)
+            self._all_projects = [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "fiscal_year": p.fiscal_year,
+                    "category_id": p.category_id,
+                }
+                for p in get_projects(session)
+            ]
+            cats = [{"id": c.id, "name": c.name} for c in get_active_categories(session)]
 
         self._year_combo.blockSignals(True)
         self._cat_combo.blockSignals(True)
-        years = sorted({p.fiscal_year for p in self._all_projects}, reverse=True)
+        years = sorted({p["fiscal_year"] for p in self._all_projects}, reverse=True)
         self._year_combo.clear()
+        self._year_combo.addItem("すべての年度", None)
         for y in years:
             self._year_combo.addItem(f"{y}年度", y)
         self._cat_combo.clear()
         self._cat_combo.addItem("すべて", None)
         for c in cats:
-            self._cat_combo.addItem(c.name, c.id)
+            self._cat_combo.addItem(c["name"], c["id"])
         self._year_combo.blockSignals(False)
         self._cat_combo.blockSignals(False)
         self._filter_projects()
@@ -228,14 +343,14 @@ class LabelIssuanceTab(QWidget):
         cat_id = self._cat_combo.currentData()
         filtered = [
             p for p in self._all_projects
-            if (year is None or p.fiscal_year == year)
-            and (cat_id is None or p.category_id == cat_id)
+            if (year is None or p["fiscal_year"] == year)
+            and (cat_id is None or p["category_id"] == cat_id)
         ]
         self._proj_combo.blockSignals(True)
         self._proj_combo.clear()
         self._proj_combo.addItem("（件名を選択）", None)
         for p in filtered:
-            self._proj_combo.addItem(p.name, p.id)
+            self._proj_combo.addItem(p["name"], p["id"])
         self._proj_combo.blockSignals(False)
         self._on_project_changed()
 
@@ -246,7 +361,7 @@ class LabelIssuanceTab(QWidget):
     def _load_members(self):
         project_id = self._proj_combo.currentData()
         self._table.setRowCount(0)
-        self._pm_data = []
+        self._rows_data = []
         if project_id is None:
             self._status_label.setText("件名を選択してください")
             return
@@ -254,31 +369,68 @@ class LabelIssuanceTab(QWidget):
         kw = self._search.text().strip().lower()
         with get_session() as session:
             members = get_project_members(session, project_id)
-            self._pm_data = [
-                pm for pm in members
+            self._rows_data = [
+                {
+                    "member_number": pm.member_number or "",
+                    "org_name":      pm.organization_name or "",
+                    "org_kana":      pm.organization_kana or "",
+                    "rep_name":      pm.representative_name or "",
+                    "dept":          pm.department or "",
+                    "postal_code":   pm.postal_code or "",
+                    "address":       pm.address or "",
+                }
+                for pm in members
                 if not kw
                 or kw in (pm.organization_name or "").lower()
                 or kw in (pm.organization_kana or "").lower()
                 or kw in (pm.representative_name or "").lower()
             ]
 
+        if self._sort_col >= 0 and self._sort_col in _SORT_KEYS:
+            key = _SORT_KEYS[self._sort_col]
+            self._rows_data.sort(
+                key=lambda d: (d[key] or "").lower(),
+                reverse=not self._sort_asc,
+            )
+
+        self._populate_table()
+        self._btn_generate.setEnabled(len(self._rows_data) > 0)
+        self._update_status()
+        QTimer.singleShot(0, self._reposition_header_chk)
+
+    def _populate_table(self):
         self._table.blockSignals(True)
-        self._table.setRowCount(len(self._pm_data))
-        for r, pm in enumerate(self._pm_data):
+        self._table.setRowCount(len(self._rows_data))
+        for r, d in enumerate(self._rows_data):
             chk = QTableWidgetItem()
             chk.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
             chk.setCheckState(Qt.CheckState.Unchecked)
-            self._table.setItem(r, COL_CHK,  chk)
-            self._table.setItem(r, COL_NUM,  QTableWidgetItem(pm.member_number or ""))
-            self._table.setItem(r, COL_ORG,  QTableWidgetItem(pm.organization_name or ""))
-            self._table.setItem(r, COL_KANA, QTableWidgetItem(pm.organization_kana or ""))
-            self._table.setItem(r, COL_REP,  QTableWidgetItem(pm.representative_name or ""))
-            self._table.setItem(r, COL_POST, QTableWidgetItem(pm.postal_code or ""))
-        self._table.blockSignals(False)
+            self._table.setItem(r, COL_CHK, chk)
 
-        self._btn_generate.setEnabled(len(self._pm_data) > 0)
-        self._update_status()
-        QTimer.singleShot(0, self._reposition_header_chk)
+            # 編集不可列
+            for col, key in [
+                (COL_NUM,  "member_number"),
+                (COL_KANA, "org_kana"),
+                (COL_POST, "postal_code"),
+            ]:
+                item = QTableWidgetItem(d[key])
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self._table.setItem(r, col, item)
+
+            # 編集可能列
+            for col, key in [
+                (COL_ORG,  "org_name"),
+                (COL_REP,  "rep_name"),
+                (COL_DEPT, "dept"),
+                (COL_ADDR, "address"),
+            ]:
+                item = QTableWidgetItem(d[key])
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+                self._table.setItem(r, col, item)
+
+        self._table.blockSignals(False)
+        if self._sort_col >= 0:
+            self._update_sort_headers()
 
     def _update_status(self):
         total = self._table.rowCount()
@@ -290,20 +442,36 @@ class LabelIssuanceTab(QWidget):
         self._status_label.setText(f"{total} 件表示　／　チェック済み {checked} 件")
 
     def _generate_pdf(self):
-        checked_pms = [
-            self._pm_data[r]
-            for r in range(self._table.rowCount())
+        def _cell(r, col):
+            item = self._table.item(r, col)
+            return item.text() if item else ""
+
+        checked_rows = [
+            r for r in range(self._table.rowCount())
             if self._table.item(r, COL_CHK)
             and self._table.item(r, COL_CHK).checkState() == Qt.CheckState.Checked
         ]
-        if not checked_pms:
+        if not checked_rows:
             QMessageBox.warning(self, "未選択", "ラベルを生成するメンバーを選択してください。")
             return
 
-        entries     = [_LabelEntryAdapter(pm) for pm in checked_pms]
-        batch_mode  = LABEL_MODES[self._mode_combo.currentIndex()][1]
-        layout_key  = self._layout_combo.currentData()
-        font_key    = self._font_combo.currentText()
+        entries = [
+            type("_E", (), {
+                "company_name":    _cell(r, COL_ORG),
+                "postal_code":     _cell(r, COL_POST),
+                "address1":        _cell(r, COL_ADDR),
+                "address2":        "",
+                "title":           _cell(r, COL_DEPT),
+                "person_name":     _cell(r, COL_REP),
+                "barcode_address": "",
+                "entry_mode":      "inherit",
+            })()
+            for r in checked_rows
+        ]
+
+        batch_mode = LABEL_MODES[self._mode_combo.currentIndex()][1]
+        layout_key = self._layout_combo.currentData()
+        font_key   = self._font_combo.currentText()
 
         from app.utils.pdf_helpers import get_pdf_output_dir
         from app.services.pdf.label_pdf import generate_label_pdf
