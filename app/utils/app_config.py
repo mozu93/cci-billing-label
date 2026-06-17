@@ -23,6 +23,24 @@ def is_first_run() -> bool:
     return not CONFIG_FILE.exists() or not get_config().get("db_configured")
 
 
+def get_m365_config() -> dict:
+    return get_config().get("m365", {})
+
+
+def save_m365_config(client_id: str, tenant_id: str) -> None:
+    config = get_config()
+    config["m365"] = {"client_id": client_id, "tenant_id": tenant_id}
+    save_config(config)
+
+
+def get_m365_client_id() -> str:
+    return get_m365_config().get("client_id", "")
+
+
+def get_m365_tenant_id() -> str:
+    return get_m365_config().get("tenant_id", "")
+
+
 def get_db_url() -> str:
     config = get_config()
     if config.get("db_type") == "postgresql":

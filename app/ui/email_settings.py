@@ -4,7 +4,10 @@ from PyQt6.QtWidgets import (
     QLineEdit, QSpinBox, QCheckBox, QComboBox, QTextEdit,
     QPushButton, QGroupBox, QMessageBox
 )
-from app.utils.app_config import get_config, save_config
+from app.utils.app_config import (
+    get_config, save_config,
+    get_m365_client_id, get_m365_tenant_id, save_m365_config,
+)
 from app.services.email_service import (
     _TEMPLATE_DEFAULTS, PLACEHOLDER_KEYS
 )
@@ -72,11 +75,34 @@ class EmailSettingsWidget(QWidget):
         tform.addRow("", help_lbl)
         layout.addWidget(grp_t)
 
+        # ── Microsoft 365 / Graph API 設定 ────────────────────────────
+        grp_m365 = QGroupBox("Microsoft 365 メール送信（Graph API）")
+        m365_form = QFormLayout(grp_m365)
+        m365_form.setVerticalSpacing(3)
+        m365_form.setHorizontalSpacing(8)
+
+        self._m365_client_id = QLineEdit()
+        self._m365_client_id.setPlaceholderText("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+        self._m365_tenant_id = QLineEdit()
+        self._m365_tenant_id.setPlaceholderText("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+
+        m365_note = QLabel(
+            "設定すると請求書メール送信で Microsoft 365 アカウントを使えます。\n"
+            "Microsoft Entra ID でアプリ登録（Public Client）と Mail.Send 権限が必要です。"
+        )
+        m365_note.setWordWrap(True)
+        m365_note.setStyleSheet("color: #666; font-size: 11px;")
+
+        m365_form.addRow("アプリケーション (クライアント) ID", self._m365_client_id)
+        m365_form.addRow("ディレクトリ (テナント) ID",       self._m365_tenant_id)
+        m365_form.addRow("", m365_note)
+        layout.addWidget(grp_m365)
+
         btn_row = QHBoxLayout()
         btn_save = QPushButton("設定を保存")
         btn_save.clicked.connect(self._save)
         btn_row.addWidget(btn_save)
-        btn_test = QPushButton("テストメール送信")
+        btn_test = QPushButton("テストメール送信（SMTP）")
         btn_test.clicked.connect(self._test)
         btn_row.addWidget(btn_test)
         btn_row.addStretch()
@@ -92,6 +118,9 @@ class EmailSettingsWidget(QWidget):
         self._from_name.setText(smtp.get("from_name", ""))
         self._use_tls.setChecked(smtp.get("use_tls", True))
         self._test_addr.setText(smtp.get("test_addr", ""))
+
+        self._m365_client_id.setText(get_m365_client_id())
+        self._m365_tenant_id.setText(get_m365_tenant_id())
 
         saved = get_config().get("email_templates", {})
         self._tmpl_data = {}
@@ -134,6 +163,10 @@ class EmailSettingsWidget(QWidget):
         self._stash_tmpl()
         config["email_templates"] = self._tmpl_data
         save_config(config)
+        save_m365_config(
+            self._m365_client_id.text().strip(),
+            self._m365_tenant_id.text().strip(),
+        )
         QMessageBox.information(self, "保存", "メール設定を保存しました。")
 
     def _test(self):
