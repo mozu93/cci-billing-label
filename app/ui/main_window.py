@@ -45,6 +45,9 @@ class MainWindow(QMainWindow):
         from app.ui.batch_issuance_tab import BatchIssuanceTab
         tabs.addTab(BatchIssuanceTab(), "まとめて発行")
 
+        from app.ui.label_issuance_tab import LabelIssuanceTab
+        tabs.addTab(LabelIssuanceTab(), "宛名ラベル発行")
+
         from app.ui.reissue_tab import ReissueWidget
         tabs.addTab(ReissueWidget(), "修正・再発行")
 
