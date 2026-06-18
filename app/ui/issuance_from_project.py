@@ -401,6 +401,7 @@ class IssuanceFromProjectWidget(QWidget):
                         "id": pt.item_template.id,
                         "name": pt.item_template.name,
                         "unit_price": int(pt.unit_price_override or pt.item_template.unit_price or 0),
+                        "default_qty": int(pt.default_quantity or 1),
                     }
                     for pt in pts
                 ]
@@ -533,19 +534,39 @@ class IssuanceFromProjectWidget(QWidget):
             for col_offset, tmpl in enumerate(self._templates):
                 price_col = 5 + col_offset * 2
                 qty_col   = 5 + col_offset * 2 + 1
+                _base = "QSpinBox { min-height: 0; padding: 1px 4px; }"
+                _mod  = "QSpinBox { min-height: 0; padding: 1px 4px; background: #FFF9C4; }"
+
+                default_price = tmpl["unit_price"]
                 price_spin = _QtySpinBox(self._table, row, price_col)
                 price_spin.setRange(0, 9999999)
-                cached_price = self._price_cache.get(pm_id, {}).get(tmpl["id"], tmpl["unit_price"])
+                cached_price = self._price_cache.get(pm_id, {}).get(tmpl["id"], default_price)
                 price_spin.setValue(cached_price)
                 price_spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                price_spin.setStyleSheet("QSpinBox { min-height: 0; padding: 1px 4px; }")
+                price_spin.setStyleSheet(_mod if cached_price != default_price else _base)
+
+                def _on_price(v, pid=pm_id, tid=tmpl["id"], dp=default_price,
+                              sp=price_spin, b=_base, m=_mod):
+                    self._price_cache.setdefault(pid, {})[tid] = v
+                    sp.setStyleSheet(m if v != dp else b)
+
+                price_spin.valueChanged.connect(_on_price)
                 self._table.setCellWidget(row, price_col, price_spin)
+
+                default_qty = tmpl["default_qty"]
                 spin = _QtySpinBox(self._table, row, qty_col)
                 spin.setRange(0, 9999)
-                cached_qty = self._qty_cache.get(pm_id, {}).get(tmpl["id"], 1)
+                cached_qty = self._qty_cache.get(pm_id, {}).get(tmpl["id"], default_qty)
                 spin.setValue(cached_qty)
                 spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                spin.setStyleSheet("QSpinBox { min-height: 0; padding: 1px 4px; }")
+                spin.setStyleSheet(_mod if cached_qty != default_qty else _base)
+
+                def _on_qty(v, pid=pm_id, tid=tmpl["id"], dq=default_qty,
+                            sp=spin, b=_base, m=_mod):
+                    self._qty_cache.setdefault(pid, {})[tid] = v
+                    sp.setStyleSheet(m if v != dq else b)
+
+                spin.valueChanged.connect(_on_qty)
                 self._table.setCellWidget(row, qty_col, spin)
 
         hdr = self._table.horizontalHeader()

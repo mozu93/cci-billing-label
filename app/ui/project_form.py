@@ -607,6 +607,18 @@ class ProjectFormDialog(QDialog):
             return
 
         _PH = "（項目を選択または入力）"
+        seen_names: set[str] = set()
+        for row in self._rows:
+            name = row.item_name()
+            if not name or name == _PH:
+                continue
+            if name in seen_names:
+                QMessageBox.warning(
+                    self, "入力エラー",
+                    f"品目名「{name}」が重複しています。\n品目名を変えてください。")
+                return
+            seen_names.add(name)
+
         session = get_session()
         try:
             tmpl_qty_list: list[tuple[int, int, int | None]] = []

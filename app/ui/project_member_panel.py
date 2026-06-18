@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QFormLayout, QLineEdit, QComboBox,
     QDialogButtonBox, QStyledItemDelegate, QCheckBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QEvent
 from app.database.connection import get_session
 from app.database.models import ProjectMember
 from app.services.project_service import (
@@ -32,6 +32,22 @@ class _CompactDelegate(QStyledItemDelegate):
 
     def updateEditorGeometry(self, editor, option, index):
         editor.setGeometry(option.rect)
+
+    def eventFilter(self, editor, event):
+        if (event.type() == QEvent.Type.KeyPress
+                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
+            self.commitData.emit(editor)
+            self.closeEditor.emit(
+                editor, QStyledItemDelegate.EndEditHint.NoHint)
+            view = self.parent()
+            if view is not None:
+                cur = view.currentIndex()
+                nxt = cur.sibling(cur.row() + 1, cur.column())
+                if nxt.isValid():
+                    view.setCurrentIndex(nxt)
+                    view.edit(nxt)
+            return True
+        return super().eventFilter(editor, event)
 
 
 # col 0 = チェックボックス（None=編集不可）、以降は元の順
