@@ -1158,19 +1158,82 @@ class IssuanceCounterWidget(QWidget):
                                   recipient_address2=address2,
                                   project=_proj)
             if _delivery_text == "メール送付":
-                from app.services.email_service import send_issuance_email
+                from app.services.email_service import prepare_issuance_email
                 from app.services.operation_log_service import add_log
+                from app.ui.invoice_mail_confirm_dialog import InvoiceMailConfirmDialog
+                from app.ui.m365_mail_worker import M365MailWorker
+                from app.utils.app_config import get_m365_client_id, get_m365_tenant_id
+                from PyQt6.QtWidgets import QApplication, QProgressDialog
                 try:
-                    send_issuance_email(session, iss, to_addr=email)
-                    add_log(session, "メール送信", "issuance", iss.id,
-                            f"{iss.doc_number} → {email}")
-                    QMessageBox.information(
-                        self, "メール送信",
-                        f"{email} にメールを送信しました。")
-                except Exception as e:
+                    to_addr, subject, body_html, pdf_path = prepare_issuance_email(
+                        session, iss, to_addr=email or None)
+                except Exception as prep_err:
                     add_log(session, "メール送信失敗", "issuance", iss.id,
-                            f"{iss.doc_number}：{e}")
-                    QMessageBox.critical(self, "メール送信エラー", str(e))
+                            f"{iss.doc_number}：{prep_err}")
+                    QMessageBox.critical(self, "メール送信エラー", str(prep_err))
+                else:
+                    dlg = InvoiceMailConfirmDialog(
+                        self,
+                        to_recipients=[to_addr],
+                        subject=subject,
+                        body_html=body_html,
+                        pdf_path=pdf_path,
+                        invoice_no=iss.doc_number,
+                        customer_name=(iss.recipient_organization
+                                       or iss.recipient_name or ""),
+                        amount_text=f"¥{iss.amount:,}" if iss.amount else "",
+                    )
+                    if dlg.exec() == QDialog.DialogCode.Accepted:
+                        client_id = get_m365_client_id()
+                        tenant_id = get_m365_tenant_id()
+                        if not client_id or not tenant_id:
+                            QMessageBox.critical(
+                                self, "設定エラー",
+                                "Microsoft 365 の Client ID / Tenant ID が"
+                                "設定されていません。\n"
+                                "設定 → メール設定から入力してください。")
+                        else:
+                            thread = QThread(self)
+                            worker = M365MailWorker(
+                                client_id, tenant_id, [to_addr],
+                                subject, body_html, pdf_path)
+                            worker.moveToThread(thread)
+                            prog = QProgressDialog(
+                                "Microsoft 365 でメール送信中…",
+                                None, 0, 0, self)
+                            prog.setWindowTitle("メール送信")
+                            prog.setWindowModality(
+                                Qt.WindowModality.WindowModal)
+                            prog.show()
+                            _result: dict = {}
+                            def _on_done(r, _r=_result, _t=thread):
+                                _r["ok"] = r
+                                _t.quit()
+                            def _on_err(msg, _r=_result, _t=thread):
+                                _r["err"] = msg
+                                _t.quit()
+                            worker.finished.connect(_on_done)
+                            worker.failed.connect(_on_err)
+                            thread.started.connect(worker.run)
+                            thread.finished.connect(prog.close)
+                            thread.finished.connect(thread.deleteLater)
+                            thread.start()
+                            while thread.isRunning():
+                                QApplication.processEvents()
+                            if "ok" in _result:
+                                add_log(session, "メール送信", "issuance",
+                                        iss.id,
+                                        f"{iss.doc_number} → {to_addr}")
+                                QMessageBox.information(
+                                    self, "メール送信",
+                                    f"{to_addr} にメールを送信しました。")
+                            else:
+                                err_msg = _result.get("err", "不明なエラー")
+                                add_log(session, "メール送信失敗", "issuance",
+                                        iss.id,
+                                        f"{iss.doc_number}：{err_msg}")
+                                QMessageBox.critical(
+                                    self, "メール送信エラー", err_msg)
         except Exception as e:
             QMessageBox.critical(self, "発行エラー", str(e))
             return

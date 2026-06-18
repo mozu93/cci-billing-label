@@ -932,80 +932,95 @@ class IssuanceFromProjectWidget(QWidget):
         return errors
 
     def _send_issue_emails(self, issued_issuances: list, errors: list[str]):
-        """配付方法「メール送付」で発行した分のPDFをメール添付で送信する。
-
-        1つのSMTP接続を使い回し、進捗ダイアログ（中止可）を表示する。
-        送信成否は操作ログに記録する。
-        """
+        """配付方法「メール送付」で発行した分のPDFを1件ずつ確認してM365で送信する。"""
+        from PyQt6.QtCore import QThread
+        from PyQt6.QtWidgets import QApplication, QProgressDialog, QDialog
         from app.database.models import ProjectMember
-        from app.services.email_service import SmtpSession, send_issuance_email
+        from app.services.email_service import prepare_issuance_email
         from app.services.operation_log_service import add_log
+        from app.ui.invoice_mail_confirm_dialog import InvoiceMailConfirmDialog
+        from app.ui.m365_mail_worker import M365MailWorker
+        from app.utils.app_config import get_m365_client_id, get_m365_tenant_id
         label = "請求書" if self._doc_type == "invoice" else "領収書"
 
-        rows = []
-        lines = []
+        client_id = get_m365_client_id()
+        tenant_id = get_m365_tenant_id()
+        if not client_id or not tenant_id:
+            QMessageBox.critical(
+                self, "設定エラー",
+                "Microsoft 365 の Client ID / Tenant ID が設定されていません。\n"
+                "設定 → メール設定から入力してください。")
+            return
+
+        sent = 0
         for iss, sess in issued_issuances:
             email = ""
             if iss.project_member_id:
                 pm = sess.get(ProjectMember, iss.project_member_id)
                 email = (pm.email or "").strip() if pm else ""
-            rows.append((iss, sess, email))
-            name = (iss.recipient_organization or iss.recipient_name
-                    or iss.doc_number)
-            lines.append(f"・{name} → {email or '（アドレス未登録）'}")
 
-        shown = lines[:10]
-        if len(lines) > 10:
-            shown.append(f"…ほか{len(lines) - 10}件")
-        box = QMessageBox(
-            QMessageBox.Icon.Question, "メール送信の確認",
-            f"{len(lines)}件の宛先に{label}をメール送信します。"
-            f"よろしいですか？\n\n" + "\n".join(shown),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            self)
-        box.setDefaultButton(QMessageBox.StandardButton.No)
-        if box.exec() != QMessageBox.StandardButton.Yes:
-            return
+            try:
+                to_addr, subject, body_html, pdf_path = prepare_issuance_email(
+                    sess, iss, to_addr=email or None)
+            except Exception as prep_err:
+                errors.append(f"メール準備失敗：{prep_err}")
+                add_log(sess, "メール送信失敗", "issuance", iss.id,
+                        f"{label} {iss.doc_number}：{prep_err}")
+                continue
 
-        progress = QProgressDialog(
-            f"{label}をメール送信中…", "中止", 0, len(rows), self)
-        progress.setWindowTitle("メール送信")
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setMinimumDuration(0)
+            dlg = InvoiceMailConfirmDialog(
+                self,
+                to_recipients=[to_addr],
+                subject=subject,
+                body_html=body_html,
+                pdf_path=pdf_path,
+                invoice_no=iss.doc_number,
+                customer_name=(iss.recipient_organization
+                               or iss.recipient_name or ""),
+                amount_text=f"¥{iss.amount:,}" if iss.amount else "",
+            )
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                continue
 
-        sent = 0
-        canceled_at = None
-        try:
-            with SmtpSession() as smtp:
-                for i, (iss, sess, email) in enumerate(rows):
-                    if progress.wasCanceled():
-                        canceled_at = i
-                        break
-                    name = (iss.recipient_organization or iss.recipient_name
-                            or iss.doc_number)
-                    progress.setLabelText(
-                        f"送信中（{i + 1}/{len(rows)}）：{name}")
-                    progress.setValue(i)
-                    try:
-                        addr = send_issuance_email(
-                            sess, iss, to_addr=email or None, smtp=smtp)
-                        sent += 1
-                        add_log(sess, "メール送信", "issuance", iss.id,
-                                f"{label} {iss.doc_number} → {addr}")
-                    except Exception as e:
-                        errors.append(f"メール送信失敗：{e}")
-                        add_log(sess, "メール送信失敗", "issuance", iss.id,
-                                f"{label} {iss.doc_number}：{e}")
-        except Exception as e:
-            # SMTP接続自体の失敗（サーバー設定誤り等）
-            errors.append(f"メール送信失敗（SMTP接続エラー）：{e}")
-        finally:
-            progress.setValue(len(rows))
+            thread = QThread(self)
+            worker = M365MailWorker(
+                client_id, tenant_id, [to_addr],
+                subject, body_html, pdf_path)
+            worker.moveToThread(thread)
+            prog = QProgressDialog(
+                f"送信中（{iss.doc_number}）…", None, 0, 0, self)
+            prog.setWindowTitle("メール送信")
+            prog.setWindowModality(Qt.WindowModality.WindowModal)
+            prog.show()
+            _result: dict = {}
+            def _on_done(r, _r=_result, _t=thread):
+                _r["ok"] = r
+                _t.quit()
+            def _on_err(msg, _r=_result, _t=thread):
+                _r["err"] = msg
+                _t.quit()
+            worker.finished.connect(_on_done)
+            worker.failed.connect(_on_err)
+            thread.started.connect(worker.run)
+            thread.finished.connect(prog.close)
+            thread.finished.connect(thread.deleteLater)
+            thread.start()
+            while thread.isRunning():
+                QApplication.processEvents()
 
-        msg = f"{sent}件のメールを送信しました。"
-        if canceled_at is not None:
-            msg += f"\n（中止のため残り{len(rows) - canceled_at}件は未送信です）"
-        QMessageBox.information(self, "メール送信", msg)
+            if "ok" in _result:
+                sent += 1
+                add_log(sess, "メール送信", "issuance", iss.id,
+                        f"{label} {iss.doc_number} → {to_addr}")
+            else:
+                err_msg = _result.get("err", "不明なエラー")
+                errors.append(f"メール送信失敗：{err_msg}")
+                add_log(sess, "メール送信失敗", "issuance", iss.id,
+                        f"{label} {iss.doc_number}：{err_msg}")
+
+        if sent > 0:
+            QMessageBox.information(
+                self, "メール送信", f"{sent}件のメールを送信しました。")
 
     def _issue_checked(self):
         targets = self._checked_rows()
