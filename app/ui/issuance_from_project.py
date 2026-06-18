@@ -86,7 +86,7 @@ class IssuanceFromProjectWidget(QWidget):
         super().__init__()
         self._doc_type = doc_type
         self._templates: list[dict] = []  # [{id, name}, ...]
-        self._sort_col: int = COL_ORG
+        self._sort_col: int = -1   # -1 = 登録順（sort_order）
         self._sort_asc: bool = True
         self._qty_cache: dict[int, dict[int, int]] = {}    # {pm_id: {tmpl_id: qty}}
         self._price_cache: dict[int, dict[int, int]] = {}  # {pm_id: {tmpl_id: unit_price}}
@@ -254,9 +254,12 @@ class IssuanceFromProjectWidget(QWidget):
             for col in (self._col_inv, self._col_rcp):
                 hdr.setSectionResizeMode(col, rtc)
 
-        hdr.setSortIndicator(
-            self._sort_col,
-            Qt.SortOrder.AscendingOrder if self._sort_asc else Qt.SortOrder.DescendingOrder)
+        if self._sort_col >= 0:
+            hdr.setSortIndicator(
+                self._sort_col,
+                Qt.SortOrder.AscendingOrder if self._sort_asc else Qt.SortOrder.DescendingOrder)
+        else:
+            hdr.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
         self._reposition_header_chk()
 
     # ── ヘッダークリック：全選択 / 全解除 ─────────────────────────
@@ -485,6 +488,7 @@ class IssuanceFromProjectWidget(QWidget):
 
         def _key(item):
             _, pm, inv_text, rcp_text, _, _, proj_name = item
+            if sc < 0:                         return pm.sort_order or 0
             if sc == COL_NUM:                  return pm.member_number or ""
             if sc == COL_ORG:                  return pm.organization_name or ""
             if sc == COL_KANA:                 return pm.organization_kana or ""
@@ -494,7 +498,7 @@ class IssuanceFromProjectWidget(QWidget):
             if sc == col_rcp:                  return rcp_text
             return ""
 
-        pm_data.sort(key=_key, reverse=not self._sort_asc)
+        pm_data.sort(key=_key, reverse=(sc >= 0 and not self._sort_asc))
 
         self._table._last_checked_row = -1
         self._header_chk.blockSignals(True)
@@ -544,9 +548,13 @@ class IssuanceFromProjectWidget(QWidget):
                 spin.setStyleSheet("QSpinBox { min-height: 0; padding: 1px 4px; }")
                 self._table.setCellWidget(row, qty_col, spin)
 
-        self._table.horizontalHeader().setSortIndicator(
-            self._sort_col,
-            Qt.SortOrder.AscendingOrder if self._sort_asc else Qt.SortOrder.DescendingOrder)
+        hdr = self._table.horizontalHeader()
+        if self._sort_col >= 0:
+            hdr.setSortIndicator(
+                self._sort_col,
+                Qt.SortOrder.AscendingOrder if self._sort_asc else Qt.SortOrder.DescendingOrder)
+        else:
+            hdr.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
         self._table.resizeRowsToContents()
         doc_label = "請求書" if doc_type == "invoice" else "領収書"
         if show_all:

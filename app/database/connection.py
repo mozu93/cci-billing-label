@@ -55,6 +55,10 @@ def _migrate(engine):
             conn.execute(text(
                 "ALTER TABLE project_templates ADD COLUMN default_quantity INTEGER DEFAULT 1"))
             conn.commit()
+        if "tax_rate_override" not in pt_cols:
+            conn.execute(text(
+                "ALTER TABLE project_templates ADD COLUMN tax_rate_override INTEGER"))
+            conn.commit()
 
         iss_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(issuances)"))}
         for col, ddl in [

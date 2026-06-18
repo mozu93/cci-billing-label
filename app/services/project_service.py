@@ -54,6 +54,7 @@ def close_project(session: Session, project_id: int) -> None:
 def add_template_to_project(session: Session, project_id: int,
                              template_id: int,
                              unit_price_override: int | None = None,
+                             tax_rate_override: int | None = None,
                              sort_order: int = 0,
                              default_quantity: int = 1) -> ProjectTemplate:
     pt = ProjectTemplate(
@@ -61,6 +62,7 @@ def add_template_to_project(session: Session, project_id: int,
         item_template_id=template_id,
         sort_order=sort_order,
         unit_price_override=unit_price_override,
+        tax_rate_override=tax_rate_override,
         default_quantity=default_quantity,
     )
     session.add(pt)

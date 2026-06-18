@@ -48,6 +48,7 @@ def _build_lines_from_project(session: Session, project_id: int,
         qty = (quantities or {}).get(tmpl.id, fallback_qty)
         if qty <= 0:
             continue  # 数量0の項目は明細に含めない
+        tax_rate = pt.tax_rate_override if pt.tax_rate_override is not None else tmpl.tax_rate
         line_total = price * qty
         total += line_total
         lines.append({
@@ -56,7 +57,7 @@ def _build_lines_from_project(session: Session, project_id: int,
             "quantity": qty,
             "unit": tmpl.unit,
             "unit_price": price,
-            "tax_rate": tmpl.tax_rate,
+            "tax_rate": tax_rate,
             "line_total": line_total,
         })
     return lines, total

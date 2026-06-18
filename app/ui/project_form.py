@@ -511,8 +511,9 @@ class ProjectFormDialog(QDialog):
                     break
             pts = get_project_templates(session, project_id)
             tmpl_data = [
-                (pt.item_template.id, int(pt.item_template.unit_price),
-                 pt.item_template.unit, pt.item_template.tax_rate,
+                (pt.item_template.id, int(pt.unit_price_override or pt.item_template.unit_price),
+                 pt.item_template.unit,
+                 pt.tax_rate_override if pt.tax_rate_override is not None else pt.item_template.tax_rate,
                  int(pt.default_quantity) if pt.default_quantity else 1)
                 for pt in pts
             ]
@@ -608,22 +609,27 @@ class ProjectFormDialog(QDialog):
         _PH = "（項目を選択または入力）"
         session = get_session()
         try:
-            tmpl_qty_list: list[tuple[int, int]] = []
+            tmpl_qty_list: list[tuple[int, int, int | None]] = []
             for row in self._rows:
                 name = row.item_name()
                 if not name or name == _PH:
                     continue
                 qty = row.qty_spin.value()
                 tmpl_id = row.template_id()
+                selected_tax_rate = row.tax_combo.currentData()
                 if tmpl_id is not None:
-                    tmpl_qty_list.append((tmpl_id, qty))
+                    tmpl = next((t for t in self._templates if t.id == tmpl_id), None)
+                    # テンプレートの税率と異なる場合のみ override として保存
+                    override_tax = selected_tax_rate if (tmpl is None or selected_tax_rate != tmpl.tax_rate) else None
+                    tmpl_qty_list.append((tmpl_id, qty, override_tax))
                 else:
                     # 同名テンプレートを検索、なければ自動作成
                     from app.database.models import ItemTemplate
                     existing = session.query(ItemTemplate).filter_by(
                         name=name, is_active=True).first()
                     if existing:
-                        tmpl_qty_list.append((existing.id, qty))
+                        override_tax = selected_tax_rate if selected_tax_rate != existing.tax_rate else None
+                        tmpl_qty_list.append((existing.id, qty, override_tax))
                     else:
                         new_tmpl = create_item_template(
                             session,
@@ -631,11 +637,11 @@ class ProjectFormDialog(QDialog):
                             name=name,
                             unit_price=row.price_spin.value(),
                             unit=row.unit_edit.text().strip() or "式",
-                            tax_rate=row.tax_combo.currentData(),
+                            tax_rate=selected_tax_rate,
                             doc_type="both",
                             description=name,
                         )
-                        tmpl_qty_list.append((new_tmpl.id, qty))
+                        tmpl_qty_list.append((new_tmpl.id, qty, None))
 
             if not tmpl_qty_list:
                 QMessageBox.warning(self, "入力エラー",
@@ -653,9 +659,10 @@ class ProjectFormDialog(QDialog):
                     bank_account_id=self._bank_combo.currentData(),
                     seal_image_id=self._seal_combo.currentData(),
                 )
-                for i, (tid, qty) in enumerate(tmpl_qty_list):
+                for i, (tid, qty, tax_ovr) in enumerate(tmpl_qty_list):
                     add_template_to_project(session, proj.id, tid, sort_order=i,
-                                            default_quantity=qty)
+                                            default_quantity=qty,
+                                            tax_rate_override=tax_ovr)
             else:
                 proj = get_project_by_id(session, self._project_id)
                 proj.name = title
@@ -669,9 +676,10 @@ class ProjectFormDialog(QDialog):
                 session.query(ProjectTemplate).filter_by(
                     project_id=proj.id).delete()
                 session.commit()
-                for i, (tid, qty) in enumerate(tmpl_qty_list):
+                for i, (tid, qty, tax_ovr) in enumerate(tmpl_qty_list):
                     add_template_to_project(session, proj.id, tid, sort_order=i,
-                                            default_quantity=qty)
+                                            default_quantity=qty,
+                                            tax_rate_override=tax_ovr)
         finally:
             session.close()
         self.accept()

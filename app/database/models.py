@@ -141,6 +141,7 @@ class ProjectTemplate(Base):
     item_template_id = Column(Integer, ForeignKey("item_templates.id"), nullable=False)
     sort_order = Column(Integer, default=0)
     unit_price_override = Column(Numeric(15, 0), nullable=True)
+    tax_rate_override = Column(Integer, nullable=True)
     default_quantity = Column(Integer, default=1)
 
     item_template = relationship("ItemTemplate")
