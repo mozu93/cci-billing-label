@@ -596,7 +596,7 @@ class IssuanceFromProjectWidget(QWidget):
     _XLSX_FIXED_HEADERS = ["ID", "会員番号", "事業所名", "フリガナ", "代表者名"]
 
     def _export_excel(self):
-        """表示中の名簿＋項目ごとの数量をExcelに出力する。"""
+        """表示中の名簿＋項目ごとの単価・数量をExcelに出力する。"""
         project_id = self._proj_combo.currentData()
         if project_id is None:
             QMessageBox.information(self, "案件未選択", "件名を選択してください。")
@@ -613,7 +613,7 @@ class IssuanceFromProjectWidget(QWidget):
         proj_name = self._proj_combo.currentText()
         safe = "".join(c for c in proj_name if c not in '\\/:*?"<>|')
         path, _ = QFileDialog.getSaveFileName(
-            self, "Excel出力", f"{safe}_数量入力.xlsx", "Excel (*.xlsx)")
+            self, "Excel出力", f"{safe}_単価数量入力.xlsx", "Excel (*.xlsx)")
         if not path:
             return
 
@@ -622,13 +622,29 @@ class IssuanceFromProjectWidget(QWidget):
         from openpyxl.utils import get_column_letter
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = "数量入力"
-        headers = self._XLSX_FIXED_HEADERS + [t["name"] for t in self._templates]
+        ws.title = "単価数量入力"
+
+        # ヘッダー：項目ごとに「単価」「数量」の2列
+        headers = self._XLSX_FIXED_HEADERS + [
+            col
+            for t in self._templates
+            for col in [f"{t['name']}（単価）", f"{t['name']}（数量）"]
+        ]
         ws.append(headers)
-        fill = PatternFill("solid", fgColor="DDEBF7")
-        for cell in ws[1]:
+
+        fill_fixed = PatternFill("solid", fgColor="DDEBF7")   # 固定列：青
+        fill_price = PatternFill("solid", fgColor="FCE4D6")   # 単価列：橙
+        fill_qty   = PatternFill("solid", fgColor="E2EFDA")   # 数量列：緑
+        n_fixed = len(self._XLSX_FIXED_HEADERS)
+        for ci, cell in enumerate(ws[1]):
             cell.font = Font(bold=True)
-            cell.fill = fill
+            pos = ci - n_fixed
+            if ci < n_fixed:
+                cell.fill = fill_fixed
+            elif pos % 2 == 0:
+                cell.fill = fill_price
+            else:
+                cell.fill = fill_qty
 
         exported = 0
         for r in range(self._table.rowCount()):
@@ -636,17 +652,22 @@ class IssuanceFromProjectWidget(QWidget):
             if not data_item:
                 continue
             pm_id, _, _ = data_item.data(Qt.ItemDataRole.UserRole)
-            qty = self._get_row_quantities(r)
-            ws.append([
+            qty   = self._get_row_quantities(r)
+            price = self._get_row_prices(r)
+            row_vals = [
                 pm_id,
                 self._table.item(r, COL_NUM).text(),
                 self._table.item(r, COL_ORG).text(),
                 self._table.item(r, COL_KANA).text(),
                 self._table.item(r, COL_REP).text(),
-            ] + [qty.get(t["id"], 0) for t in self._templates])
+            ]
+            for t in self._templates:
+                row_vals.append(price.get(t["id"], t["unit_price"]))
+                row_vals.append(qty.get(t["id"], 0))
+            ws.append(row_vals)
             exported += 1
 
-        widths = [6, 10, 28, 22, 14] + [14] * len(self._templates)
+        widths = [6, 10, 28, 22, 14] + [10, 10] * len(self._templates)
         for i, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(i)].width = w
         ws.freeze_panes = "A2"
@@ -661,7 +682,7 @@ class IssuanceFromProjectWidget(QWidget):
         QMessageBox.information(
             self, "Excel出力",
             f"{exported}件を出力しました。\n{path}\n\n"
-            "Excelで数量を入力・保存後、「Excel取込」で読み込んでください。\n"
+            "Excelで単価・数量を編集後、「Excel取込」で読み込んでください。\n"
             "・数量0の項目は明細に含まれません\n"
             "・全項目0の行は発行対象外になります\n"
             "・ID列は照合に使うため変更しないでください")
@@ -697,21 +718,52 @@ class IssuanceFromProjectWidget(QWidget):
                 "「Excel出力」で出力したファイルを使用してください。")
             return
         id_col = header.index("ID")
-        tmpl_cols: dict[int, int] = {}
+
+        # 数量列・単価列を検出（新フォーマット優先、旧フォーマットも対応）
+        qty_cols: dict[int, int] = {}    # {tmpl_id: col_index}
+        price_cols: dict[int, int] = {}  # {tmpl_id: col_index}
         missing_cols: list[str] = []
         for t in self._templates:
-            if t["name"] in header:
-                tmpl_cols[t["id"]] = header.index(t["name"])
+            new_qty_key   = f"{t['name']}（数量）"
+            new_price_key = f"{t['name']}（単価）"
+            if new_qty_key in header:
+                qty_cols[t["id"]]   = header.index(new_qty_key)
+                if new_price_key in header:
+                    price_cols[t["id"]] = header.index(new_price_key)
+            elif t["name"] in header:
+                # 旧フォーマット（テンプレート名のみ = 数量列）
+                qty_cols[t["id"]] = header.index(t["name"])
             else:
                 missing_cols.append(t["name"])
-        if not tmpl_cols:
+
+        if not qty_cols:
             QMessageBox.critical(
                 self, "読込エラー",
                 "この案件の項目に対応する数量列が1つも見つかりません。\n"
                 "案件の選択が出力時と同じか確認してください。")
             return
 
-        file_qty: dict[int, dict[int, int]] = {}
+        def _parse_int(v, label: str, lo: int, hi: int,
+                       bad: list[str], row_no: int) -> int | None:
+            if v is None or str(v).strip() == "":
+                return None
+            try:
+                f = float(str(v).strip())
+                iv = int(f)
+                if iv < lo:
+                    raise ValueError
+                if iv != f:
+                    bad.append(f"{row_no}行目: {label}「{v}」は整数でないため{iv}として扱います")
+                if iv > hi:
+                    bad.append(f"{row_no}行目: {label}「{v}」は上限の{hi}に丸めました")
+                    iv = hi
+                return iv
+            except (ValueError, OverflowError):
+                bad.append(f"{row_no}行目: {label}「{v}」が不正です（スキップ）")
+                return None
+
+        file_qty:   dict[int, dict[int, int]] = {}
+        file_price: dict[int, dict[int, int]] = {}
         bad_rows: list[str] = []
         for i, cells in enumerate(all_rows[1:], start=2):
             raw_id = cells[id_col] if id_col < len(cells) else None
@@ -723,28 +775,20 @@ class IssuanceFromProjectWidget(QWidget):
                 bad_rows.append(f"{i}行目: ID「{raw_id}」が数値ではありません")
                 continue
             q = {}
-            for tid, col in tmpl_cols.items():
+            for tid, col in qty_cols.items():
                 v = cells[col] if col < len(cells) else None
-                if v is None or str(v).strip() == "":
-                    q[tid] = 0
-                    continue
-                try:
-                    f = float(str(v).strip())
-                    iv = int(f)
-                    if iv < 0:
-                        raise ValueError
-                    if iv != f:
-                        bad_rows.append(
-                            f"{i}行目: 数量「{v}」は整数でないため{iv}として扱います")
-                    if iv > 9999:
-                        bad_rows.append(
-                            f"{i}行目: 数量「{v}」は上限の9999に丸めました")
-                        iv = 9999
-                    q[tid] = iv
-                except (ValueError, OverflowError):
-                    bad_rows.append(f"{i}行目: 数量「{v}」が不正です（0として扱います）")
-                    q[tid] = 0
+                iv = _parse_int(v, "数量", 0, 9999, bad_rows, i)
+                q[tid] = iv if iv is not None else 0
             file_qty[pm_id] = q
+
+            p = {}
+            for tid, col in price_cols.items():
+                v = cells[col] if col < len(cells) else None
+                iv = _parse_int(v, "単価", 0, 9_999_999, bad_rows, i)
+                if iv is not None:
+                    p[tid] = iv
+            if p:
+                file_price[pm_id] = p
 
         applied = 0
         checked = 0
@@ -756,10 +800,14 @@ class IssuanceFromProjectWidget(QWidget):
             if pm_id not in file_qty:
                 continue
             q = file_qty.pop(pm_id)
+            p = file_price.pop(pm_id, {})
             for col_offset, tmpl in enumerate(self._templates):
-                spin = self._table.cellWidget(r, 5 + col_offset * 2 + 1)
-                if isinstance(spin, _QtySpinBox) and tmpl["id"] in q:
-                    spin.setValue(q[tmpl["id"]])
+                price_spin = self._table.cellWidget(r, 5 + col_offset * 2)
+                qty_spin   = self._table.cellWidget(r, 5 + col_offset * 2 + 1)
+                if isinstance(price_spin, _QtySpinBox) and tmpl["id"] in p:
+                    price_spin.setValue(p[tmpl["id"]])
+                if isinstance(qty_spin, _QtySpinBox) and tmpl["id"] in q:
+                    qty_spin.setValue(q[tmpl["id"]])
             total = sum(q.values())
             chk = self._table.item(r, COL_CHK)
             if chk:
@@ -770,7 +818,8 @@ class IssuanceFromProjectWidget(QWidget):
             applied += 1
         self._save_qty_cache()
 
-        msg = [f"{applied}件の数量を反映し、{checked}件に発行チェックを入れました。",
+        has_price = bool(price_cols)
+        msg = [f"{applied}件の{'単価・' if has_price else ''}数量を反映し、{checked}件に発行チェックを入れました。",
                "内容を確認のうえ「選択行に発行」ボタンで発行してください。"]
         if file_qty:
             msg.append(f"※名簿に表示されていないID {len(file_qty)}件は反映できませんでした。\n"
