@@ -112,6 +112,11 @@ def _migrate(engine):
                 conn.execute(text(f"ALTER TABLE projects ADD COLUMN {col} {ddl}"))
                 conn.commit()
 
+        sup_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(supervisors)"))}
+        if "staff_id" not in sup_cols:
+            conn.execute(text("ALTER TABLE supervisors ADD COLUMN staff_id INTEGER"))
+            conn.commit()
+
 
 def init_db(url: str | None = None):
     global _SessionFactory

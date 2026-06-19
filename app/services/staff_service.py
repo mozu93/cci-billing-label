@@ -26,12 +26,14 @@ def create_staff(session: Session, name: str,
                  supervisor_id: int | None = None,
                  is_department_head: bool = False,
                  email: str = "") -> Staff:
+    from app.services.supervisor_service import sync_supervisor_for_staff
     staff = Staff(name=name, supervisor_id=supervisor_id,
                   is_department_head=is_department_head,
                   email=email or None)
     session.add(staff)
     session.commit()
     session.refresh(staff)
+    sync_supervisor_for_staff(session, staff)
     return staff
 
 
@@ -72,12 +74,14 @@ def update_staff(session: Session, staff_id: int, name: str,
                  supervisor_id: int | None = None,
                  is_department_head: bool = False,
                  email: str = "") -> Staff:
+    from app.services.supervisor_service import sync_supervisor_for_staff
     staff = session.get(Staff, staff_id)
     staff.name = name
     staff.supervisor_id = supervisor_id
     staff.is_department_head = is_department_head
     staff.email = email.strip() or None
     session.commit()
+    sync_supervisor_for_staff(session, staff)
     return staff
 
 

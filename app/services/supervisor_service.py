@@ -32,3 +32,29 @@ def deactivate_supervisor(session: Session, supervisor_id: int) -> None:
     if sup:
         sup.is_active = False
         session.commit()
+
+
+def sync_supervisor_for_staff(session: Session, staff) -> None:
+    """is_department_head フラグに連動して Supervisor レコードを自動同期する。
+
+    所属長フラグON → 対応する Supervisor レコードを作成または有効化・更新。
+    所属長フラグOFF → 対応する Supervisor レコードを無効化。
+    """
+    existing = (session.query(Supervisor)
+                .filter_by(staff_id=staff.id)
+                .first())
+    if staff.is_department_head:
+        if existing:
+            existing.name     = staff.name
+            existing.email    = staff.email or ""
+            existing.is_active = True
+        else:
+            session.add(Supervisor(
+                name=staff.name,
+                email=staff.email or "",
+                staff_id=staff.id,
+            ))
+    else:
+        if existing:
+            existing.is_active = False
+    session.commit()

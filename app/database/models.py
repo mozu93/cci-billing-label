@@ -13,10 +13,11 @@ class Base(DeclarativeBase):
 
 class Supervisor(Base):
     __tablename__ = "supervisors"
-    id    = Column(Integer, primary_key=True)
-    name  = Column(String(100), nullable=False)
-    email = Column(String(200), default="")
+    id       = Column(Integer, primary_key=True)
+    name     = Column(String(100), nullable=False)
+    email    = Column(String(200), default="")
     is_active = Column(Boolean, default=True)
+    staff_id = Column(Integer, nullable=True)   # 職員から自動生成した場合の紐付け
 
 
 class Staff(Base):
