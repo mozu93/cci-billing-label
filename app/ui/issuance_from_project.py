@@ -1168,11 +1168,13 @@ class IssuanceFromProjectWidget(QWidget):
         if not supervisor_email:
             return
 
+        import html as _html
         from PyQt6.QtCore import QThread
         from app.ui.m365_mail_worker import M365MailWorker
 
-        doc_label = "請求書" if self._doc_type == "invoice" else "領収書"
-        staff_name = current_user.get_name() or "担当者"
+        doc_label  = "請求書" if self._doc_type == "invoice" else "領収書"
+        staff_name = _html.escape(current_user.get_name() or "担当者")
+        doc_label_e = _html.escape(doc_label)
         today = date.today().strftime("%Y/%m/%d")
         subject = f"[発行通知] {doc_label} {len(notify_items)}件（{today}）"
 
@@ -1180,12 +1182,14 @@ class IssuanceFromProjectWidget(QWidget):
         for it in notify_items:
             amount_str = f"¥{it['amount']:,}" if it["amount"] else "-"
             rows_html += (
-                f"<tr><td style='padding:4px 8px;'>{it['doc_number']}</td>"
-                f"<td style='padding:4px 8px;'>{it['recipient']}</td>"
-                f"<td style='padding:4px 8px; text-align:right;'>{amount_str}</td></tr>"
+                f"<tr>"
+                f"<td style='padding:4px 8px;'>{_html.escape(it['doc_number'])}</td>"
+                f"<td style='padding:4px 8px;'>{_html.escape(it['recipient'])}</td>"
+                f"<td style='padding:4px 8px; text-align:right;'>{_html.escape(amount_str)}</td>"
+                f"</tr>"
             )
         body_html = (
-            f"<p><b>{staff_name}</b> が以下の{doc_label}を発行しました。</p>"
+            f"<p><b>{staff_name}</b> が以下の{doc_label_e}を発行しました。</p>"
             f"<table border='1' cellspacing='0' "
             f"style='border-collapse:collapse; font-family:sans-serif; font-size:13px;'>"
             f"<tr style='background:#f0f0f0;'>"
