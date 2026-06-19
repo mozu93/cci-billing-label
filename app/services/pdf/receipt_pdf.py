@@ -20,6 +20,21 @@ C_CUT_LINE   = HexColor("#BBBBBB")
 C_TEXT_SUB   = HexColor("#555555")
 
 
+def _seal_source(seal_image):
+    """image_data (BLOB) → ImageReader、なければ path を返す。どちらもなければ None。"""
+    if seal_image is None:
+        return None
+    data = getattr(seal_image, "image_data", None)
+    if data:
+        from io import BytesIO
+        from reportlab.lib.utils import ImageReader
+        return ImageReader(BytesIO(data))
+    path = getattr(seal_image, "path", None)
+    if path and os.path.exists(path):
+        return path
+    return None
+
+
 def generate_receipt_pdf(issuance, company, output_path: str,
                           seal_image=None, copies: int = 4,
                           reissue: bool = False) -> str:
@@ -389,13 +404,14 @@ def _draw_company_info(c, company, seal_image, x0, y0, w, top):
     phone_bottom_y = cur
 
     # 印鑑
-    if seal_image and getattr(seal_image, "path", None) and os.path.exists(seal_image.path):
+    _seal_src = _seal_source(seal_image)
+    if _seal_src is not None:
         seal_y = max(phone_bottom_y, y0 + 1 * mm)
         sz = min(22.5 * mm, top - seal_y - 1 * mm, w - 2 * mm)
         if sz > 4 * mm:
             try:
-                c.drawImage(seal_image.path,
-                            x0 + w - sz - P - 2 * mm, seal_y - 2 * mm,   # 3mm 左へ
+                c.drawImage(_seal_src,
+                            x0 + w - sz - P - 2 * mm, seal_y - 2 * mm,
                             sz, sz, mask="auto", preserveAspectRatio=True)
             except Exception:
                 pass

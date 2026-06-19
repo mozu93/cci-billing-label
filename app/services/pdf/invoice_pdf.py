@@ -18,6 +18,21 @@ C_DARK   = HexColor("#333333")
 C_BORDER = HexColor("#888888")
 C_LIGHT  = HexColor("#EEEEEE")
 C_PALE   = HexColor("#F8F8F8")
+
+
+def _seal_source(seal_image):
+    """image_data (BLOB) → ImageReader、なければ path を返す。どちらもなければ None。"""
+    if seal_image is None:
+        return None
+    data = getattr(seal_image, "image_data", None)
+    if data:
+        from io import BytesIO
+        from reportlab.lib.utils import ImageReader
+        return ImageReader(BytesIO(data))
+    path = getattr(seal_image, "path", None)
+    if path and os.path.exists(path):
+        return path
+    return None
 C_SUB    = HexColor("#555555")
 
 
@@ -323,15 +338,16 @@ def _build_company_block(issuance, company, issue_str: str,
             co_parts.append(Paragraph(f"TEL：{company.phone}", i_style))
         co_parts.append(Spacer(1, 11*mm))
 
-    if seal_image and getattr(seal_image, "path", None) and col_w:
+    _seal_src = _seal_source(seal_image)
+    if _seal_src is not None and col_w:
         from reportlab.platypus import Image as RLImage
         seal_sz = 20*mm
         text_w  = col_w - seal_sz
         try:
-            seal_img = RLImage(seal_image.path, width=seal_sz, height=seal_sz)
+            seal_img = RLImage(_seal_src, width=seal_sz, height=seal_sz)
         except Exception:
             seal_img = Spacer(seal_sz, seal_sz)
-        co_block = Table([[co_parts, seal_img]], colWidths=[text_w, seal_sz])
+        co_block = Table([[co_parts, seal_img]], colWidths=[text_w, seal_sz])  # noqa: F821
         co_block.setStyle(TableStyle([
             ("VALIGN",        (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING",   (0, 0), (-1, -1), 0),

@@ -2,7 +2,7 @@
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Text, Date, DateTime,
-    Numeric, Boolean, ForeignKey
+    Numeric, Boolean, ForeignKey, LargeBinary
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -79,7 +79,8 @@ class SealImage(Base):
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("company_settings.id"), nullable=False)
     label = Column(String(100), nullable=False, default="")
-    path = Column(String(500), default="")
+    path = Column(String(500), default="")      # 旧カラム（後方互換用）
+    image_data = Column(LargeBinary, nullable=True)   # 画像バイナリ（DBで共有）
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
 

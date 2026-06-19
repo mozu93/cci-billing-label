@@ -117,6 +117,11 @@ def _migrate(engine):
             conn.execute(text("ALTER TABLE supervisors ADD COLUMN staff_id INTEGER"))
             conn.commit()
 
+        si_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(seal_images)"))}
+        if "image_data" not in si_cols:
+            conn.execute(text("ALTER TABLE seal_images ADD COLUMN image_data BLOB"))
+            conn.commit()
+
 
 def init_db(url: str | None = None):
     global _SessionFactory

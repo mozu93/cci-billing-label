@@ -108,7 +108,7 @@ class CompanySettingsWidget(QWidget):
         seal_layout.addWidget(QLabel("PNG / JPG を登録。★デフォルトが印刷されます。"))
 
         self._seal_table = QTableWidget(0, 3)
-        self._seal_table.setHorizontalHeaderLabels(["ラベル", "ファイルパス", ""])
+        self._seal_table.setHorizontalHeaderLabels(["ラベル", "保存状態", ""])
         self._seal_table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch)
         self._seal_table.horizontalHeader().setSectionResizeMode(
@@ -201,10 +201,26 @@ class CompanySettingsWidget(QWidget):
                 r = self._seal_table.rowCount()
                 self._seal_table.insertRow(r)
                 default_mark = "★ デフォルト" if s.is_default else ""
-                for col, val in enumerate([s.label, s.path, default_mark]):
+                if s.image_data:
+                    status = "DB保存済"
+                elif s.path:
+                    status = f"ファイル: {s.path}"
+                else:
+                    status = "（未登録）"
+                for col, val in enumerate([s.label, status, default_mark]):
                     item = QTableWidgetItem(val)
                     item.setData(0x0100, s.id)
                     self._seal_table.setItem(r, col, item)
+                # 既存のファイルパスデータをBLOBに自動マイグレーション
+                if not s.image_data and s.path:
+                    import os as _os
+                    if _os.path.exists(s.path):
+                        try:
+                            s.image_data = open(s.path, "rb").read()
+                            session.commit()
+                            self._seal_table.item(r, 1).setText("DB保存済")
+                        except Exception:
+                            pass
         finally:
             session.close()
 
@@ -335,13 +351,21 @@ class CompanySettingsWidget(QWidget):
                                 default="印鑑")
         if not ok:
             return
+        try:
+            image_bytes = open(path, "rb").read()
+        except Exception as e:
+            QMessageBox.critical(self, "読み込みエラー", f"画像の読み込みに失敗しました。\n{e}")
+            return
         session = get_session()
         try:
             is_first = session.query(SealImage).filter_by(
                 company_id=self._selected_company_id).count() == 0
             seal = SealImage(
                 company_id=self._selected_company_id,
-                label=label, path=path, is_default=is_first,
+                label=label,
+                path="",
+                image_data=image_bytes,
+                is_default=is_first,
             )
             session.add(seal)
             session.commit()
