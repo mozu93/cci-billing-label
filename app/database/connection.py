@@ -20,6 +20,16 @@ def _migrate(engine):
         if "password_hash" not in staff_cols:
             conn.execute(text("ALTER TABLE staff ADD COLUMN password_hash VARCHAR(200)"))
             conn.commit()
+        if "supervisor_name" not in staff_cols:
+            conn.execute(text("ALTER TABLE staff ADD COLUMN supervisor_name VARCHAR(100) DEFAULT ''"))
+            conn.commit()
+        if "supervisor_email" not in staff_cols:
+            conn.execute(text("ALTER TABLE staff ADD COLUMN supervisor_email VARCHAR(200) DEFAULT ''"))
+            conn.commit()
+        if "supervisor_id" not in staff_cols:
+            conn.execute(text(
+                "ALTER TABLE staff ADD COLUMN supervisor_id INTEGER REFERENCES supervisors(id)"))
+            conn.commit()
         cols = {row[1] for row in conn.execute(text("PRAGMA table_info(company_settings)"))}
         if "print_seal" not in cols:
             conn.execute(text(

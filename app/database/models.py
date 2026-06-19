@@ -11,6 +11,14 @@ class Base(DeclarativeBase):
     pass
 
 
+class Supervisor(Base):
+    __tablename__ = "supervisors"
+    id    = Column(Integer, primary_key=True)
+    name  = Column(String(100), nullable=False)
+    email = Column(String(200), default="")
+    is_active = Column(Boolean, default=True)
+
+
 class Staff(Base):
     __tablename__ = "staff"
     id = Column(Integer, primary_key=True)
@@ -18,6 +26,10 @@ class Staff(Base):
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
     password_hash = Column(String(200), nullable=True)
+    supervisor_name  = Column(String(100), default="")   # 旧カラム（未使用）
+    supervisor_email = Column(String(200), default="")   # 旧カラム（未使用）
+    supervisor_id = Column(Integer, ForeignKey("supervisors.id"), nullable=True)
+    supervisor = relationship("Supervisor")
     created_at = Column(DateTime, default=datetime.now)
 
 

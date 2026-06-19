@@ -23,19 +23,11 @@ class M365MailService:
         to_recipients: list[str],
         subject: str,
         body_html: str,
-        pdf_path: str,
+        pdf_path: str | None = None,
         cc_recipients:  list[str] | None = None,
         bcc_recipients: list[str] | None = None,
     ) -> dict:
-        """PDF を添付してメール送信要求を送る。成功時は {"status": "accepted", ...} を返す。"""
-        pdf = Path(pdf_path)
-        if not pdf.exists():
-            raise FileNotFoundError(f"PDFファイルが見つかりません: {pdf_path}")
-        if pdf.suffix.lower() != ".pdf":
-            raise ValueError("添付ファイルはPDFである必要があります。")
-
-        pdf_b64 = base64.b64encode(pdf.read_bytes()).decode("utf-8")
-
+        """メール送信要求を送る。pdf_path を指定した場合のみPDFを添付する。"""
         def _addr_list(addrs):
             return [{"emailAddress": {"address": a}} for a in addrs]
 
@@ -43,15 +35,23 @@ class M365MailService:
             "subject": subject,
             "body": {"contentType": "HTML", "content": body_html},
             "toRecipients": _addr_list(to_recipients),
-            "attachments": [
+        }
+
+        if pdf_path is not None:
+            pdf = Path(pdf_path)
+            if not pdf.exists():
+                raise FileNotFoundError(f"PDFファイルが見つかりません: {pdf_path}")
+            if pdf.suffix.lower() != ".pdf":
+                raise ValueError("添付ファイルはPDFである必要があります。")
+            pdf_b64 = base64.b64encode(pdf.read_bytes()).decode("utf-8")
+            message["attachments"] = [
                 {
                     "@odata.type": "#microsoft.graph.fileAttachment",
                     "name": pdf.name,
                     "contentType": "application/pdf",
                     "contentBytes": pdf_b64,
                 }
-            ],
-        }
+            ]
         if cc_recipients:
             message["ccRecipients"] = _addr_list(cc_recipients)
         if bcc_recipients:

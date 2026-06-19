@@ -390,43 +390,91 @@ class _ReminderDialog(QDialog):
         if box.exec() != QMessageBox.StandardButton.Yes:
             return
 
-        from app.services.email_service import SmtpSession, send_reminder_email
+        from app.services.email_service import prepare_reminder_email
         from app.services.operation_log_service import add_log
         from app.database.models import Issuance
+        from app.utils.app_config import get_m365_client_id, get_m365_tenant_id
+        from app.ui.m365_mail_worker import M365ReminderBatchWorker
+        from PyQt6.QtCore import QThread, QApplication
 
+        client_id = get_m365_client_id()
+        tenant_id = get_m365_tenant_id()
+        if not client_id or not tenant_id:
+            QMessageBox.critical(
+                self, "設定エラー",
+                "Microsoft 365 の Client ID / Tenant ID が設定されていません。\n"
+                "設定 → メール設定から入力してください。")
+            return
+
+        # 送信データを事前に組み立て
+        session = get_session()
+        items   = []
+        log_map = {}   # doc_number -> (iss_id, to_addr)
+        pre_errors = []
+        try:
+            for iss_id in ids:
+                iss = session.get(Issuance, iss_id)
+                if iss is None:
+                    continue
+                try:
+                    to_addr, subject, body_html, pdf_path = prepare_reminder_email(
+                        session, iss, self._due_date)
+                    items.append({
+                        "to": to_addr, "subject": subject,
+                        "body_html": body_html, "pdf_path": pdf_path,
+                        "doc_number": iss.doc_number or str(iss_id),
+                        "iss_id": iss.id,
+                    })
+                    log_map[iss.doc_number] = (iss.id, to_addr)
+                except Exception as e:
+                    pre_errors.append(str(e))
+                    add_log(session, "督促メール送信失敗", "issuance",
+                            iss.id, f"{iss.doc_number}：{e}")
+        finally:
+            session.close()
+
+        if not items:
+            errs = "\n".join(pre_errors)
+            QMessageBox.warning(self, "督促メール",
+                                f"送信対象がありませんでした。\n{errs}")
+            return
+
+        # M365でバックグラウンド送信
         progress = QProgressDialog(
-            "督促メールを送信中…", "中止", 0, len(ids), self)
+            "督促メールを送信中…", None, 0, len(items), self)
         progress.setWindowTitle("督促メール")
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
+        progress.setValue(0)
 
-        session = get_session()
-        sent = 0
-        errors = []
+        thread = QThread(self)
+        worker = M365ReminderBatchWorker(client_id, tenant_id, items)
+        worker.moveToThread(thread)
+        worker.progress.connect(lambda cur, _tot: progress.setValue(cur))
+        _result: dict = {}
+        def _on_done(sent, errors, _r=_result, _t=thread):
+            _r["sent"]   = sent
+            _r["errors"] = errors
+            _t.quit()
+        worker.done.connect(_on_done)
+        thread.started.connect(worker.run)
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
+        while thread.isRunning():
+            QApplication.processEvents()
+        progress.setValue(len(items))
+
+        # 操作ログ
+        sent   = _result.get("sent", 0)
+        errors = pre_errors + _result.get("errors", [])
+        session2 = get_session()
         try:
-            with SmtpSession() as smtp:
-                for i, iss_id in enumerate(ids):
-                    if progress.wasCanceled():
-                        break
-                    progress.setValue(i)
-                    iss = session.get(Issuance, iss_id)
-                    if iss is None:
-                        continue
-                    try:
-                        addr = send_reminder_email(
-                            session, iss, self._due_date, smtp=smtp)
-                        sent += 1
-                        add_log(session, "督促メール送信", "issuance", iss.id,
-                                f"{iss.doc_number} → {addr}")
-                    except Exception as e:
-                        errors.append(str(e))
-                        add_log(session, "督促メール送信失敗", "issuance",
-                                iss.id, f"{iss.doc_number}：{e}")
-        except Exception as e:
-            errors.append(f"SMTP接続エラー：{e}")
+            for item in items[:sent]:
+                iss_id = item["iss_id"]
+                add_log(session2, "督促メール送信", "issuance", iss_id,
+                        f"{item['doc_number']} → {item['to']}")
         finally:
-            progress.setValue(len(ids))
-            session.close()
+            session2.close()
 
         msg = f"{sent}件の督促メールを送信しました。"
         if errors:

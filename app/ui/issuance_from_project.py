@@ -925,6 +925,7 @@ class IssuanceFromProjectWidget(QWidget):
         session = get_session()
         issued_issuances = []
         pdf_paths = []
+        notify_items = []
         open_each = len(targets) == 1 and delivery != "メール送付"
         try:
             from app.database.models import ProjectMember, Issuance
@@ -994,6 +995,11 @@ class IssuanceFromProjectWidget(QWidget):
                             f"{name}：PDF生成に失敗したため発行を取り消しました（{e}）")
                         continue
                     issued_issuances.append((iss, session))
+                    notify_items.append({
+                        "doc_number": iss.doc_number or "",
+                        "recipient": iss.recipient_organization or iss.recipient_name or "",
+                        "amount": iss.amount,
+                    })
                 except Exception as e:
                     errors.append(str(e))
 
@@ -1007,7 +1013,7 @@ class IssuanceFromProjectWidget(QWidget):
                     errors.append(f"PDF結合に失敗しました：{e}")
         finally:
             session.close()
-        return errors
+        return errors, notify_items
 
     def _send_issue_emails(self, issued_issuances: list, errors: list[str]):
         """配付方法「メール送付」で発行した分のPDFを1件ずつ確認してM365で送信する。"""
@@ -1106,9 +1112,10 @@ class IssuanceFromProjectWidget(QWidget):
             QMessageBox.information(self, "未選択",
                                     "発行する行のチェックボックスにチェックを入れてください。")
             return
-        errors = self._do_issue_rows(targets)
+        errors, notify_items = self._do_issue_rows(targets)
         if errors:
             QMessageBox.critical(self, "PDF生成エラー", "\n".join(errors))
+        self._send_admin_notification(notify_items)
         self._load_members()
 
     def _issue_all(self):
@@ -1128,7 +1135,71 @@ class IssuanceFromProjectWidget(QWidget):
             data_item = self._table.item(r, COL_ORG)
             if data_item:
                 all_rows.append((r, data_item.data(Qt.ItemDataRole.UserRole)))
-        errors = self._do_issue_rows(all_rows)
+        errors, notify_items = self._do_issue_rows(all_rows)
         if errors:
             QMessageBox.critical(self, "PDF生成エラー", "\n".join(errors))
+        self._send_admin_notification(notify_items)
         self._load_members()
+
+    def _send_admin_notification(self, notify_items: list[dict]):
+        """発行完了後に所属長へ通知メールをバックグラウンド送信する。"""
+        if not notify_items:
+            return
+        from app.utils.app_config import get_m365_client_id, get_m365_tenant_id
+        client_id = get_m365_client_id()
+        tenant_id = get_m365_tenant_id()
+        if not client_id or not tenant_id:
+            return
+
+        # ログイン中の職員の所属長メールを取得
+        staff_id = current_user.get_id()
+        if not staff_id:
+            return
+        session = get_session()
+        try:
+            from app.database.models import Staff, Supervisor
+            staff = session.get(Staff, staff_id)
+            supervisor_email = ""
+            if staff and staff.supervisor_id:
+                sup = session.get(Supervisor, staff.supervisor_id)
+                supervisor_email = (sup.email or "").strip() if sup else ""
+        finally:
+            session.close()
+        if not supervisor_email:
+            return
+
+        from PyQt6.QtCore import QThread
+        from app.ui.m365_mail_worker import M365MailWorker
+
+        doc_label = "請求書" if self._doc_type == "invoice" else "領収書"
+        staff_name = current_user.get_name() or "担当者"
+        today = date.today().strftime("%Y/%m/%d")
+        subject = f"[発行通知] {doc_label} {len(notify_items)}件（{today}）"
+
+        rows_html = ""
+        for it in notify_items:
+            amount_str = f"¥{it['amount']:,}" if it["amount"] else "-"
+            rows_html += (
+                f"<tr><td style='padding:4px 8px;'>{it['doc_number']}</td>"
+                f"<td style='padding:4px 8px;'>{it['recipient']}</td>"
+                f"<td style='padding:4px 8px; text-align:right;'>{amount_str}</td></tr>"
+            )
+        body_html = (
+            f"<p><b>{staff_name}</b> が以下の{doc_label}を発行しました。</p>"
+            f"<table border='1' cellspacing='0' "
+            f"style='border-collapse:collapse; font-family:sans-serif; font-size:13px;'>"
+            f"<tr style='background:#f0f0f0;'>"
+            f"<th style='padding:4px 8px;'>書類番号</th>"
+            f"<th style='padding:4px 8px;'>宛先</th>"
+            f"<th style='padding:4px 8px;'>金額</th></tr>"
+            f"{rows_html}</table>"
+            f"<p style='color:#555; font-size:12px; margin-top:12px;'>"
+            f"アプリで内容を確認してください。</p>"
+        )
+
+        thread = QThread(self)
+        worker = M365MailWorker(client_id, tenant_id, [supervisor_email], subject, body_html)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        thread.finished.connect(thread.deleteLater)
+        thread.start()

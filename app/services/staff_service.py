@@ -22,8 +22,9 @@ def _check_password(raw: str, stored: str) -> bool:
         return False
 
 
-def create_staff(session: Session, name: str) -> Staff:
-    staff = Staff(name=name)
+def create_staff(session: Session, name: str,
+                 supervisor_id: int | None = None) -> Staff:
+    staff = Staff(name=name, supervisor_id=supervisor_id)
     session.add(staff)
     session.commit()
     session.refresh(staff)
@@ -59,6 +60,15 @@ def reactivate_staff(session: Session, staff_id: int) -> None:
 def update_staff_name(session: Session, staff_id: int, name: str) -> Staff:
     staff = session.get(Staff, staff_id)
     staff.name = name
+    session.commit()
+    return staff
+
+
+def update_staff(session: Session, staff_id: int, name: str,
+                 supervisor_id: int | None = None) -> Staff:
+    staff = session.get(Staff, staff_id)
+    staff.name = name
+    staff.supervisor_id = supervisor_id
     session.commit()
     return staff
 
