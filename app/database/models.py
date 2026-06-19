@@ -25,6 +25,8 @@ class Staff(Base):
     name = Column(String(100), nullable=False, unique=True)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
+    is_department_head = Column(Boolean, default=False)
+    email = Column(String(200), nullable=True)
     password_hash = Column(String(200), nullable=True)
     supervisor_name  = Column(String(100), default="")   # 旧カラム（未使用）
     supervisor_email = Column(String(200), default="")   # 旧カラム（未使用）

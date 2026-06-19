@@ -30,6 +30,12 @@ def _migrate(engine):
             conn.execute(text(
                 "ALTER TABLE staff ADD COLUMN supervisor_id INTEGER REFERENCES supervisors(id)"))
             conn.commit()
+        if "is_department_head" not in staff_cols:
+            conn.execute(text("ALTER TABLE staff ADD COLUMN is_department_head BOOLEAN DEFAULT 0"))
+            conn.commit()
+        if "email" not in staff_cols:
+            conn.execute(text("ALTER TABLE staff ADD COLUMN email VARCHAR(200)"))
+            conn.commit()
         cols = {row[1] for row in conn.execute(text("PRAGMA table_info(company_settings)"))}
         if "print_seal" not in cols:
             conn.execute(text(

@@ -23,8 +23,12 @@ def _check_password(raw: str, stored: str) -> bool:
 
 
 def create_staff(session: Session, name: str,
-                 supervisor_id: int | None = None) -> Staff:
-    staff = Staff(name=name, supervisor_id=supervisor_id)
+                 supervisor_id: int | None = None,
+                 is_department_head: bool = False,
+                 email: str = "") -> Staff:
+    staff = Staff(name=name, supervisor_id=supervisor_id,
+                  is_department_head=is_department_head,
+                  email=email or None)
     session.add(staff)
     session.commit()
     session.refresh(staff)
@@ -65,10 +69,14 @@ def update_staff_name(session: Session, staff_id: int, name: str) -> Staff:
 
 
 def update_staff(session: Session, staff_id: int, name: str,
-                 supervisor_id: int | None = None) -> Staff:
+                 supervisor_id: int | None = None,
+                 is_department_head: bool = False,
+                 email: str = "") -> Staff:
     staff = session.get(Staff, staff_id)
     staff.name = name
     staff.supervisor_id = supervisor_id
+    staff.is_department_head = is_department_head
+    staff.email = email.strip() or None
     session.commit()
     return staff
 
@@ -116,4 +124,19 @@ def set_admin(session: Session, staff_id: int, is_admin: bool) -> None:
     staff = session.get(Staff, staff_id)
     if staff:
         staff.is_admin = is_admin
+        session.commit()
+
+
+def set_department_head(session: Session, staff_id: int,
+                        is_department_head: bool) -> None:
+    staff = session.get(Staff, staff_id)
+    if staff:
+        staff.is_department_head = is_department_head
+        session.commit()
+
+
+def update_staff_email(session: Session, staff_id: int, email: str) -> None:
+    staff = session.get(Staff, staff_id)
+    if staff:
+        staff.email = email.strip() or None
         session.commit()
