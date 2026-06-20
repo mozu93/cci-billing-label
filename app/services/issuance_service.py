@@ -180,7 +180,7 @@ def create_combined_issuance(session: Session,
 
 def mark_as_issued(session: Session, issuance_id: int,
                    staff_id: int | None, staff_name: str,
-                   delivery_method: str = "窓口手渡し",
+                   delivery_method: str = "印刷",
                    issued_at: datetime | None = None) -> None:
     issuance = session.get(Issuance, issuance_id)
     if issuance:
@@ -219,7 +219,7 @@ def create_direct_issuance(session: Session, lines_data: list[dict],
                             recipient_organization: str, recipient_name: str,
                             doc_type: str, fiscal_year: int, month: int,
                             staff_id: int | None = None, staff_name: str = "",
-                            delivery_method: str = "窓口手渡し",
+                            delivery_method: str = "印刷",
                             project_name: str = "直接発行",
                             member_number: str = "",
                             recipient_kana: str = "",

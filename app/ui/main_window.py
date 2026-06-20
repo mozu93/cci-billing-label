@@ -1,6 +1,7 @@
 # app/ui/main_window.py
 from PyQt6.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel, QMessageBox,
+    QApplication,
 )
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import pyqtSignal, QTimer
@@ -12,7 +13,10 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("商工会議所請求書・領収書発行システム")
-        self.resize(780, 800)
+        _screen = QApplication.primaryScreen()
+        _avail_h = _screen.availableGeometry().height() if _screen else 800
+        self.resize(900, min(728, _avail_h))
+        self.setMinimumSize(780, 500)
         self._setup_menu()
         self._build_tabs()
         self._setup_statusbar()

@@ -198,7 +198,7 @@ class Issuance(Base):
     doc_type = Column(String(20), nullable=False)
     doc_number = Column(String(50), default="")
     status = Column(String(20), default="準備中")
-    delivery_method = Column(String(20), default="窓口手渡し")
+    delivery_method = Column(String(20), default="印刷")
     amount = Column(Numeric(15, 0), default=0)
     pdf_path = Column(String(500), default="")
     staff_id = Column(Integer, ForeignKey("staff.id"), nullable=True)

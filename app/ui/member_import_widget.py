@@ -137,9 +137,9 @@ class MemberMappingDialog(QDialog):
         btn_cancel.clicked.connect(self.reject)
         btn_ok = QPushButton("インポート実行")
         btn_ok.setStyleSheet(
-            "QPushButton { background: #1D4ED8; color: white; border-radius: 4px; "
-            "font-weight: bold; padding: 6px 18px; }"
-        )
+            "QPushButton { background: #2563EB; color: white; border-radius: 4px;"
+            " font-weight: bold; padding: 2px 18px; }"
+            "QPushButton:hover { background: #1D4ED8; }")
         btn_ok.clicked.connect(self.accept)
         btn_row.addWidget(btn_cancel)
         btn_row.addWidget(btn_ok)
@@ -317,11 +317,10 @@ class MemberImportWidget(QWidget):
         self._btn_import = QPushButton("インポート実行")
         self._btn_import.setEnabled(False)
         self._btn_import.setStyleSheet(
-            "QPushButton:enabled { background:#1D4ED8; color:white; "
-            "border-radius:4px; font-weight:bold; padding:4px 14px; }"
-            "QPushButton:disabled { background:#ccc; color:#666; "
-            "border-radius:4px; padding:4px 14px; }"
-        )
+            "QPushButton { background: #2563EB; color: white; border-radius: 4px;"
+            " font-weight: bold; padding: 4px 14px; }"
+            "QPushButton:hover { background: #1D4ED8; }"
+            "QPushButton:disabled { background: #94A3B8; color: white; }")
         self._btn_import.clicked.connect(self._do_import)
         self._import_result = QLabel("")
         import_row.addWidget(self._btn_import)

@@ -543,8 +543,8 @@ class IssuanceCounterWidget(QWidget):
         opts_form.setVerticalSpacing(3)
         opts_form.setHorizontalSpacing(8)
         self._delivery = QComboBox()
-        self._delivery.addItems(["窓口手渡し", "郵送", "メール送付"])
-        opts_form.addRow("配付方法", self._delivery)
+        self._delivery.addItems(["印刷", "メール送付"])
+        opts_form.addRow("発行方法", self._delivery)
         if self._doc_type_str == "invoice":
             self._issuer_combo = QComboBox()
             self._bank_combo   = QComboBox()
@@ -559,7 +559,17 @@ class IssuanceCounterWidget(QWidget):
             self._show_person_chk.setChecked(_get_cfg().get("recipient_person_last", True))
             opts_form.addRow(self._show_person_chk)
 
-            self._reload_issuer_combo()
+            from app.utils.app_config import get_config as _gcfg
+            _last_inv = _gcfg().get("last_issuance_counter_invoice", {})
+            self._reload_issuer_combo(
+                select_company_id=_last_inv.get("company_id"),
+                select_bank_id=_last_inv.get("bank_account_id"),
+                select_seal_id=_last_inv.get("seal_image_id"),
+            )
+            _inv_method = _last_inv.get("delivery_method", "印刷")
+            _idx = self._delivery.findText(_inv_method)
+            if _idx >= 0:
+                self._delivery.setCurrentIndex(_idx)
 
             y, m = (date.today().year, date.today().month + 1) if date.today().month < 12 else (date.today().year + 1, 1)
             default_due = date(y, m, calendar.monthrange(y, m)[1])
@@ -602,7 +612,16 @@ class IssuanceCounterWidget(QWidget):
             self._issuer_combo.currentIndexChanged.connect(self._on_issuer_combo_changed)
             opts_form.addRow("発行元", self._issuer_combo)
             opts_form.addRow("印鑑",   self._seal_combo)
-            self._reload_issuer_combo()
+            from app.utils.app_config import get_config as _gcfg
+            _last_rcp = _gcfg().get("last_issuance_counter_receipt", {})
+            self._reload_issuer_combo(
+                select_company_id=_last_rcp.get("company_id"),
+                select_seal_id=_last_rcp.get("seal_image_id"),
+            )
+            _rcp_method = _last_rcp.get("delivery_method", "印刷")
+            _idx = self._delivery.findText(_rcp_method)
+            if _idx >= 0:
+                self._delivery.setCurrentIndex(_idx)
             fmt_note = QLabel("印刷形式：A5縦（固定）")
             fmt_note.setStyleSheet("color: #666; font-size: 11px;")
             opts_form.addRow("", fmt_note)
@@ -980,7 +999,7 @@ class IssuanceCounterWidget(QWidget):
         if self._delivery.currentText() == "メール送付":
             if not email:
                 QMessageBox.warning(self, "入力エラー",
-                                    "配付方法が「メール送付」の場合は"
+                                    "発行方法が「メール送付」の場合は"
                                     "メールアドレスを入力してください。")
                 return
             from app.services.email_service import validate_email_addr
@@ -1049,10 +1068,24 @@ class IssuanceCounterWidget(QWidget):
             from app.utils.app_config import get_config as _get_cfg, save_config as _save_cfg
             _cfg = _get_cfg()
             _cfg["recipient_person_last"] = show_recipient_person
+            _cfg["last_issuance_counter_invoice"] = {
+                "delivery_method": self._delivery.currentText(),
+                "company_id": issuer_company_id,
+                "bank_account_id": bank_account_id,
+                "seal_image_id": seal_image_id,
+            }
             _save_cfg(_cfg)
         elif self._doc_type_str == "receipt":
             issuer_company_id = self._issuer_combo.currentData()
             seal_image_id     = self._seal_combo.currentData()
+            from app.utils.app_config import get_config as _get_cfg, save_config as _save_cfg
+            _cfg = _get_cfg()
+            _cfg["last_issuance_counter_receipt"] = {
+                "delivery_method": self._delivery.currentText(),
+                "company_id": issuer_company_id,
+                "seal_image_id": seal_image_id,
+            }
+            _save_cfg(_cfg)
 
         doc_type = self._doc_type_str
         session  = get_session()

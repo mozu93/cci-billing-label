@@ -92,6 +92,7 @@ class IssuanceFromProjectWidget(QWidget):
         self._price_cache: dict[int, dict[int, int]] = {}  # {pm_id: {tmpl_id: unit_price}}
         self._all_projects: list = []
         self._build()
+        self._restore_from_project_settings()
         self._load_projects()
 
     @property
@@ -109,7 +110,7 @@ class IssuanceFromProjectWidget(QWidget):
     def _build(self):
         layout = QVBoxLayout(self)
 
-        # ── フィルタ行（年度 / 業務区分 / 件名 / 表示 / 検索） ────────
+        # ── フィルタ行（年度 / 業務区分 / 件名 / 表示） ──────────────────
         filter_row = QHBoxLayout()
         filter_row.addWidget(QLabel("年度："))
         self._year_combo = QComboBox()
@@ -118,12 +119,12 @@ class IssuanceFromProjectWidget(QWidget):
         filter_row.addWidget(self._year_combo)
         filter_row.addWidget(QLabel("業務区分："))
         self._cat_combo = QComboBox()
-        self._cat_combo.setMinimumWidth(120)
+        self._cat_combo.setMinimumWidth(110)
         self._cat_combo.currentIndexChanged.connect(self._filter_projects)
         filter_row.addWidget(self._cat_combo)
         filter_row.addWidget(QLabel("件名："))
         self._proj_combo = QComboBox()
-        self._proj_combo.setMinimumWidth(200)
+        self._proj_combo.setMinimumWidth(180)
         self._proj_combo.currentIndexChanged.connect(self._on_project_changed)
         filter_row.addWidget(self._proj_combo)
         filter_row.addWidget(QLabel("表示："))
@@ -131,25 +132,15 @@ class IssuanceFromProjectWidget(QWidget):
         self._filter_combo.addItems(["未発行のみ", "すべて"])
         self._filter_combo.currentIndexChanged.connect(self._load_members)
         filter_row.addWidget(self._filter_combo)
-        filter_row.addSpacing(12)
-        self._search = QLineEdit()
-        self._search.setPlaceholderText("事業所名・代表者名で絞り込み")
-        self._timer = QTimer()
-        self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self._load_members)
-        self._search.textChanged.connect(lambda: self._timer.start(300))
-        filter_row.addWidget(self._search)
+        filter_row.addStretch()
         layout.addLayout(filter_row)
 
-        # ── アクション行（発行 / 配付方法 / 支払期日 / 封筒 / Excel） ─
+        # ── アクション行（配付方法 / 支払期日 / 検索 / Excel） ──────────
         label = "請求書" if self._doc_type == "invoice" else "領収書"
         action_row = QHBoxLayout()
-        self._btn_issue = QPushButton(f"選択した{label}を発行")
-        self._btn_issue.clicked.connect(self._issue_checked)
         self._delivery_combo = QComboBox()
-        self._delivery_combo.addItems(["窓口手渡し", "郵送", "メール送付"])
-        action_row.addWidget(self._btn_issue)
-        action_row.addWidget(QLabel("配付方法："))
+        self._delivery_combo.addItems(["印刷", "メール送付"])
+        action_row.addWidget(QLabel("発行方法："))
         action_row.addWidget(self._delivery_combo)
 
         if self._doc_type == "invoice":
@@ -166,10 +157,6 @@ class IssuanceFromProjectWidget(QWidget):
             action_row.addSpacing(16)
             action_row.addWidget(QLabel("支払期日："))
             action_row.addWidget(self._due_date)
-            action_row.addSpacing(8)
-            action_row.addWidget(self._window_envelope_chk)
-            action_row.addSpacing(4)
-            action_row.addWidget(self._show_person_chk)
         else:
             today = date.today()
             self._issued_date = QDateEdit(QDate(today.year, today.month, today.day))
@@ -180,6 +167,15 @@ class IssuanceFromProjectWidget(QWidget):
             action_row.addWidget(self._issued_date)
 
         action_row.addStretch()
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("事業所名・代表者名で絞り込み")
+        self._search.setMinimumWidth(120)
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._load_members)
+        self._search.textChanged.connect(lambda: self._timer.start(300))
+        action_row.addWidget(self._search)
+        action_row.addSpacing(8)
         self._btn_export_xlsx = QPushButton("Excel出力")
         self._btn_export_xlsx.setToolTip(
             "表示中の名簿と数量をExcelに出力します。\n"
@@ -192,6 +188,14 @@ class IssuanceFromProjectWidget(QWidget):
         self._btn_import_xlsx.clicked.connect(self._import_excel)
         action_row.addWidget(self._btn_import_xlsx)
         layout.addLayout(action_row)
+
+        if self._doc_type == "invoice":
+            option_row = QHBoxLayout()
+            option_row.addWidget(self._window_envelope_chk)
+            option_row.addSpacing(8)
+            option_row.addWidget(self._show_person_chk)
+            option_row.addStretch()
+            layout.addLayout(option_row)
 
         self._table = _CheckableTable(0, 7)
         self._table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
@@ -213,6 +217,15 @@ class IssuanceFromProjectWidget(QWidget):
 
         self._status_label = QLabel("")
         layout.addWidget(self._status_label)
+
+        # ── 発行ボタン（画面最下部に固定）─────────────────────────────
+        self._btn_issue = QPushButton(f"チェックした{label}を発行する")
+        self._btn_issue.setFixedHeight(44)
+        self._btn_issue.setStyleSheet(
+            "font-size: 14px; font-weight: bold;"
+            " background: #2563EB; color: white; border-radius: 6px;")
+        self._btn_issue.clicked.connect(self._issue_checked)
+        layout.addWidget(self._btn_issue)
 
     def _setup_table_columns(self):
         hdr = self._table.horizontalHeader()
@@ -865,6 +878,17 @@ class IssuanceFromProjectWidget(QWidget):
                     result.append((r, data_item.data(Qt.ItemDataRole.UserRole)))
         return result
 
+    def _restore_from_project_settings(self):
+        from app.utils.app_config import get_config
+        cfg = get_config().get("last_issuance_from_project", {})
+        method = cfg.get("delivery_method", "印刷")
+        idx = self._delivery_combo.findText(method)
+        if idx >= 0:
+            self._delivery_combo.setCurrentIndex(idx)
+        if self._doc_type == "invoice":
+            self._window_envelope_chk.setChecked(cfg.get("window_envelope", False))
+            self._show_person_chk.setChecked(cfg.get("show_person", True))
+
     # ── 発行処理 ──────────────────────────────────────────────────
 
     def _do_issue_rows(self, rows: list[tuple[int, tuple]]) -> list[str]:
@@ -874,6 +898,15 @@ class IssuanceFromProjectWidget(QWidget):
         支払期限ダイアログはDB変更前に表示し、キャンセル時は何も変更しない。
         PDF生成に失敗した行は発行済みを取り消して「準備中」に戻す。
         """
+        from app.utils.app_config import get_config as _gcfg, save_config as _scfg
+        _cfg = _gcfg()
+        _cfg["last_issuance_from_project"] = {
+            "delivery_method": self._delivery_combo.currentText(),
+            "window_envelope": self._window_envelope_chk.isChecked() if self._doc_type == "invoice" else False,
+            "show_person": self._show_person_chk.isChecked() if self._doc_type == "invoice" else True,
+        }
+        _scfg(_cfg)
+
         project_id = self._proj_combo.currentData()
         doc_type = self._doc_type
         delivery = self._delivery_combo.currentText()
@@ -972,6 +1005,9 @@ class IssuanceFromProjectWidget(QWidget):
                     try:
                         from app.database.models import Project as _Project
                         _proj = session.get(_Project, iss.project_id)
+                        if due_date and _proj and _proj.due_date != due_date:
+                            _proj.due_date = due_date
+                            session.commit()
                         _pdf_save_path = (
                             os.path.join(save_dir, f"{iss.doc_number}.pdf")
                             if save_dir else None
@@ -1016,7 +1052,7 @@ class IssuanceFromProjectWidget(QWidget):
         return errors, notify_items
 
     def _send_issue_emails(self, issued_issuances: list, errors: list[str]):
-        """配付方法「メール送付」で発行した分のPDFを1件ずつ確認してM365で送信する。"""
+        """発行方法「メール送付」で発行した分のPDFを1件ずつ確認してM365で送信する。"""
         from PyQt6.QtCore import QThread
         from PyQt6.QtWidgets import QApplication, QProgressDialog, QDialog
         from app.database.models import ProjectMember

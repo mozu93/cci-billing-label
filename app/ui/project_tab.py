@@ -36,7 +36,7 @@ class ProjectTab(QWidget):
         self._year_combo.currentIndexChanged.connect(self._load)
         top_row.addWidget(self._year_combo)
 
-        btn_add = QPushButton("＋ 新規 請求・領収書データ")
+        btn_add = QPushButton("＋ 新規作成")
         btn_add.clicked.connect(self._add)
         btn_edit = QPushButton("編集")
         btn_edit.clicked.connect(self._edit)
@@ -53,12 +53,6 @@ class ProjectTab(QWidget):
         top_row.addWidget(self._btn_close)
         top_row.addWidget(self._btn_reopen)
         top_row.addWidget(btn_rollover)
-        btn_csv = QPushButton("CSV出力")
-        btn_csv.clicked.connect(self._export_csv)
-        btn_excel = QPushButton("Excel出力")
-        btn_excel.clicked.connect(self._export_excel)
-        top_row.addWidget(btn_csv)
-        top_row.addWidget(btn_excel)
         top_row.addStretch()
 
         self._status_combo = QComboBox()
@@ -70,6 +64,16 @@ class ProjectTab(QWidget):
         top_row.addWidget(QLabel("状態："))
         top_row.addWidget(self._status_combo)
         layout.addLayout(top_row)
+
+        export_row = QHBoxLayout()
+        btn_csv = QPushButton("CSV出力")
+        btn_csv.clicked.connect(self._export_csv)
+        btn_excel = QPushButton("Excel出力")
+        btn_excel.clicked.connect(self._export_excel)
+        export_row.addWidget(btn_csv)
+        export_row.addWidget(btn_excel)
+        export_row.addStretch()
+        layout.addLayout(export_row)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
 

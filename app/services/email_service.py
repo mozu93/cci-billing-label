@@ -140,9 +140,13 @@ def prepare_issuance_email(session, issuance,
     return to_addr, subject, body_html, issuance.pdf_path
 
 
-def prepare_reminder_email(session, issuance,
-                           due_date=None) -> tuple[str, str, str, str | None]:
-    """督促メールの (宛先, 件名, 本文HTML, PDFパスまたはNone) を組み立てる。"""
+def prepare_reminder_email(session, issuance, due_date=None,
+                           custom_subject: str | None = None,
+                           custom_body: str | None = None,
+                           ) -> tuple[str, str, str, str | None]:
+    """督促メールの (宛先, 件名, 本文HTML, PDFパスまたはNone) を組み立てる。
+    custom_subject / custom_body を渡すとテンプレート設定より優先して使用する。
+    """
     from app.database.models import CompanySettings, ProjectMember, Project
     label = (issuance.recipient_organization or issuance.recipient_name
              or issuance.doc_number or "")
@@ -163,9 +167,15 @@ def prepare_reminder_email(session, issuance,
         proj = session.get(Project, issuance.project_id)
         project_name = proj.name if proj else ""
     extra = {"支払期限": due_date.strftime("%Y年%m月%d日") if due_date else ""}
-    subject, body = build_issuance_email(
-        issuance, company_name, project_name,
-        kind="reminder", extra_context=extra)
+    if custom_subject is not None and custom_body is not None:
+        ctx = build_issuance_context(issuance, company_name, project_name)
+        ctx.update(extra)
+        subject = render_email_template(custom_subject, ctx)
+        body    = render_email_template(custom_body,    ctx)
+    else:
+        subject, body = build_issuance_email(
+            issuance, company_name, project_name,
+            kind="reminder", extra_context=extra)
     body_html = (
         "<div style='font-family:sans-serif; font-size:14px; line-height:1.8;'>"
         + _html.escape(body).replace("\n", "<br>")

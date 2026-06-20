@@ -54,7 +54,7 @@ class RosterImportDialog(QDialog):
         super().__init__(parent)
         self._project_id = project_id
         self.setWindowTitle("名簿の取り込み")
-        self.resize(820, 680)
+        self.resize(780, 600)
         self._raw_rows: list[list[str]] = []
         self._field_combos: dict[str, QComboBox] = {}
         self._build()
@@ -126,6 +126,11 @@ class RosterImportDialog(QDialog):
         btn_cancel = QPushButton("キャンセル")
         btn_cancel.clicked.connect(self.reject)
         self._btn_import = QPushButton("取り込み実行")
+        self._btn_import.setStyleSheet(
+            "QPushButton { background: #2563EB; color: white; border-radius: 4px;"
+            " font-weight: bold; padding: 2px 12px; }"
+            "QPushButton:hover { background: #1D4ED8; }"
+            "QPushButton:disabled { background: #94A3B8; color: white; }")
         self._btn_import.setEnabled(False)
         self._btn_import.clicked.connect(self._import)
         btn_row2.addWidget(btn_cancel)

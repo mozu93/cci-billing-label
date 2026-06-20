@@ -3,7 +3,8 @@ import os
 from datetime import date
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QComboBox, QLabel, QHeaderView, QMessageBox, QLineEdit
+    QPushButton, QComboBox, QLabel, QHeaderView, QMessageBox, QLineEdit,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt, QTimer
 from app.database.connection import get_session
@@ -12,13 +13,15 @@ from app.services.project_service import get_projects
 from app.services.category_service import get_active_categories
 from sqlalchemy.orm import joinedload
 
-COL_NUM  = 0
-COL_PROJ = 1
-COL_DEST = 2
-COL_AMT  = 3
-COL_TYPE = 4
-COL_STAT = 5
-COL_DATE = 6
+COL_CHK  = 0
+COL_NUM  = 1
+COL_DATE = 2
+COL_PROJ = 3
+COL_DEST = 4
+COL_AMT  = 5
+COL_TYPE = 6
+COL_STAT = 7
+COL_MAIL = 8
 
 _TYPE_LABEL = {"invoice": "請求書", "receipt": "領収書"}
 
@@ -71,32 +74,9 @@ class ReissueWidget(QWidget):
         self._type_combo.currentIndexChanged.connect(self._load)
         top.addWidget(self._type_combo)
 
-        top.addStretch()
-
-        self._btn_edit = QPushButton("内容修正")
-        self._btn_edit.setFixedHeight(36)
-        self._btn_edit.setEnabled(False)
-        self._btn_edit.setStyleSheet(
-            "QPushButton { background:#0e7490; color:white; border-radius:4px;"
-            " font-weight:bold; padding:0 16px; }"
-            "QPushButton:hover { background:#0c6280; }"
-            "QPushButton:disabled { background:#cccccc; color:#888; }"
-        )
-        self._btn_edit.clicked.connect(self._edit_issuance)
-        top.addWidget(self._btn_edit)
-
-        self._btn_reissue = QPushButton("再発行（PDF再出力）")
-        self._btn_reissue.setFixedHeight(36)
-        self._btn_reissue.setStyleSheet(
-            "QPushButton { background:#1D4ED8; color:white; border-radius:4px;"
-            " font-weight:bold; padding:0 16px; }"
-            "QPushButton:hover { background:#1E40AF; }"
-        )
-        self._btn_reissue.clicked.connect(self._reissue)
-        top.addWidget(self._btn_reissue)
         layout.addLayout(top)
 
-        # ── 検索行 ───────────────────────────────────────────────────
+        # ── 検索行・発行方法・アクションボタン ────────────────────────
         search_row = QHBoxLayout()
         self._search = QLineEdit()
         self._search.setPlaceholderText("宛先・件名で絞り込み")
@@ -106,18 +86,53 @@ class ReissueWidget(QWidget):
         self._search.textChanged.connect(lambda: self._search_timer.start(300))
         search_row.addWidget(QLabel("検索："))
         search_row.addWidget(self._search)
+
+        search_row.addWidget(QLabel("発行方法："))
+        self._delivery_combo = QComboBox()
+        self._delivery_combo.addItems(["印刷", "メール送付"])
+        self._delivery_combo.setFixedWidth(110)
+        search_row.addWidget(self._delivery_combo)
+
+        search_row.addStretch()
+
+        _blue_ss = (
+            "QPushButton { background: #2563EB; color: white; border-radius: 4px;"
+            " font-weight: bold; padding: 0 16px; }"
+            "QPushButton:hover { background: #1D4ED8; }"
+            "QPushButton:disabled { background: #94A3B8; color: white; }"
+        )
+        self._btn_edit = QPushButton("内容修正")
+        self._btn_edit.setFixedHeight(36)
+        self._btn_edit.setEnabled(False)
+        self._btn_edit.setStyleSheet(_blue_ss)
+        self._btn_edit.clicked.connect(self._edit_issuance)
+        search_row.addWidget(self._btn_edit)
+
+        self._btn_reissue = QPushButton("再発行（PDF再出力）")
+        self._btn_reissue.setFixedHeight(36)
+        self._btn_reissue.setStyleSheet(_blue_ss)
+        self._btn_reissue.clicked.connect(self._reissue)
+        search_row.addWidget(self._btn_reissue)
         layout.addLayout(search_row)
 
         # ── テーブル ─────────────────────────────────────────────────
-        self._table = QTableWidget(0, 7)
+        self._table = QTableWidget(0, 9)
         self._table.setHorizontalHeaderLabels(
-            ["発行番号", "件名", "宛先", "金額", "種別", "状態", "発行日"])
+            ["", "発行番号", "発行日", "件名", "宛先", "金額", "種別", "状態", "メール"])
         hdr = self._table.horizontalHeader()
         hdr.setSortIndicatorShown(True)
-        hdr.setSectionResizeMode(COL_PROJ, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(COL_DEST, QHeaderView.ResizeMode.Stretch)
-        for col in (COL_NUM, COL_AMT, COL_TYPE, COL_STAT, COL_DATE):
-            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(COL_CHK, QHeaderView.ResizeMode.Fixed)
+        self._table.setColumnWidth(COL_CHK,  30)
+        self._table.setColumnWidth(COL_NUM,  100)
+        self._table.setColumnWidth(COL_DATE, 90)
+        self._table.setColumnWidth(COL_PROJ, 160)
+        self._table.setColumnWidth(COL_DEST, 140)
+        self._table.setColumnWidth(COL_AMT,  90)
+        self._table.setColumnWidth(COL_TYPE, 60)
+        self._table.setColumnWidth(COL_STAT, 70)
+        self._table.setColumnWidth(COL_MAIL, 180)
+        hdr.setStretchLastSection(False)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -135,7 +150,7 @@ class ReissueWidget(QWidget):
     def _load_filter_data(self):
         session = get_session()
         try:
-            self._all_projects = get_projects(session)   # counter除外・全ステータス
+            self._all_projects = get_projects(session)
             cats = get_active_categories(session)
         finally:
             session.close()
@@ -190,6 +205,7 @@ class ReissueWidget(QWidget):
         session = get_session()
         try:
             from sqlalchemy import or_
+            from app.database.models import ProjectMember
             q = (session.query(Issuance, Project)
                  .join(Project, Issuance.project_id == Project.id)
                  .filter(or_(
@@ -203,6 +219,14 @@ class ReissueWidget(QWidget):
             if doc_type:
                 q = q.filter(Issuance.doc_type == doc_type)
             rows = q.order_by(Issuance.issued_at.desc()).all()
+
+            # PM→メール有無をまとめて取得
+            pm_ids = {iss.project_member_id for iss, _ in rows if iss.project_member_id}
+            pm_email_map: dict[int, str] = {}
+            if pm_ids:
+                pms = session.query(ProjectMember).filter(
+                    ProjectMember.id.in_(pm_ids)).all()
+                pm_email_map = {pm.id: (pm.email or "").strip() for pm in pms}
         finally:
             session.close()
 
@@ -211,16 +235,30 @@ class ReissueWidget(QWidget):
         for iss, proj in rows:
             r = self._table.rowCount()
             self._table.insertRow(r)
-            dest = (iss.recipient_organization or iss.recipient_name or "").strip()
+
+            dest   = (iss.recipient_organization or iss.recipient_name or "").strip()
             issued = iss.issued_at.strftime("%Y/%m/%d") if iss.issued_at else ""
+            mail_addr = pm_email_map.get(iss.project_member_id, "") if iss.project_member_id else ""
+
+            # チェックボックス列
+            chk_item = QTableWidgetItem("")
+            chk_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            chk_item.setCheckState(Qt.CheckState.Unchecked)
+            chk_item.setData(Qt.ItemDataRole.UserRole,     iss.id)
+            chk_item.setData(Qt.ItemDataRole.UserRole + 1, proj.project_type)
+            chk_item.setData(Qt.ItemDataRole.UserRole + 2, iss.status)
+            chk_item.setData(Qt.ItemDataRole.UserRole + 3, iss.doc_type)
+            self._table.setItem(r, COL_CHK, chk_item)
+
             for col, val in [
                 (COL_NUM,  iss.doc_number or ""),
+                (COL_DATE, issued),
                 (COL_PROJ, proj.name or ""),
                 (COL_DEST, dest),
                 (COL_AMT,  f"¥{int(iss.amount):,}"),
                 (COL_TYPE, _TYPE_LABEL.get(iss.doc_type, iss.doc_type)),
                 (COL_STAT, iss.status),
-                (COL_DATE, issued),
+                (COL_MAIL, mail_addr),
             ]:
                 item = QTableWidgetItem(val)
                 item.setData(Qt.ItemDataRole.UserRole,     iss.id)
@@ -244,7 +282,7 @@ class ReissueWidget(QWidget):
                 total += 1
                 continue
             targets = []
-            for col in (COL_PROJ, COL_DEST):  # 件名, 宛先
+            for col in (COL_PROJ, COL_DEST):
                 it = self._table.item(r, col)
                 if it:
                     targets.append(it.text().lower())
@@ -259,10 +297,21 @@ class ReissueWidget(QWidget):
         if row < 0:
             self._btn_edit.setEnabled(False)
             return
-        item = self._table.item(row, COL_NUM)
-        proj_type = item.data(Qt.ItemDataRole.UserRole + 1) if item else None
-        status    = item.data(Qt.ItemDataRole.UserRole + 2) if item else None
+        item = self._table.item(row, COL_CHK)
+        status = item.data(Qt.ItemDataRole.UserRole + 2) if item else None
         self._btn_edit.setEnabled(status == "発行済み")
+
+    # ── チェックされた行のissuance IDを返す ──────────────────────────
+
+    def _checked_ids(self) -> list[int]:
+        ids = []
+        for r in range(self._table.rowCount()):
+            if self._table.isRowHidden(r):
+                continue
+            item = self._table.item(r, COL_CHK)
+            if item and item.checkState() == Qt.CheckState.Checked:
+                ids.append(item.data(Qt.ItemDataRole.UserRole))
+        return ids
 
     # ── 内容修正 ─────────────────────────────────────────────────────
 
@@ -270,7 +319,7 @@ class ReissueWidget(QWidget):
         row = self._table.currentRow()
         if row < 0:
             return
-        item     = self._table.item(row, COL_NUM)
+        item     = self._table.item(row, COL_CHK)
         iss_id   = item.data(Qt.ItemDataRole.UserRole)
         doc_type = item.data(Qt.ItemDataRole.UserRole + 3)
 
@@ -279,8 +328,8 @@ class ReissueWidget(QWidget):
 
         dlg = QDialog(self)
         dlg.setWindowTitle("フリー発行の内容修正")
-        dlg.setMinimumWidth(920)
-        dlg.setMinimumHeight(600)
+        dlg.setMinimumWidth(780)
+        dlg.setMinimumHeight(560)
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -294,13 +343,25 @@ class ReissueWidget(QWidget):
     # ── 再発行 ───────────────────────────────────────────────────────
 
     def _reissue(self):
-        row = self._table.currentRow()
-        if row < 0:
-            QMessageBox.information(self, "未選択",
-                                    "再発行する行を選択してください。")
-            return
-        iss_id = self._table.item(row, COL_NUM).data(Qt.ItemDataRole.UserRole)
+        ids = self._checked_ids()
+        if not ids:
+            row = self._table.currentRow()
+            if row < 0:
+                QMessageBox.information(
+                    self, "未選択",
+                    "再発行する行にチェックを入れるか、行を選択してください。")
+                return
+            item = self._table.item(row, COL_CHK)
+            ids = [item.data(Qt.ItemDataRole.UserRole)]
 
+        delivery = self._delivery_combo.currentText()
+        for iss_id in ids:
+            result = self._reissue_one(iss_id, delivery)
+            if result == "cancel":
+                break
+
+    def _reissue_one(self, iss_id: int, delivery: str) -> str:
+        """1件再発行。"ok"/"cancel"/"error" を返す。"""
         session = get_session()
         try:
             iss = (session.query(Issuance)
@@ -309,44 +370,60 @@ class ReissueWidget(QWidget):
                    .first())
             if not iss:
                 QMessageBox.critical(self, "エラー", "発行データが見つかりません。")
-                return
+                return "error"
+
             from app.utils.pdf_helpers import generate_and_open
             from app.services.operation_log_service import add_log
+            _lbl = "請求書" if iss.doc_type == "invoice" else "領収書"
+
             due_date = None
-            if iss.doc_type == "invoice":
+            if iss.doc_type == "invoice" and delivery != "メール送付":
                 from app.ui.invoice_options_dialog import InvoiceOptionsDialog
                 from PyQt6.QtWidgets import QDialog
                 opts = InvoiceOptionsDialog(issued_at=iss.issued_at, parent=self)
                 if opts.exec() != QDialog.DialogCode.Accepted:
-                    return
+                    return "cancel"
                 due_date = opts.due_date()
+            elif iss.doc_type == "invoice":
+                # メール送付時は project.due_date をそのまま使用
+                from app.database.models import Project as _Proj
+                _proj = session.get(_Proj, iss.project_id)
+                due_date = _proj.due_date if _proj else None
+
             from app.database.models import Project as _Project
             _proj = session.get(_Project, iss.project_id)
-            from PyQt6.QtWidgets import QFileDialog
-            from app.utils.pdf_helpers import get_pdf_output_dir
-            _out_dir = get_pdf_output_dir()
-            _default_name = os.path.join(_out_dir, f"{iss.doc_number}_再発行.pdf")
-            _save_path, _ = QFileDialog.getSaveFileName(
-                self, "PDFの保存先を選択", _default_name, "PDF ファイル (*.pdf)"
-            )
-            if not _save_path:
-                return  # キャンセル時は何も変更せず終了
-            generate_and_open(iss, session, reissue=True, due_date=due_date,
-                              save_path=_save_path,
-                              project=_proj)
-            _lbl = "請求書" if iss.doc_type == "invoice" else "領収書"
-            add_log(session, "再発行", "issuance", iss.id,
-                    f"{_lbl} {iss.doc_number} 宛先：{iss.recipient_organization or iss.recipient_name}")
 
-            ans = QMessageBox.question(
-                self, "メール送信",
-                f"再発行した{_lbl}をメールで送信しますか？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if ans == QMessageBox.StandardButton.Yes:
-                self._send_reissue_email(session, iss, _save_path)
+            if delivery == "メール送付":
+                # PDF を一時ファイルとして生成してメール送信
+                import tempfile
+                _tmp = tempfile.NamedTemporaryFile(
+                    suffix=".pdf", delete=False,
+                    prefix=f"{iss.doc_number}_再発行_")
+                _tmp_path = _tmp.name
+                _tmp.close()
+                generate_and_open(iss, session, reissue=True, due_date=due_date,
+                                  save_path=_tmp_path, project=_proj, open_file=False)
+                add_log(session, "再発行", "issuance", iss.id,
+                        f"{_lbl} {iss.doc_number} 宛先：{iss.recipient_organization or iss.recipient_name}")
+                self._send_reissue_email(session, iss, _tmp_path)
+            else:
+                from PyQt6.QtWidgets import QFileDialog
+                from app.utils.pdf_helpers import get_pdf_output_dir
+                _out_dir = get_pdf_output_dir()
+                _default_name = os.path.join(_out_dir, f"{iss.doc_number}_再発行.pdf")
+                _save_path, _ = QFileDialog.getSaveFileName(
+                    self, "PDFの保存先を選択", _default_name, "PDF ファイル (*.pdf)"
+                )
+                if not _save_path:
+                    return "cancel"
+                generate_and_open(iss, session, reissue=True, due_date=due_date,
+                                  save_path=_save_path, project=_proj)
+                add_log(session, "再発行", "issuance", iss.id,
+                        f"{_lbl} {iss.doc_number} 宛先：{iss.recipient_organization or iss.recipient_name}")
+            return "ok"
         except Exception as e:
             QMessageBox.critical(self, "再発行エラー", str(e))
+            return "error"
         finally:
             session.close()
 
@@ -372,7 +449,6 @@ class ReissueWidget(QWidget):
 
         _lbl = "請求書" if iss.doc_type == "invoice" else "領収書"
 
-        # メールアドレスを取得（会員設定 → 手入力）
         to_addr = subject = body_html = ""
         try:
             to_addr, subject, body_html, _ = prepare_issuance_email(session, iss)

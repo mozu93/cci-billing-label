@@ -46,6 +46,10 @@ class FiscalYearDialog(QDialog):
         btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(btn_cancel)
         btn_exec = QPushButton("年度更新を実行する")
+        btn_exec.setStyleSheet(
+            "QPushButton { background: #2563EB; color: white; border-radius: 4px;"
+            " font-weight: bold; padding: 2px 12px; }"
+            "QPushButton:hover { background: #1D4ED8; }")
         btn_exec.clicked.connect(self._execute)
         btn_row.addWidget(btn_exec)
         layout.addLayout(btn_row)

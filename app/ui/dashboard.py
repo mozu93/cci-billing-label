@@ -40,16 +40,20 @@ class DashboardWidget(QWidget):
         layout.addLayout(top_row)
 
         layout.addWidget(QLabel("■ 受付中の名簿"))
-        self._table = QTableWidget(0, 5)
+        self._table = QTableWidget(0, 8)
         self._table.setHorizontalHeaderLabels(
-            ["名簿名", "全件", "請求書発行済", "領収書発行済", "未発行"])
-        self._table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch)
+            ["名簿名", "全件", "請求書発行済", "領収書発行済", "未発行",
+             "請求総額", "入金済み", "未回収"])
+        hdr = self._table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in range(1, 8):
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self._table)
 
 
     def _load(self):
+        from app.database.models import Issuance
         year = self._year_combo.currentData()
         session = get_session()
         try:
@@ -58,17 +62,27 @@ class DashboardWidget(QWidget):
             self._table.setRowCount(0)
             for proj in active:
                 p = get_project_progress(session, proj.id)
+                issuances = session.query(Issuance).filter_by(project_id=proj.id).all()
+                total_amount = sum(int(i.amount) for i in issuances
+                                   if i.doc_type == "invoice")
+                paid_amount  = sum(int(i.amount) for i in issuances
+                                   if i.doc_type == "invoice" and i.status == "支払済み")
+                unpaid_amount = total_amount - paid_amount
+
                 row = self._table.rowCount()
                 self._table.insertRow(row)
                 pending = p["pending"]
                 for col, val in enumerate([
                     proj.name,
                     str(p["total"]), str(p["invoice_issued"]),
-                    str(p["receipt_issued"]), str(pending)
+                    str(p["receipt_issued"]), str(pending),
+                    f"¥{total_amount:,}", f"¥{paid_amount:,}", f"¥{unpaid_amount:,}",
                 ]):
                     item = QTableWidgetItem(val)
                     item.setData(Qt.ItemDataRole.UserRole, proj.id)
                     if col == 4 and pending > 0:
+                        item.setForeground(QColor("#DC2626"))
+                    if col == 7 and unpaid_amount > 0:
                         item.setForeground(QColor("#DC2626"))
                     self._table.setItem(row, col, item)
         finally:

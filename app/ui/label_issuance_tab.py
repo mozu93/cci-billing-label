@@ -128,7 +128,7 @@ class LabelIssuanceTab(QWidget):
     def _build(self):
         layout = QVBoxLayout(self)
 
-        # ── フィルタ行（年度 / 業務区分 / 件名） ─────────────────────────
+        # ── フィルタ行（年度 / 業務区分 / 件名 / 検索） ───────────────────
         filter_row = QHBoxLayout()
         filter_row.addWidget(QLabel("年度："))
         self._year_combo = QComboBox()
@@ -138,19 +138,28 @@ class LabelIssuanceTab(QWidget):
 
         filter_row.addWidget(QLabel("業務区分："))
         self._cat_combo = QComboBox()
-        self._cat_combo.setMinimumWidth(120)
+        self._cat_combo.setMinimumWidth(110)
         self._cat_combo.currentIndexChanged.connect(self._filter_projects)
         filter_row.addWidget(self._cat_combo)
 
         filter_row.addWidget(QLabel("件名："))
         self._proj_combo = QComboBox()
-        self._proj_combo.setMinimumWidth(200)
+        self._proj_combo.setMinimumWidth(160)
         self._proj_combo.currentIndexChanged.connect(self._on_project_changed)
         filter_row.addWidget(self._proj_combo)
         filter_row.addStretch()
+        filter_row.addWidget(QLabel("検索："))
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("事業所名・代表者名で絞り込み")
+        self._search.setMinimumWidth(120)
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._load_members)
+        self._search.textChanged.connect(lambda: self._timer.start(300))
+        filter_row.addWidget(self._search)
         layout.addLayout(filter_row)
 
-        # ── アクション行（モード / フォント / 生成ボタン / 検索） ─────────
+        # ── アクション行（モード / 用紙 / フォント / 生成ボタン） ─────────
         action_row = QHBoxLayout()
         from app.services.pdf.label_pdf import (
             LABEL_LAYOUTS, FONT_OPTIONS, DEFAULT_FONT_KEY
@@ -165,7 +174,8 @@ class LabelIssuanceTab(QWidget):
 
         action_row.addWidget(QLabel("用紙："))
         self._layout_combo = QComboBox()
-        self._layout_combo.setMinimumWidth(200)
+        self._layout_combo.setMinimumWidth(160)
+        self._layout_combo.setMaximumWidth(260)
         action_row.addWidget(self._layout_combo)
         self._on_mode_changed()  # 初期値を設定
 
@@ -178,21 +188,17 @@ class LabelIssuanceTab(QWidget):
             self._font_combo.setCurrentIndex(fidx)
         action_row.addWidget(self._font_combo)
 
+        action_row.addStretch()
         self._btn_generate = QPushButton("ラベルPDF生成")
+        self._btn_generate.setFixedHeight(36)
+        self._btn_generate.setStyleSheet(
+            "QPushButton { background: #2563EB; color: white; border-radius: 4px;"
+            " font-weight: bold; padding: 0 12px; }"
+            "QPushButton:hover { background: #1D4ED8; }"
+            "QPushButton:disabled { background: #94A3B8; color: white; }")
         self._btn_generate.setEnabled(False)
         self._btn_generate.clicked.connect(self._generate_pdf)
         action_row.addWidget(self._btn_generate)
-
-        action_row.addStretch()
-        action_row.addWidget(QLabel("検索："))
-        self._search = QLineEdit()
-        self._search.setPlaceholderText("事業所名・代表者名で絞り込み")
-        self._search.setMinimumWidth(150)
-        self._timer = QTimer()
-        self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self._load_members)
-        self._search.textChanged.connect(lambda: self._timer.start(300))
-        action_row.addWidget(self._search)
         layout.addLayout(action_row)
 
         # ── テーブル ─────────────────────────────────────────────────────

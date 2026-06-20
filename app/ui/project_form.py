@@ -151,7 +151,7 @@ class ProjectFormDialog(QDialog):
         self._rows: list[_ItemRow] = []
         self.setWindowTitle("請求・領収書データの登録" if project_id is None
                             else "請求・領収書データの編集")
-        self.resize(860, 600)
+        self.resize(780, 560)
         self.setStyleSheet(
             "QLineEdit, QComboBox, QSpinBox { "
             "border: 1px solid #b5b5b5; border-radius: 3px; "
@@ -298,6 +298,10 @@ class ProjectFormDialog(QDialog):
         btn_cancel = QPushButton("キャンセル")
         btn_cancel.clicked.connect(self.reject)
         btn_ok = QPushButton("保存")
+        btn_ok.setStyleSheet(
+            "QPushButton { background: #2563EB; color: white; border-radius: 4px;"
+            " font-weight: bold; padding: 2px 12px; }"
+            "QPushButton:hover { background: #1D4ED8; }")
         btn_ok.clicked.connect(self._save)
         btn_row.addWidget(btn_cancel)
         btn_row.addWidget(btn_ok)
