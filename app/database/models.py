@@ -31,8 +31,8 @@ class Staff(Base):
     password_hash = Column(String(200), nullable=True)
     supervisor_name  = Column(String(100), default="")   # 旧カラム（未使用）
     supervisor_email = Column(String(200), default="")   # 旧カラム（未使用）
-    supervisor_id = Column(Integer, ForeignKey("supervisors.id"), nullable=True)
-    supervisor = relationship("Supervisor")
+    supervisor_id = Column(Integer, ForeignKey("staff.id"), nullable=True)
+    supervisor = relationship("Staff", foreign_keys="Staff.supervisor_id", remote_side="Staff.id")
     created_at = Column(DateTime, default=datetime.now)
 
 

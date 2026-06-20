@@ -26,14 +26,12 @@ def create_staff(session: Session, name: str,
                  supervisor_id: int | None = None,
                  is_department_head: bool = False,
                  email: str = "") -> Staff:
-    from app.services.supervisor_service import sync_supervisor_for_staff
     staff = Staff(name=name, supervisor_id=supervisor_id,
                   is_department_head=is_department_head,
                   email=email or None)
     session.add(staff)
     session.commit()
     session.refresh(staff)
-    sync_supervisor_for_staff(session, staff)
     return staff
 
 
@@ -74,15 +72,86 @@ def update_staff(session: Session, staff_id: int, name: str,
                  supervisor_id: int | None = None,
                  is_department_head: bool = False,
                  email: str = "") -> Staff:
-    from app.services.supervisor_service import sync_supervisor_for_staff
     staff = session.get(Staff, staff_id)
     staff.name = name
     staff.supervisor_id = supervisor_id
     staff.is_department_head = is_department_head
     staff.email = email.strip() or None
     session.commit()
-    sync_supervisor_for_staff(session, staff)
     return staff
+
+
+def get_department_heads(session: Session) -> list[Staff]:
+    return (session.query(Staff)
+            .filter_by(is_department_head=True, is_active=True)
+            .order_by(Staff.name)
+            .all())
+
+
+def import_staff_from_csv(session: Session, file_path: str) -> tuple[int, int]:
+    """CSVから職員を追加インポートする。同名の職員はスキップ。
+
+    対応ヘッダー（大文字小文字・スペース不問）:
+      氏名 / 名前 / name
+      メール / メールアドレス / email
+      所属長 / 所属長フラグ / is_head  →  ○/1/true で所属長フラグON
+      担当所属長 / 上司 / supervisor     →  既存職員の氏名で参照
+
+    Returns: (追加件数, スキップ件数)
+    """
+    import csv, pathlib
+
+    suffix = pathlib.Path(file_path).suffix.lower()
+    rows: list[dict] = []
+    if suffix in (".xlsx", ".xls"):
+        import openpyxl
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        ws = wb.active
+        headers = [str(c.value or "").strip() for c in next(ws.iter_rows(max_row=1))]
+        for excel_row in ws.iter_rows(min_row=2, values_only=True):
+            rows.append({h: (str(v).strip() if v is not None else "") for h, v in zip(headers, excel_row)})
+        wb.close()
+    else:
+        with open(file_path, encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
+
+    _NAME_KEYS  = {"氏名", "名前", "name"}
+    _EMAIL_KEYS = {"メール", "メールアドレス", "email"}
+    _HEAD_KEYS  = {"所属長", "所属長フラグ", "is_head"}
+    _SUP_KEYS   = {"担当所属長", "上司", "supervisor"}
+
+    def _find(row: dict, keys: set) -> str:
+        for k in row:
+            if k.lower().replace(" ", "") in {x.lower().replace(" ", "") for x in keys}:
+                return row[k].strip()
+        return ""
+
+    existing = {s.name: s for s in session.query(Staff).all()}
+    added = skipped = 0
+
+    for row in rows:
+        name = _find(row, _NAME_KEYS)
+        if not name:
+            continue
+        if name in existing:
+            skipped += 1
+            continue
+
+        email      = _find(row, _EMAIL_KEYS)
+        head_raw   = _find(row, _HEAD_KEYS)
+        is_head    = head_raw.lower() in ("○", "1", "true", "yes", "はい")
+        sup_name   = _find(row, _SUP_KEYS)
+        sup_id     = existing[sup_name].id if sup_name and sup_name in existing else None
+
+        staff = Staff(name=name, email=email or None,
+                      is_department_head=is_head, supervisor_id=sup_id)
+        session.add(staff)
+        session.flush()
+        existing[name] = staff
+        added += 1
+
+    session.commit()
+    return added, skipped
 
 
 # ── パスワード管理 ────────────────────────────────────────

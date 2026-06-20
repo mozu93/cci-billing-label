@@ -28,7 +28,7 @@ def _migrate(engine):
             conn.commit()
         if "supervisor_id" not in staff_cols:
             conn.execute(text(
-                "ALTER TABLE staff ADD COLUMN supervisor_id INTEGER REFERENCES supervisors(id)"))
+                "ALTER TABLE staff ADD COLUMN supervisor_id INTEGER REFERENCES staff(id)"))
             conn.commit()
         if "is_department_head" not in staff_cols:
             conn.execute(text("ALTER TABLE staff ADD COLUMN is_department_head BOOLEAN DEFAULT 0"))
@@ -116,6 +116,14 @@ def _migrate(engine):
         if "staff_id" not in sup_cols:
             conn.execute(text("ALTER TABLE supervisors ADD COLUMN staff_id INTEGER"))
             conn.commit()
+
+        # supervisor_id が staff テーブルに存在しない値（旧 supervisors.id 参照）をリセット
+        conn.execute(text(
+            "UPDATE staff SET supervisor_id = NULL "
+            "WHERE supervisor_id IS NOT NULL "
+            "AND supervisor_id NOT IN (SELECT id FROM staff)"
+        ))
+        conn.commit()
 
         si_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(seal_images)"))}
         if "image_data" not in si_cols:

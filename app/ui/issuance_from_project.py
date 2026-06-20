@@ -1193,11 +1193,11 @@ class IssuanceFromProjectWidget(QWidget):
             return
         session = get_session()
         try:
-            from app.database.models import Staff, Supervisor
+            from app.database.models import Staff
             staff = session.get(Staff, staff_id)
             supervisor_email = ""
             if staff and staff.supervisor_id:
-                sup = session.get(Supervisor, staff.supervisor_id)
+                sup = session.get(Staff, staff.supervisor_id)
                 supervisor_email = (sup.email or "").strip() if sup else ""
         finally:
             session.close()

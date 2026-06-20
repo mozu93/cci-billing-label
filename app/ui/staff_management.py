@@ -3,25 +3,22 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QLineEdit, QLabel, QMessageBox, QHeaderView,
     QDialog, QFormLayout, QDialogButtonBox, QComboBox, QGroupBox,
-    QCheckBox,
+    QCheckBox, QFileDialog,
 )
 from PyQt6.QtCore import Qt
 from app.database.connection import get_session
 from app.services.staff_service import (
     create_staff, get_all_staff, deactivate_staff, reactivate_staff,
     reset_password, set_admin, has_any_admin, update_staff,
-    set_department_head, update_staff_email,
-)
-from app.services.supervisor_service import (
-    create_supervisor, get_all_supervisors,
-    update_supervisor, deactivate_supervisor,
+    set_department_head, update_staff_email, get_department_heads,
+    import_staff_from_csv,
 )
 from app.utils import current_user
 
 # ── 職員テーブル列定数 ────────────────────────────────────────
 SCOL_ID    = 0
 SCOL_NAME  = 1
-SCOL_SUP   = 2  # 所属長（上司名）
+SCOL_SUP   = 2  # 担当所属長
 SCOL_HEAD  = 3  # 所属長フラグ
 SCOL_EMAIL = 4  # メールアドレス
 SCOL_ADMIN = 5  # 管理者
@@ -29,47 +26,11 @@ SCOL_PW    = 6  # パスワード
 SCOL_STAT  = 7  # 状態
 
 
-# ── 所属長 追加・編集ダイアログ ─────────────────────────────────
-
-class _SupervisorDialog(QDialog):
-    def __init__(self, parent=None, name="", email=""):
-        super().__init__(parent)
-        self.setWindowTitle("所属長の登録" if not name else "所属長の編集")
-        self.resize(340, 120)
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-        form.setVerticalSpacing(6)
-        form.setHorizontalSpacing(10)
-        self._name  = QLineEdit(name)
-        self._email = QLineEdit(email)
-        self._email.setPlaceholderText("例：buchou@example.com")
-        form.addRow("氏名 *", self._name)
-        form.addRow("メール", self._email)
-        layout.addLayout(form)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save |
-            QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Save).setText("保存")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("キャンセル")
-        buttons.accepted.connect(self._on_save)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def _on_save(self):
-        if not self._name.text().strip():
-            QMessageBox.warning(self, "入力エラー", "氏名を入力してください。")
-            return
-        self.accept()
-
-    def values(self) -> tuple[str, str]:
-        return self._name.text().strip(), self._email.text().strip()
-
-
 # ── 職員 追加・編集ダイアログ ────────────────────────────────────
 
 class _StaffDialog(QDialog):
     def __init__(self, parent=None, name="", supervisor_id=None,
-                 is_department_head=False, email="", supervisors=None):
+                 is_department_head=False, email="", department_heads=None):
         super().__init__(parent)
         self.setWindowTitle("職員の登録" if not name else "職員の編集")
         self.resize(360, 160)
@@ -82,8 +43,8 @@ class _StaffDialog(QDialog):
 
         self._sup_combo = QComboBox()
         self._sup_combo.addItem("（なし）", None)
-        for sup in (supervisors or []):
-            self._sup_combo.addItem(f"{sup.name}　{sup.email or ''}", sup.id)
+        for s in (department_heads or []):
+            self._sup_combo.addItem(f"{s.name}　{s.email or ''}", s.id)
         if supervisor_id is not None:
             for i in range(self._sup_combo.count()):
                 if self._sup_combo.itemData(i) == supervisor_id:
@@ -94,7 +55,7 @@ class _StaffDialog(QDialog):
         self._head_chk.setChecked(is_department_head)
 
         self._email = QLineEdit(email)
-        self._email.setPlaceholderText("例：staff@example.com")
+        self._email.setPlaceholderText("例：staff@example.com（所属長の場合は必須）")
 
         form.addRow("氏名 *",        self._name)
         form.addRow("担当所属長",    self._sup_combo)
@@ -115,6 +76,10 @@ class _StaffDialog(QDialog):
         if not self._name.text().strip():
             QMessageBox.warning(self, "入力エラー", "氏名を入力してください。")
             return
+        if self._head_chk.isChecked() and not self._email.text().strip():
+            QMessageBox.warning(self, "入力エラー",
+                                "所属長フラグがONの場合、メールアドレスは必須です。")
+            return
         self.accept()
 
     def values(self) -> tuple[str, int | None, bool, str]:
@@ -129,9 +94,9 @@ class _StaffDialog(QDialog):
 class StaffManagementWidget(QWidget):
     def __init__(self):
         super().__init__()
-        self._supervisors: list = []
+        self._department_heads: list = []
         self._build()
-        self._load_supervisors()
+        self._load_department_heads()
         self._load_staff()
 
     def _can_admin(self) -> bool:
@@ -146,36 +111,6 @@ class StaffManagementWidget(QWidget):
     def _build(self):
         layout = QVBoxLayout(self)
 
-        # ── 所属長セクション ──────────────────────────────────────
-        grp_sup = QGroupBox("所属長")
-        sup_vbox = QVBoxLayout(grp_sup)
-
-        self._sup_table = QTableWidget(0, 3)
-        self._sup_table.setHorizontalHeaderLabels(["ID", "氏名", "メール"])
-        shdr = self._sup_table.horizontalHeader()
-        shdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self._sup_table.setColumnWidth(0, 36)
-        shdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        self._sup_table.setColumnWidth(1, 130)
-        shdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self._sup_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._sup_table.setMaximumHeight(130)
-        sup_vbox.addWidget(self._sup_table)
-
-        sup_btn_row = QHBoxLayout()
-        self._btn_sup_add  = QPushButton("追加")
-        self._btn_sup_edit = QPushButton("編集")
-        self._btn_sup_del  = QPushButton("削除")
-        self._btn_sup_add.clicked.connect(self._sup_add)
-        self._btn_sup_edit.clicked.connect(self._sup_edit)
-        self._btn_sup_del.clicked.connect(self._sup_delete)
-        for b in (self._btn_sup_add, self._btn_sup_edit, self._btn_sup_del):
-            sup_btn_row.addWidget(b)
-        sup_btn_row.addStretch()
-        sup_vbox.addLayout(sup_btn_row)
-        layout.addWidget(grp_sup)
-
-        # ── 職員セクション ────────────────────────────────────────
         grp_staff = QGroupBox("職員")
         staff_vbox = QVBoxLayout(grp_staff)
 
@@ -224,89 +159,57 @@ class StaffManagementWidget(QWidget):
         staff_vbox.addLayout(admin_row)
 
         self._admin_btns = [
-            self._btn_sup_add, self._btn_sup_edit, self._btn_sup_del,
             self._btn_add, self._btn_edit, self._btn_deact, self._btn_react,
             self._btn_reset_pw, self._btn_toggle_admin,
         ]
         layout.addWidget(grp_staff)
 
-    # ── 所属長 CRUD ──────────────────────────────────────────────
+        # ── CSVインポートセクション ───────────────────────────────
+        grp_csv = QGroupBox("CSVインポート（追記）")
+        csv_layout = QVBoxLayout(grp_csv)
+        csv_layout.setSpacing(6)
 
-    def _load_supervisors(self):
-        session = get_session()
-        try:
-            self._supervisors = get_all_supervisors(session)
-        finally:
-            session.close()
-        self._sup_table.setRowCount(0)
-        for sup in self._supervisors:
-            row = self._sup_table.rowCount()
-            self._sup_table.insertRow(row)
-            self._sup_table.setItem(row, 0, QTableWidgetItem(str(sup.id)))
-            self._sup_table.setItem(row, 1, QTableWidgetItem(sup.name))
-            self._sup_table.setItem(row, 2, QTableWidgetItem(sup.email or ""))
-        self._sup_table.resizeRowsToContents()
-
-    def _selected_sup_id(self) -> int | None:
-        row = self._sup_table.currentRow()
-        if row < 0:
-            return None
-        return int(self._sup_table.item(row, 0).text())
-
-    def _sup_add(self):
-        dlg = _SupervisorDialog(self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        name, email = dlg.values()
-        session = get_session()
-        try:
-            create_supervisor(session, name, email)
-        finally:
-            session.close()
-        self._load_supervisors()
-        self._load_staff()
-
-    def _sup_edit(self):
-        sup_id = self._selected_sup_id()
-        if sup_id is None:
-            QMessageBox.warning(self, "未選択", "編集する所属長を選択してください。")
-            return
-        row = self._sup_table.currentRow()
-        dlg = _SupervisorDialog(
-            self,
-            name=self._sup_table.item(row, 1).text(),
-            email=self._sup_table.item(row, 2).text(),
+        desc = QLabel(
+            "CSV/Excelから職員を一括追加します。同名の職員はスキップされます。\n"
+            "対応列：氏名（必須）・メールアドレス・所属長フラグ（○/1）・担当所属長（氏名）"
         )
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        name, email = dlg.values()
-        session = get_session()
-        try:
-            update_supervisor(session, sup_id, name, email)
-        finally:
-            session.close()
-        self._load_supervisors()
-        self._load_staff()
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color:#555; font-size:11px;")
+        csv_layout.addWidget(desc)
 
-    def _sup_delete(self):
-        sup_id = self._selected_sup_id()
-        if sup_id is None:
-            QMessageBox.warning(self, "未選択", "削除する所属長を選択してください。")
-            return
-        name = self._sup_table.item(self._sup_table.currentRow(), 1).text()
-        if QMessageBox.question(
-                self, "削除の確認",
-                f"所属長「{name}」を削除します。\n"
-                "この所属長が設定された職員は所属長なしになります。\nよろしいですか？"
-        ) != QMessageBox.StandardButton.Yes:
-            return
+        file_row = QHBoxLayout()
+        self._csv_path = QLineEdit()
+        self._csv_path.setReadOnly(True)
+        self._csv_path.setPlaceholderText("CSV / Excel ファイルを選択してください")
+        btn_browse = QPushButton("ファイルを選択…")
+        btn_browse.clicked.connect(self._csv_browse)
+        file_row.addWidget(self._csv_path, 1)
+        file_row.addWidget(btn_browse)
+        csv_layout.addLayout(file_row)
+
+        import_row = QHBoxLayout()
+        self._btn_csv_import = QPushButton("インポート実行")
+        self._btn_csv_import.setEnabled(False)
+        self._btn_csv_import.setStyleSheet(
+            "QPushButton { background: #2563EB; color: white; border-radius: 4px;"
+            " font-weight: bold; padding: 4px 14px; }"
+            "QPushButton:hover { background: #1D4ED8; }"
+            "QPushButton:disabled { background: #94A3B8; color: white; }")
+        self._btn_csv_import.clicked.connect(self._csv_import)
+        self._csv_result = QLabel("")
+        import_row.addWidget(self._btn_csv_import)
+        import_row.addWidget(self._csv_result, 1)
+        csv_layout.addLayout(import_row)
+        layout.addWidget(grp_csv)
+
+    # ── 所属長リスト更新 ──────────────────────────────────────────
+
+    def _load_department_heads(self):
         session = get_session()
         try:
-            deactivate_supervisor(session, sup_id)
+            self._department_heads = get_department_heads(session)
         finally:
             session.close()
-        self._load_supervisors()
-        self._load_staff()
 
     # ── 職員 CRUD ────────────────────────────────────────────────
 
@@ -358,7 +261,8 @@ class StaffManagementWidget(QWidget):
         return int(self._table.item(row, SCOL_ID).text())
 
     def _add(self):
-        dlg = _StaffDialog(self, supervisors=self._supervisors)
+        self._load_department_heads()
+        dlg = _StaffDialog(self, department_heads=self._department_heads)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         name, sup_id, is_head, email = dlg.values()
@@ -371,6 +275,7 @@ class StaffManagementWidget(QWidget):
             return
         finally:
             session.close()
+        self._load_department_heads()
         self._load_staff()
 
     def _edit(self):
@@ -382,13 +287,14 @@ class StaffManagementWidget(QWidget):
         current_sup_id = self._table.item(row, SCOL_SUP).data(Qt.ItemDataRole.UserRole)
         current_head = self._table.item(row, SCOL_HEAD).text() == "○"
         current_email = self._table.item(row, SCOL_EMAIL).text()
+        self._load_department_heads()
         dlg = _StaffDialog(
             self,
             name=self._table.item(row, SCOL_NAME).text(),
             supervisor_id=current_sup_id,
             is_department_head=current_head,
             email=current_email,
-            supervisors=self._supervisors,
+            department_heads=self._department_heads,
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
@@ -402,6 +308,7 @@ class StaffManagementWidget(QWidget):
             return
         finally:
             session.close()
+        self._load_department_heads()
         self._load_staff()
 
     def _deactivate(self):
@@ -483,3 +390,32 @@ class StaffManagementWidget(QWidget):
         from app.ui.login_dialog import ChangePasswordDialog
         dlg = ChangePasswordDialog(uid, uname, self)
         dlg.exec()
+
+    # ── CSVインポート ──────────────────────────────────────────────
+
+    def _csv_browse(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "CSVファイルを選択", "",
+            "CSV / Excel (*.csv *.xlsx *.xls);;すべてのファイル (*)"
+        )
+        if path:
+            self._csv_path.setText(path)
+            self._btn_csv_import.setEnabled(True)
+            self._csv_result.setText("")
+
+    def _csv_import(self):
+        path = self._csv_path.text()
+        if not path:
+            return
+        session = get_session()
+        try:
+            added, skipped = import_staff_from_csv(session, path)
+            self._csv_result.setText(f"追加：{added} 件　スキップ：{skipped} 件")
+            self._csv_result.setStyleSheet("color:green; font-weight:bold;")
+        except Exception as e:
+            self._csv_result.setText(f"エラー：{e}")
+            self._csv_result.setStyleSheet("color:red;")
+        finally:
+            session.close()
+        self._load_department_heads()
+        self._load_staff()
