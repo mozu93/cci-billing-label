@@ -176,7 +176,7 @@ def delete_member(session: Session, member_id: int) -> None:
         session.commit()
 
 
-def search_members(session: Session, query: str, limit: int = 50) -> list:
+def search_members(session: Session, query: str, limit: int = 5000) -> list:
     q = (query or "").strip()
     if not q:
         return []
@@ -185,8 +185,10 @@ def search_members(session: Session, query: str, limit: int = 50) -> list:
             .filter(or_(
                 Member.organization_name.contains(q),
                 Member.organization_kana.contains(q),
+                Member.representative_name.contains(q),
                 Member.member_number.contains(q),
             ))
+            .order_by(Member.organization_name)
             .limit(limit)
             .all())
 

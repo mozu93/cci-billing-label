@@ -4,16 +4,67 @@ from PyQt6.QtWidgets import (
     QLineEdit, QFileDialog, QMessageBox,
     QDialog, QTableWidget, QTableWidgetItem, QComboBox,
     QHeaderView, QAbstractItemView, QFormLayout, QDialogButtonBox,
-    QGroupBox, QScrollArea,
+    QGroupBox, QCheckBox,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
+
+# ── 列定数 ───────────────────────────────────────────────────────
+COL_CHK  = 0
+COL_NO   = 1
+COL_ORG  = 2
+COL_KANA = 3
+COL_NAME = 4
+COL_TEL  = 5
+COL_MAIL = 6
+
+_HEADERS = ["", "会員番号", "事業所名", "フリガナ", "氏名", "電話番号", "メール"]
+
+_COL_TO_FIELD = {
+    COL_NO:   "member_number",
+    COL_ORG:  "organization_name",
+    COL_KANA: "organization_kana",
+    COL_NAME: "representative_name",
+    COL_TEL:  "phone",
+    COL_MAIL: "email",
+}
+
+
+# ── Shift+クリック範囲選択対応テーブル ────────────────────────────
+
+class _CheckableTable(QTableWidget):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._last_checked_row: int = -1
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            idx = self.indexAt(event.pos())
+            if idx.isValid() and idx.column() == COL_CHK:
+                item = self.item(idx.row(), COL_CHK)
+                if item and (item.flags() & Qt.ItemFlag.ItemIsUserCheckable):
+                    if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+                            and self._last_checked_row >= 0):
+                        new_state = (Qt.CheckState.Unchecked
+                                     if item.checkState() == Qt.CheckState.Checked
+                                     else Qt.CheckState.Checked)
+                        r1 = min(self._last_checked_row, idx.row())
+                        r2 = max(self._last_checked_row, idx.row())
+                        self.blockSignals(True)
+                        for r in range(r1, r2 + 1):
+                            it = self.item(r, COL_CHK)
+                            if it:
+                                it.setCheckState(new_state)
+                        self.blockSignals(False)
+                        self._last_checked_row = idx.row()
+                        return
+                    else:
+                        self._last_checked_row = idx.row()
+        super().mousePressEvent(event)
 
 
 # ── CSVマッピングダイアログ ──────────────────────────────────────
 
 class MemberMappingDialog(QDialog):
-    """CSVヘッダー → DBフィールドのマッピングを確認・編集するダイアログ。"""
-
     def __init__(self, file_path: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle("列マッピングの確認")
@@ -32,8 +83,7 @@ class MemberMappingDialog(QDialog):
             return
 
         self._headers = headers
-        auto_mapping = detect_mapping(headers)
-        self._build(headers, preview, auto_mapping, _FIELD_LABELS)
+        self._build(headers, preview, detect_mapping(headers), _FIELD_LABELS)
 
     def _build(self, headers, preview, auto_mapping, field_labels):
         layout = QVBoxLayout(self)
@@ -62,7 +112,6 @@ class MemberMappingDialog(QDialog):
         field_options = [("（対象外）", "")] + [
             (label, field) for field, label in field_labels.items()
         ]
-
         for row, hdr in enumerate(headers):
             table.setItem(row, 0, QTableWidgetItem(hdr))
             combo = QComboBox()
@@ -129,14 +178,12 @@ class _MemberDialog(QDialog):
         form = QFormLayout()
         form.setVerticalSpacing(5)
         form.setHorizontalSpacing(10)
-
         for field, label in self._FIELDS:
             edit = QLineEdit()
             if member:
                 edit.setText(getattr(member, field, "") or "")
             self._edits[field] = edit
             form.addRow(label, edit)
-
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(
@@ -162,23 +209,12 @@ class _MemberDialog(QDialog):
 
 # ── 会員マスタ管理ウィジェット ────────────────────────────────────
 
-_COLS = ["ID", "会員番号", "事業所名", "フリガナ", "氏名", "電話番号", "メール"]
-_COL_FIELDS = ["id", "member_number", "organization_name",
-               "organization_kana", "representative_name", "phone", "email"]
-
-COL_ID   = 0
-COL_NO   = 1
-COL_ORG  = 2
-COL_KANA = 3
-COL_NAME = 4
-COL_TEL  = 5
-COL_MAIL = 6
-
-
 class MemberImportWidget(QWidget):
     def __init__(self):
         super().__init__()
         self._file_path = ""
+        self._sort_col: int = COL_ORG
+        self._sort_asc: bool = True
         self._build()
         self._load()
 
@@ -189,9 +225,15 @@ class MemberImportWidget(QWidget):
 
         # 検索バー
         search_row = QHBoxLayout()
+        lbl = QLabel("検索：")
+        lbl.setFixedWidth(40)
+        search_row.addWidget(lbl)
         self._search = QLineEdit()
-        self._search.setPlaceholderText("事業所名・フリガナ・会員番号で検索…")
-        self._search.textChanged.connect(self._on_search)
+        self._search.setPlaceholderText("事業所名・フリガナ・氏名・会員番号で絞り込み…")
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._load)
+        self._search.textChanged.connect(lambda: self._timer.start(300))
         search_row.addWidget(self._search, 1)
         self._count_label = QLabel()
         self._count_label.setStyleSheet("color:#555;")
@@ -199,12 +241,25 @@ class MemberImportWidget(QWidget):
         root.addLayout(search_row)
 
         # テーブル
-        self._table = QTableWidget(0, len(_COLS))
-        self._table.setHorizontalHeaderLabels(_COLS)
+        self._table = _CheckableTable(0, len(_HEADERS))
+        self._table.setHorizontalHeaderLabels(_HEADERS)
+        self._table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
+        self._table.horizontalHeader().setSortIndicatorShown(True)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setAlternatingRowColors(True)
+        self._table.setWordWrap(False)
+        self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(24)
+        self._table.verticalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Fixed)
+        self._table.doubleClicked.connect(self._edit)
+
         hdr = self._table.horizontalHeader()
-        hdr.setSectionResizeMode(COL_ID,   QHeaderView.ResizeMode.Fixed)
-        self._table.setColumnWidth(COL_ID, 40)
-        hdr.setSectionResizeMode(COL_NO,   QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(COL_CHK,  QHeaderView.ResizeMode.Fixed)
+        self._table.setColumnWidth(COL_CHK, 30)
+        hdr.setSectionResizeMode(COL_NO,   QHeaderView.ResizeMode.Interactive)
+        self._table.setColumnWidth(COL_NO, 80)
         hdr.setSectionResizeMode(COL_ORG,  QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(COL_KANA, QHeaderView.ResizeMode.Interactive)
         self._table.setColumnWidth(COL_KANA, 130)
@@ -214,10 +269,14 @@ class MemberImportWidget(QWidget):
         self._table.setColumnWidth(COL_TEL, 110)
         hdr.setSectionResizeMode(COL_MAIL, QHeaderView.ResizeMode.Interactive)
         self._table.setColumnWidth(COL_MAIL, 160)
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.setAlternatingRowColors(True)
-        self._table.doubleClicked.connect(self._edit)
+
+        # ヘッダー左端に全選択チェックボックスを配置
+        self._header_chk = QCheckBox(self._table.horizontalHeader())
+        self._header_chk.setTristate(False)
+        self._header_chk.toggled.connect(self._on_header_checkbox_toggled)
+        self._table.horizontalHeader().sectionResized.connect(
+            lambda _l, _o, _n: self._reposition_header_chk())
+
         root.addWidget(self._table, 1)
 
         # ボタン行
@@ -227,7 +286,7 @@ class MemberImportWidget(QWidget):
         btn_del  = QPushButton("削除")
         btn_add.clicked.connect(self._add)
         btn_edit.clicked.connect(self._edit)
-        btn_del.clicked.connect(self._delete)
+        btn_del.clicked.connect(self._delete_checked)
         for b in (btn_add, btn_edit, btn_del):
             btn_row.addWidget(b)
         btn_row.addStretch()
@@ -270,49 +329,117 @@ class MemberImportWidget(QWidget):
         grp_layout.addLayout(import_row)
         root.addWidget(grp)
 
-    # ── データ読み込み ─────────────────────────────────────────
+    # ── ヘッダーチェックボックス ──────────────────────────────────
 
-    def _load(self, query: str = ""):
+    def _reposition_header_chk(self):
+        hdr = self._table.horizontalHeader()
+        x = hdr.sectionViewportPosition(COL_CHK)
+        w = hdr.sectionSize(COL_CHK)
+        h = hdr.height()
+        chk = self._header_chk
+        chk.resize(chk.sizeHint())
+        chk.move(x + (w - chk.width()) // 2, (h - chk.height()) // 2)
+        chk.show()
+
+    def _on_header_checkbox_toggled(self, checked: bool):
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        self._table.blockSignals(True)
+        for r in range(self._table.rowCount()):
+            it = self._table.item(r, COL_CHK)
+            if it:
+                it.setCheckState(state)
+        self._table.blockSignals(False)
+
+    # ── ヘッダークリック：ソート ──────────────────────────────────
+
+    def _on_header_clicked(self, col: int):
+        if col == COL_CHK:
+            return
+        if col not in _COL_TO_FIELD:
+            return
+        if self._sort_col == col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = True
+        self._load()
+
+    # ── データ読み込み ─────────────────────────────────────────────
+
+    def _load(self):
         from app.database.connection import get_session
         from app.services.member_service import get_all_members, search_members, count_members
+        query = self._search.text().strip()
         session = get_session()
         try:
             total = count_members(session)
-            if query:
-                members = search_members(session, query, limit=500)
-            else:
-                members = get_all_members(session)
-            self._fill_table(members)
-            shown = len(members)
-            self._count_label.setText(
-                f"表示：{shown:,} 件 / 全{total:,} 件" if query
-                else f"全{total:,} 件")
+            members = (search_members(session, query, limit=5000)
+                       if query else get_all_members(session))
         finally:
             session.close()
 
+        # ソート
+        field = _COL_TO_FIELD.get(self._sort_col, "organization_name")
+        members = sorted(members,
+                         key=lambda m: (getattr(m, field, "") or "").lower(),
+                         reverse=not self._sort_asc)
+
+        self._fill_table(members)
+        shown = len(members)
+        self._count_label.setText(
+            f"表示：{shown:,} 件 / 全{total:,} 件" if query
+            else f"全{total:,} 件")
+
+        # ソートインジケーター更新
+        self._table.horizontalHeader().setSortIndicator(
+            self._sort_col,
+            Qt.SortOrder.AscendingOrder if self._sort_asc
+            else Qt.SortOrder.DescendingOrder)
+        self._reposition_header_chk()
+
     def _fill_table(self, members):
         self._table.setRowCount(0)
+        self._table.setSortingEnabled(False)
         for m in members:
             row = self._table.rowCount()
             self._table.insertRow(row)
-            for col, field in enumerate(_COL_FIELDS):
-                val = str(getattr(m, field, "") or "")
-                item = QTableWidgetItem(val)
+
+            chk_item = QTableWidgetItem()
+            chk_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+            chk_item.setCheckState(Qt.CheckState.Unchecked)
+            chk_item.setData(Qt.ItemDataRole.UserRole, m.id)
+            self._table.setItem(row, COL_CHK, chk_item)
+
+            for col, field in _COL_TO_FIELD.items():
+                val = getattr(m, field, "") or ""
+                item = QTableWidgetItem(str(val))
                 item.setData(Qt.ItemDataRole.UserRole, m.id)
                 self._table.setItem(row, col, item)
-        self._table.resizeRowsToContents()
 
-    def _on_search(self, text: str):
-        self._load(text.strip())
+        # ヘッダーチェックを未選択にリセット
+        self._header_chk.blockSignals(True)
+        self._header_chk.setChecked(False)
+        self._header_chk.blockSignals(False)
+
+    # ── 選択取得 ──────────────────────────────────────────────────
+
+    def _checked_ids(self) -> list[int]:
+        ids = []
+        for r in range(self._table.rowCount()):
+            it = self._table.item(r, COL_CHK)
+            if it and it.checkState() == Qt.CheckState.Checked:
+                ids.append(it.data(Qt.ItemDataRole.UserRole))
+        return ids
 
     def _selected_id(self) -> int | None:
+        """現在の行選択（チェック無関係）からIDを取得。"""
         row = self._table.currentRow()
         if row < 0:
             return None
-        item = self._table.item(row, COL_ID)
-        return item.data(Qt.ItemDataRole.UserRole) if item else None
+        it = self._table.item(row, COL_CHK)
+        return it.data(Qt.ItemDataRole.UserRole) if it else None
 
-    # ── CRUD ──────────────────────────────────────────────────
+    # ── CRUD ──────────────────────────────────────────────────────
 
     def _add(self):
         dlg = _MemberDialog(self)
@@ -328,7 +455,7 @@ class MemberImportWidget(QWidget):
             return
         finally:
             session.close()
-        self._load(self._search.text().strip())
+        self._load()
 
     def _edit(self):
         mid = self._selected_id()
@@ -351,30 +478,35 @@ class MemberImportWidget(QWidget):
             return
         finally:
             session.close()
-        self._load(self._search.text().strip())
+        self._load()
 
-    def _delete(self):
-        mid = self._selected_id()
-        if mid is None:
-            QMessageBox.warning(self, "未選択", "削除する会員を選択してください。")
-            return
-        row = self._table.currentRow()
-        name = self._table.item(row, COL_ORG).text() or self._table.item(row, COL_NAME).text()
+    def _delete_checked(self):
+        ids = self._checked_ids()
+        if not ids:
+            # チェックがなければ現在の行選択を対象にする
+            mid = self._selected_id()
+            if mid is None:
+                QMessageBox.warning(self, "未選択", "削除する会員を選択またはチェックしてください。")
+                return
+            ids = [mid]
+
         if QMessageBox.question(
                 self, "削除の確認",
-                f"「{name}」を削除します。\nよろしいですか？"
+                f"{len(ids)} 件の会員を削除します。\nよろしいですか？"
         ) != QMessageBox.StandardButton.Yes:
             return
+
         from app.database.connection import get_session
         from app.services.member_service import delete_member
         session = get_session()
         try:
-            delete_member(session, mid)
+            for mid in ids:
+                delete_member(session, mid)
         finally:
             session.close()
-        self._load(self._search.text().strip())
+        self._load()
 
-    # ── CSVインポート ──────────────────────────────────────────
+    # ── CSVインポート ──────────────────────────────────────────────
 
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -408,4 +540,4 @@ class MemberImportWidget(QWidget):
             self._import_result.setStyleSheet("color:red;")
         finally:
             session.close()
-        self._load(self._search.text().strip())
+        self._load()
