@@ -285,8 +285,10 @@ def _build_client_block(issuance, subject: str = "",
     if person:
         parts.append(Paragraph(org, _s("org", size=13, bold=True)))
         if dept:
-            parts.append(Paragraph(f"　{dept}", _s("dept", size=10)))
-        parts.append(Paragraph(f"　　{person}　様", _s("person", size=11)))
+            # leftIndent で1文字分インデント（行頭スペースはReportLabに除去されるため）
+            parts.append(Paragraph(dept, _s("dept", size=10, leftIndent=10)))
+        # leftIndent で2文字分インデント
+        parts.append(Paragraph(f"{person}　様", _s("person", size=11, leftIndent=22)))
     else:
         parts.append(Paragraph(
             f"{org}　御中" if org else "（宛名未設定）",
