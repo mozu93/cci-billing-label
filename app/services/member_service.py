@@ -145,6 +145,37 @@ def get_all_members(session: Session) -> list:
     return session.query(Member).order_by(Member.organization_name).all()
 
 
+def get_member(session: Session, member_id: int) -> Member | None:
+    return session.get(Member, member_id)
+
+
+def create_member(session: Session, **fields) -> Member:
+    kwargs = {k: v for k, v in fields.items() if k in _MEMBER_FIELDS}
+    m = Member(**kwargs)
+    session.add(m)
+    session.commit()
+    session.refresh(m)
+    return m
+
+
+def update_member(session: Session, member_id: int, **fields) -> Member:
+    m = session.get(Member, member_id)
+    if m is None:
+        raise ValueError(f"会員ID {member_id} が見つかりません。")
+    for k, v in fields.items():
+        if k in _MEMBER_FIELDS:
+            setattr(m, k, v)
+    session.commit()
+    return m
+
+
+def delete_member(session: Session, member_id: int) -> None:
+    m = session.get(Member, member_id)
+    if m:
+        session.delete(m)
+        session.commit()
+
+
 def search_members(session: Session, query: str, limit: int = 50) -> list:
     q = (query or "").strip()
     if not q:
