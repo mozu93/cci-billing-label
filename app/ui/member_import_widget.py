@@ -398,25 +398,30 @@ class MemberImportWidget(QWidget):
         self._reposition_header_chk()
 
     def _fill_table(self, members):
-        self._table.setRowCount(0)
-        self._table.setSortingEnabled(False)
-        for m in members:
-            row = self._table.rowCount()
-            self._table.insertRow(row)
+        t = self._table
+        t.setSortingEnabled(False)
+        t.setUpdatesEnabled(False)
+        t.blockSignals(True)
+        try:
+            t.setRowCount(len(members))       # 先に行数を確保（insertRowループより高速）
+            chk_flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable
+            unchecked  = Qt.CheckState.Unchecked
+            user_role  = Qt.ItemDataRole.UserRole
+            for row, m in enumerate(members):
+                mid = m.id
+                chk_item = QTableWidgetItem()
+                chk_item.setFlags(chk_flags)
+                chk_item.setCheckState(unchecked)
+                chk_item.setData(user_role, mid)
+                t.setItem(row, COL_CHK, chk_item)
+                for col, field in _COL_TO_FIELD.items():
+                    item = QTableWidgetItem(getattr(m, field, "") or "")
+                    item.setData(user_role, mid)
+                    t.setItem(row, col, item)
+        finally:
+            t.blockSignals(False)
+            t.setUpdatesEnabled(True)
 
-            chk_item = QTableWidgetItem()
-            chk_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
-            chk_item.setCheckState(Qt.CheckState.Unchecked)
-            chk_item.setData(Qt.ItemDataRole.UserRole, m.id)
-            self._table.setItem(row, COL_CHK, chk_item)
-
-            for col, field in _COL_TO_FIELD.items():
-                val = getattr(m, field, "") or ""
-                item = QTableWidgetItem(str(val))
-                item.setData(Qt.ItemDataRole.UserRole, m.id)
-                self._table.setItem(row, col, item)
-
-        # ヘッダーチェックを未選択にリセット
         self._header_chk.blockSignals(True)
         self._header_chk.setChecked(False)
         self._header_chk.blockSignals(False)
