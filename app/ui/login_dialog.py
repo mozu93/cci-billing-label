@@ -182,13 +182,14 @@ class ChangePasswordDialog(QDialog):
 
 
 class LoginDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, skip_auto_login: bool = False):
         super().__init__(parent)
         self.setWindowTitle("ログイン")
         self.setFixedWidth(320)
         self._build()
-        # ダイアログ表示直後に自動ログインを試みる
-        QTimer.singleShot(0, self._try_auto_login)
+        # ダイアログ表示直後に自動ログインを試みる（明示的ログアウト後はスキップ）
+        if not skip_auto_login:
+            QTimer.singleShot(0, self._try_auto_login)
 
     def _try_auto_login(self):
         """config に保存されたスタッフIDで自動ログイン"""

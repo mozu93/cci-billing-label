@@ -31,7 +31,17 @@ def main():
             sys.exit(0)
 
     from app.database.connection import init_db
-    init_db()
+    from app.ui.first_run_wizard import FirstRunWizard
+    while True:
+        try:
+            init_db()
+            break
+        except Exception as e:
+            QMessageBox.critical(None, "DB接続エラー",
+                f"データベースに接続できませんでした。\n\n{e}\n\n設定を確認してください。")
+            dlg = FirstRunWizard()
+            if dlg.exec() != FirstRunWizard.DialogCode.Accepted:
+                sys.exit(0)
 
     from app.database.connection import get_session
     from app.services.staff_service import get_active_staff
@@ -56,14 +66,34 @@ def main():
         dlg.exec()
 
     from app.ui.login_dialog import LoginDialog
-    dlg = LoginDialog()
-    if dlg.exec() != LoginDialog.DialogCode.Accepted:
-        sys.exit(0)
-
     from app.ui.main_window import MainWindow
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    from app.utils import current_user
+
+    # ログイン→メインウィンドウのループ（ログアウト時に再ログインへ戻る）
+    skip_auto_login = False
+    while True:
+        dlg = LoginDialog(skip_auto_login=skip_auto_login)
+        if dlg.exec() != LoginDialog.DialogCode.Accepted:
+            sys.exit(0)
+
+        window = MainWindow()
+        logged_out = False
+
+        def _on_logout():
+            nonlocal logged_out, skip_auto_login
+            logged_out = True
+            skip_auto_login = True  # ログアウト後は自動ログインをスキップ
+            current_user.clear()
+            window.close()
+            app.quit()  # イベントループを確実に終了
+
+        window.logout_requested.connect(_on_logout)
+        window.show()
+        app.exec()
+
+        if not logged_out:
+            # ウィンドウが閉じられた（アプリ終了）
+            sys.exit(0)
 
 
 if __name__ == "__main__":

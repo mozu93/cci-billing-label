@@ -7,11 +7,46 @@ _SessionFactory = None
 
 
 def get_engine(url: str | None = None):
-    return create_engine(url or get_db_url(), echo=False)
+    target = url or get_db_url()
+    if target.startswith("postgresql"):
+        from urllib.parse import urlparse, unquote
+        p = urlparse(target)
+        host = p.hostname or "localhost"
+        port = p.port or 5432
+        dbname = p.path.lstrip("/")
+        user = unquote(p.username or "")
+        password = unquote(p.password or "")
+
+        def _pg_connect():
+            import pg8000.dbapi as pg
+            _PG_ERRORS = {
+                "28P01": "パスワード認証に失敗しました。ユーザー名・パスワードを確認してください。",
+                "28000": f"ユーザー '{user}' のアクセスが拒否されました。",
+                "3D000": f"データベース '{dbname}' が存在しません。",
+                "08001": f"サーバー {host}:{port} に接続できません。",
+                "08006": f"サーバー {host}:{port} との接続が切断されました。",
+                "42501": "権限がありません。",
+            }
+            try:
+                return pg.connect(
+                    host=host, port=port, database=dbname,
+                    user=user, password=password,
+                )
+            except pg.DatabaseError as e:
+                code = e.args[0].get("C", "") if e.args and isinstance(e.args[0], dict) else ""
+                msg = _PG_ERRORS.get(code, f"PostgreSQL 接続エラー (コード: {code})")
+                raise Exception(msg) from None
+            except Exception as e:
+                raise Exception(f"接続エラー: {e}") from None
+
+        return create_engine("postgresql+pg8000://", creator=_pg_connect)
+    return create_engine(target, echo=False)
 
 
 def _migrate(engine):
-    """既存DBに不足カラムを追加するマイグレーション"""
+    """既存DBに不足カラムを追加するマイグレーション（SQLiteのみ）"""
+    if not str(engine.url).startswith("sqlite"):
+        return
     with engine.connect() as conn:
         staff_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(staff)"))}
         if "is_admin" not in staff_cols:

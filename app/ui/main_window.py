@@ -25,6 +25,24 @@ class MainWindow(QMainWindow):
     def _setup_menu(self):
         from app.version import __version__
         menubar = self.menuBar()
+
+        # ファイルメニュー
+        file_menu = menubar.addMenu("ファイル")
+        act_logout = QAction("ログアウト", self)
+        act_logout.setShortcut("Ctrl+Shift+L")
+        act_logout.triggered.connect(self._logout)
+        file_menu.addAction(act_logout)
+        file_menu.addSeparator()
+        act_db = QAction("初期設定（DB接続設定）...", self)
+        act_db.triggered.connect(self._open_db_settings)
+        file_menu.addAction(act_db)
+        file_menu.addSeparator()
+        act_exit = QAction("終了", self)
+        act_exit.setShortcut("Alt+F4")
+        act_exit.triggered.connect(self.close)
+        file_menu.addAction(act_exit)
+
+        # ヘルプメニュー
         help_menu = menubar.addMenu("ヘルプ")
         act_manual = QAction("使い方マニュアル", self)
         act_manual.triggered.connect(self._open_manual)
@@ -81,12 +99,19 @@ class MainWindow(QMainWindow):
 
     def _setup_statusbar(self):
         from app.version import __version__
+        from app.utils import current_user
         sb = self.statusBar()
         sb.setStyleSheet(
             "QStatusBar { background: #F8FAFC; border-top: 1px solid #E2E8F0; "
             "font-size: 12px; color: #64748B; }"
             "QStatusBar::item { border: none; }"
         )
+        # ログイン中ユーザー名
+        user_name = current_user.get_name()
+        if user_name:
+            user_lbl = QLabel(f"👤 {user_name}")
+            user_lbl.setStyleSheet("color: #475569; font-size: 12px; padding: 0 8px;")
+            sb.addPermanentWidget(user_lbl)
         ver_lbl = QLabel(f"v{__version__}")
         ver_lbl.setStyleSheet("color: #94A3B8; font-size: 11px; padding: 0 8px;")
         sb.addPermanentWidget(ver_lbl)
@@ -103,6 +128,22 @@ class MainWindow(QMainWindow):
                 )
         except Exception:
             pass  # 自動バックアップ失敗はサイレント
+
+    def _logout(self):
+        reply = QMessageBox.question(
+            self,
+            "ログアウト",
+            "ログアウトしてログイン画面に戻りますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.logout_requested.emit()
+
+    def _open_db_settings(self):
+        from app.ui.first_run_wizard import FirstRunWizard
+        dlg = FirstRunWizard(parent=self, is_initial_setup=False)
+        dlg.exec()
 
     def _show_about(self):
         from app.version import __version__
