@@ -5,7 +5,6 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QLabel, QHeaderView, QComboBox, QLineEdit, QMessageBox,
     QCheckBox, QPlainTextEdit, QAbstractItemDelegate, QStyledItemDelegate,
-    QDoubleSpinBox,
 )
 from PyQt6.QtCore import Qt, QTimer
 
@@ -188,19 +187,6 @@ class LabelIssuanceTab(QWidget):
         if fidx >= 0:
             self._font_combo.setCurrentIndex(fidx)
         action_row.addWidget(self._font_combo)
-
-        action_row.addWidget(QLabel("左補正:"))
-        self._offset_spin = QDoubleSpinBox()
-        self._offset_spin.setRange(0.0, 10.0)
-        self._offset_spin.setSingleStep(0.5)
-        self._offset_spin.setDecimals(1)
-        self._offset_spin.setValue(0.0)
-        self._offset_spin.setSuffix(" mm")
-        self._offset_spin.setFixedWidth(75)
-        self._offset_spin.setToolTip(
-            "左端が切れる場合は値を増やしてください（目安: 3〜4 mm）"
-        )
-        action_row.addWidget(self._offset_spin)
 
         action_row.addStretch()
         self._btn_generate = QPushButton("ラベルPDF生成")
@@ -512,10 +498,7 @@ class LabelIssuanceTab(QWidget):
         output_path = os.path.join(get_pdf_output_dir(), f"label_{ts}.pdf")
 
         try:
-            generate_label_pdf(
-                entries, output_path, batch_mode, layout_key, font_key,
-                print_offset_left_mm=self._offset_spin.value(),
-            )
+            generate_label_pdf(entries, output_path, batch_mode, layout_key, font_key)
             os.startfile(output_path)
         except Exception as e:
             QMessageBox.critical(self, "エラー", f"PDF生成に失敗しました:\n{e}")
