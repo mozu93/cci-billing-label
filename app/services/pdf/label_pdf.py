@@ -120,12 +120,13 @@ def _label_wh(layout: LabelLayout) -> tuple[float, float]:
     return layout.label_w_mm * mm, layout.label_h_mm * mm
 
 
-def _label_origin(col: int, row: int, layout: LabelLayout) -> tuple[float, float]:
+def _label_origin(col: int, row: int, layout: LabelLayout,
+                   extra_left: float = 0.0) -> tuple[float, float]:
     page_h = layout.page_h_mm * mm
     lw = layout.label_w_mm  * mm
     lh = layout.label_h_mm  * mm
     mt = layout.margin_top_mm  * mm
-    ml = layout.margin_left_mm * mm
+    ml = layout.margin_left_mm * mm + extra_left
     gh = layout.gap_h_mm * mm
     gv = layout.gap_v_mm * mm
     offsets = layout.col_offsets_mm or []
@@ -136,17 +137,19 @@ def _label_origin(col: int, row: int, layout: LabelLayout) -> tuple[float, float
 
 
 def generate_label_pdf(
-    entries:         list,
-    output_path:     str,
-    batch_mode:      str  = "normal",
-    layout_key:      str  = DEFAULT_LAYOUT_KEY,
-    font_key:        str  = DEFAULT_FONT_KEY,
-    barcode_enabled: bool = False,
+    entries:                list,
+    output_path:            str,
+    batch_mode:             str   = "normal",
+    layout_key:             str   = DEFAULT_LAYOUT_KEY,
+    font_key:               str   = DEFAULT_FONT_KEY,
+    barcode_enabled:        bool  = False,
+    print_offset_left_mm:   float = 0.0,
 ) -> str:
     layout = LABEL_LAYOUTS.get(layout_key) or LABEL_LAYOUTS[DEFAULT_LAYOUT_KEY]
     font   = FONT_OPTIONS.get(font_key, list(FONT_OPTIONS.values())[0])
     lw, lh = _label_wh(layout)
     per_page = layout.cols * layout.rows
+    extra_left = print_offset_left_mm * mm
 
     if isinstance(output_path, str):
         parent = os.path.dirname(output_path)
@@ -166,7 +169,7 @@ def generate_label_pdf(
         page_slot = slot % per_page
         col = page_slot % layout.cols
         row = page_slot // layout.cols
-        x0, y0 = _label_origin(col, row, layout)
+        x0, y0 = _label_origin(col, row, layout, extra_left)
 
         mode = batch_mode if entry.entry_mode == "inherit" else entry.entry_mode
         _draw_label(c, entry, x0, y0, lw, lh, mode, font, barcode_enabled)
@@ -202,6 +205,11 @@ def _split_line(text: str, font: str, fs: float, max_w: float) -> tuple[str, str
 def _draw_label(c, entry, x0: float, y0: float, w: float, h: float, mode: str,
                 font: str = "MSPGothic", barcode_enabled: bool = False):
     c.saveState()
+
+    # ラベル枠の外にはみ出さないようクリップ
+    clip = c.beginPath()
+    clip.rect(x0, y0, w, h)
+    c.clipPath(clip, stroke=0, fill=0)
 
     company      = entry.company_name or ""
     postal       = entry.postal_code  or ""
