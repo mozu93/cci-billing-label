@@ -497,8 +497,14 @@ class LabelIssuanceTab(QWidget):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_path = os.path.join(get_pdf_output_dir(), f"label_{ts}.pdf")
 
+        from app.utils.app_config import get_label_print_offset
+        offset_h, offset_v = get_label_print_offset(layout_key)
+
         try:
-            generate_label_pdf(entries, output_path, batch_mode, layout_key, font_key)
+            generate_label_pdf(
+                entries, output_path, batch_mode, layout_key, font_key,
+                offset_h_mm=offset_h, offset_v_mm=offset_v,
+            )
             os.startfile(output_path)
         except Exception as e:
             QMessageBox.critical(self, "エラー", f"PDF生成に失敗しました:\n{e}")

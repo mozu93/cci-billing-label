@@ -120,12 +120,14 @@ def _label_wh(layout: LabelLayout) -> tuple[float, float]:
     return layout.label_w_mm * mm, layout.label_h_mm * mm
 
 
-def _label_origin(col: int, row: int, layout: LabelLayout) -> tuple[float, float]:
+def _label_origin(col: int, row: int, layout: LabelLayout,
+                   offset_h_mm: float = 0.0,
+                   offset_v_mm: float = 0.0) -> tuple[float, float]:
     page_h = layout.page_h_mm * mm
     lw = layout.label_w_mm  * mm
     lh = layout.label_h_mm  * mm
-    mt = layout.margin_top_mm  * mm
-    ml = layout.margin_left_mm * mm
+    mt = (layout.margin_top_mm  + offset_v_mm) * mm
+    ml = (layout.margin_left_mm + offset_h_mm) * mm
     gh = layout.gap_h_mm * mm
     gv = layout.gap_v_mm * mm
     offsets = layout.col_offsets_mm or []
@@ -138,10 +140,12 @@ def _label_origin(col: int, row: int, layout: LabelLayout) -> tuple[float, float
 def generate_label_pdf(
     entries:         list,
     output_path:     str,
-    batch_mode:      str  = "normal",
-    layout_key:      str  = DEFAULT_LAYOUT_KEY,
-    font_key:        str  = DEFAULT_FONT_KEY,
-    barcode_enabled: bool = False,
+    batch_mode:      str   = "normal",
+    layout_key:      str   = DEFAULT_LAYOUT_KEY,
+    font_key:        str   = DEFAULT_FONT_KEY,
+    barcode_enabled: bool  = False,
+    offset_h_mm:     float = 0.0,
+    offset_v_mm:     float = 0.0,
 ) -> str:
     layout = LABEL_LAYOUTS.get(layout_key) or LABEL_LAYOUTS[DEFAULT_LAYOUT_KEY]
     font   = FONT_OPTIONS.get(font_key, list(FONT_OPTIONS.values())[0])
@@ -166,7 +170,7 @@ def generate_label_pdf(
         page_slot = slot % per_page
         col = page_slot % layout.cols
         row = page_slot // layout.cols
-        x0, y0 = _label_origin(col, row, layout)
+        x0, y0 = _label_origin(col, row, layout, offset_h_mm, offset_v_mm)
 
         mode = batch_mode if entry.entry_mode == "inherit" else entry.entry_mode
         _draw_label(c, entry, x0, y0, lw, lh, mode, font, barcode_enabled)

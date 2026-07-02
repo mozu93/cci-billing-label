@@ -35,11 +35,13 @@ class SettingsTab(QWidget):
         from app.ui.email_settings import EmailSettingsWidget
         from app.ui.backup_settings import BackupSettingsWidget
         from app.ui.operation_log_tab import OperationLogWidget
+        from app.ui.label_settings import LabelSettingsWidget
         from app.utils import current_user
 
         inner.addTab(CompanySettingsWidget(), "発行元情報")
         inner.addTab(EmailSettingsWidget(), "メール設定")
         inner.addTab(BackupSettingsWidget(), "バックアップ")
+        inner.addTab(LabelSettingsWidget(), "ラベル印刷")
         inner.addTab(OperationLogWidget(), "操作ログ")
 
         if current_user.is_admin():

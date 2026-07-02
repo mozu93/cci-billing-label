@@ -41,6 +41,19 @@ def get_m365_tenant_id() -> str:
     return get_m365_config().get("tenant_id", "")
 
 
+def get_label_print_offset(layout_key: str) -> tuple[float, float]:
+    entry = get_config().get("label_print_offset", {}).get(layout_key, {})
+    return entry.get("h_mm", 0.0), entry.get("v_mm", 0.0)
+
+
+def save_label_print_offset(layout_key: str, h_mm: float, v_mm: float) -> None:
+    config = get_config()
+    config.setdefault("label_print_offset", {})[layout_key] = {
+        "h_mm": h_mm, "v_mm": v_mm,
+    }
+    save_config(config)
+
+
 def get_db_url() -> str:
     config = get_config()
     if config.get("db_type") == "postgresql":
