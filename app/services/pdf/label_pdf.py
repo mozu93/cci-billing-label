@@ -199,7 +199,7 @@ def _split_line(text: str, font: str, fs: float, max_w: float) -> tuple[str, str
     return text[:lo], text[lo:]
 
 
-_SAFETY_H = 3.0 * mm   # 水平安全余白（左右各 3mm）
+_SAFETY_H = 5.0 * mm   # 水平安全余白（左右各 5mm）
 _SAFETY_V = 2.0 * mm   # 垂直安全余白（上下各 2mm）
 
 
