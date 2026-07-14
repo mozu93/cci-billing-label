@@ -43,14 +43,26 @@ def get_engine(url: str | None = None):
     return create_engine(target, echo=False)
 
 
+def _table_columns(conn, dialect: str, table: str) -> set[str]:
+    if dialect == "sqlite":
+        return {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
+    rows = conn.execute(text(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = :t"
+    ), {"t": table})
+    return {row[0] for row in rows}
+
+
 def _migrate(engine):
-    """既存DBに不足カラムを追加するマイグレーション（SQLiteのみ）"""
-    if not str(engine.url).startswith("sqlite"):
+    """既存DBに不足カラムを追加するマイグレーション（SQLite / PostgreSQL 両対応）"""
+    dialect = engine.dialect.name
+    if dialect not in ("sqlite", "postgresql"):
         return
+    blob_type = "BLOB" if dialect == "sqlite" else "BYTEA"
+
     with engine.connect() as conn:
-        staff_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(staff)"))}
+        staff_cols = _table_columns(conn, dialect, "staff")
         if "is_admin" not in staff_cols:
-            conn.execute(text("ALTER TABLE staff ADD COLUMN is_admin BOOLEAN DEFAULT 0"))
+            conn.execute(text("ALTER TABLE staff ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
             conn.commit()
         if "password_hash" not in staff_cols:
             conn.execute(text("ALTER TABLE staff ADD COLUMN password_hash VARCHAR(200)"))
@@ -66,31 +78,31 @@ def _migrate(engine):
                 "ALTER TABLE staff ADD COLUMN supervisor_id INTEGER REFERENCES staff(id)"))
             conn.commit()
         if "is_department_head" not in staff_cols:
-            conn.execute(text("ALTER TABLE staff ADD COLUMN is_department_head BOOLEAN DEFAULT 0"))
+            conn.execute(text("ALTER TABLE staff ADD COLUMN is_department_head BOOLEAN DEFAULT FALSE"))
             conn.commit()
         if "email" not in staff_cols:
             conn.execute(text("ALTER TABLE staff ADD COLUMN email VARCHAR(200)"))
             conn.commit()
-        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(company_settings)"))}
+        cols = _table_columns(conn, dialect, "company_settings")
         if "print_seal" not in cols:
             conn.execute(text(
-                "ALTER TABLE company_settings ADD COLUMN print_seal BOOLEAN DEFAULT 1"))
+                "ALTER TABLE company_settings ADD COLUMN print_seal BOOLEAN DEFAULT TRUE"))
             conn.commit()
 
-        mem_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(members)"))}
+        mem_cols = _table_columns(conn, dialect, "members")
         if "department" not in mem_cols:
             conn.execute(text(
                 "ALTER TABLE members ADD COLUMN department VARCHAR(100) DEFAULT ''"))
             conn.commit()
 
-        pm_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(project_members)"))}
+        pm_cols = _table_columns(conn, dialect, "project_members")
         if "department" not in pm_cols:
             conn.execute(text(
                 "ALTER TABLE project_members ADD COLUMN department VARCHAR(100) DEFAULT ''"))
             conn.commit()
         if "created_at" not in pm_cols:
             conn.execute(text(
-                "ALTER TABLE project_members ADD COLUMN created_at DATETIME"))
+                "ALTER TABLE project_members ADD COLUMN created_at TIMESTAMP"))
             conn.commit()
         if "member_number" not in pm_cols:
             conn.execute(text(
@@ -101,7 +113,7 @@ def _migrate(engine):
                 "ALTER TABLE project_members ADD COLUMN address2 VARCHAR(300) DEFAULT ''"))
             conn.commit()
 
-        pt_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(project_templates)"))}
+        pt_cols = _table_columns(conn, dialect, "project_templates")
         if "default_quantity" not in pt_cols:
             conn.execute(text(
                 "ALTER TABLE project_templates ADD COLUMN default_quantity INTEGER DEFAULT 1"))
@@ -111,7 +123,7 @@ def _migrate(engine):
                 "ALTER TABLE project_templates ADD COLUMN tax_rate_override INTEGER"))
             conn.commit()
 
-        iss_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(issuances)"))}
+        iss_cols = _table_columns(conn, dialect, "issuances")
         for col, ddl in [
             ("member_number",        "VARCHAR(50) DEFAULT ''"),
             ("recipient_kana",       "VARCHAR(200) DEFAULT ''"),
@@ -121,23 +133,23 @@ def _migrate(engine):
             ("company_settings_id",   "INTEGER REFERENCES company_settings(id)"),
             ("bank_account_id",       "INTEGER REFERENCES bank_accounts(id)"),
             ("seal_image_id",          "INTEGER REFERENCES seal_images(id)"),
-            ("show_recipient_person", "BOOLEAN DEFAULT 1"),
+            ("show_recipient_person", "BOOLEAN DEFAULT TRUE"),
         ]:
             if col not in iss_cols:
                 conn.execute(text(f"ALTER TABLE issuances ADD COLUMN {col} {ddl}"))
                 conn.commit()
 
-        cs_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(company_settings)"))}
+        cs_cols = _table_columns(conn, dialect, "company_settings")
         if "is_default" not in cs_cols:
             conn.execute(text(
-                "ALTER TABLE company_settings ADD COLUMN is_default BOOLEAN DEFAULT 0"))
+                "ALTER TABLE company_settings ADD COLUMN is_default BOOLEAN DEFAULT FALSE"))
             # 既存の最初のレコードをデフォルトに設定
             conn.execute(text(
-                "UPDATE company_settings SET is_default = 1 "
+                "UPDATE company_settings SET is_default = TRUE "
                 "WHERE id = (SELECT MIN(id) FROM company_settings)"))
             conn.commit()
 
-        proj_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(projects)"))}
+        proj_cols = _table_columns(conn, dialect, "projects")
         for col, ddl in [
             ("company_settings_id", "INTEGER REFERENCES company_settings(id)"),
             ("bank_account_id",     "INTEGER REFERENCES bank_accounts(id)"),
@@ -147,7 +159,7 @@ def _migrate(engine):
                 conn.execute(text(f"ALTER TABLE projects ADD COLUMN {col} {ddl}"))
                 conn.commit()
 
-        sup_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(supervisors)"))}
+        sup_cols = _table_columns(conn, dialect, "supervisors")
         if "staff_id" not in sup_cols:
             conn.execute(text("ALTER TABLE supervisors ADD COLUMN staff_id INTEGER"))
             conn.commit()
@@ -160,9 +172,9 @@ def _migrate(engine):
         ))
         conn.commit()
 
-        si_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(seal_images)"))}
+        si_cols = _table_columns(conn, dialect, "seal_images")
         if "image_data" not in si_cols:
-            conn.execute(text("ALTER TABLE seal_images ADD COLUMN image_data BLOB"))
+            conn.execute(text(f"ALTER TABLE seal_images ADD COLUMN image_data {blob_type}"))
             conn.commit()
 
 
