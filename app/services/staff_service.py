@@ -1,10 +1,12 @@
 # app/services/staff_service.py
 import hashlib
+import hmac
 import secrets
 from sqlalchemy.orm import Session
 from app.database.models import Staff
 
 _MAX_ADMINS = 2
+MIN_PASSWORD_LENGTH = 8
 
 
 def _hash_password(raw: str) -> str:
@@ -17,7 +19,7 @@ def _check_password(raw: str, stored: str) -> bool:
     try:
         salt, hashed = stored.split(":", 1)
         h = hashlib.pbkdf2_hmac("sha256", raw.encode("utf-8"), salt.encode("utf-8"), 100_000)
-        return h.hex() == hashed
+        return hmac.compare_digest(h.hex(), hashed)
     except Exception:
         return False
 
@@ -158,6 +160,9 @@ def import_staff_from_csv(session: Session, file_path: str) -> tuple[int, int]:
 
 def set_password(session: Session, staff_id: int, raw_password: str) -> None:
     """パスワードをハッシュ化して保存する。"""
+    if len(raw_password or "") < MIN_PASSWORD_LENGTH:
+        raise ValueError(
+            f"パスワードは{MIN_PASSWORD_LENGTH}文字以上で設定してください。")
     staff = session.get(Staff, staff_id)
     if staff:
         staff.password_hash = _hash_password(raw_password)

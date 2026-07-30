@@ -2,7 +2,10 @@
 import os
 import re
 import shutil
+import sqlite3
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from app.utils.app_config import get_db_url, get_config
 
 
@@ -32,7 +35,30 @@ def create_backup(db_path: str | None = None,
     os.makedirs(backup_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_path = os.path.join(backup_dir, f"cci_billing_{timestamp}.db")
-    shutil.copy2(db_path, backup_path)
+    fd, temp_path = tempfile.mkstemp(
+        prefix=".cci_billing_backup_", suffix=".db", dir=backup_dir)
+    os.close(fd)
+    try:
+        source_uri = Path(db_path).resolve().as_uri() + "?mode=ro"
+        source = sqlite3.connect(source_uri, uri=True)
+        destination = sqlite3.connect(temp_path)
+        try:
+            source.backup(destination)
+            check = destination.execute(
+                "PRAGMA quick_check").fetchone()
+            if not check or check[0] != "ok":
+                raise RuntimeError(
+                    "バックアップDBの整合性確認に失敗しました。")
+        finally:
+            destination.close()
+            source.close()
+        os.replace(temp_path, backup_path)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
     return backup_path
 
 
@@ -170,4 +196,15 @@ def restore_backup(backup_path: str, db_path: str | None = None) -> None:
         db_path = get_db_path()
     if not db_path:
         raise ValueError("復元先DBパスを特定できません（PostgreSQL構成では手動対応が必要です）。")
+    backup_uri = Path(backup_path).resolve().as_uri() + "?mode=ro"
+    try:
+        source = sqlite3.connect(backup_uri, uri=True)
+        try:
+            check = source.execute("PRAGMA quick_check").fetchone()
+            if not check or check[0] != "ok":
+                raise ValueError("バックアップDBが破損しています。")
+        finally:
+            source.close()
+    except sqlite3.DatabaseError as exc:
+        raise ValueError("バックアップDBが破損しています。") from exc
     shutil.copy2(backup_path, db_path)

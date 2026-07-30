@@ -5,7 +5,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QTimer
 from app.database.connection import get_session
-from app.services.staff_service import get_active_staff, get_staff, set_password, verify_password
+from app.services.staff_service import (
+    MIN_PASSWORD_LENGTH,
+    get_active_staff,
+    get_staff,
+    set_password,
+    verify_password,
+)
 from app.utils import current_user
 from app.utils.app_config import get_config, save_config
 
@@ -56,6 +62,11 @@ class _SetPasswordDialog(QDialog):
         pw2 = self._pw2.text()
         if not pw1:
             QMessageBox.warning(self, "入力エラー", "パスワードを入力してください。")
+            return
+        if len(pw1) < MIN_PASSWORD_LENGTH:
+            QMessageBox.warning(
+                self, "入力エラー",
+                f"パスワードは{MIN_PASSWORD_LENGTH}文字以上で設定してください。")
             return
         if pw1 != pw2:
             QMessageBox.warning(self, "入力エラー", "パスワードが一致しません。再入力してください。")
@@ -168,6 +179,11 @@ class ChangePasswordDialog(QDialog):
             if not new1:
                 QMessageBox.warning(self, "入力エラー", "新しいパスワードを入力してください。")
                 return
+            if len(new1) < MIN_PASSWORD_LENGTH:
+                QMessageBox.warning(
+                    self, "入力エラー",
+                    f"パスワードは{MIN_PASSWORD_LENGTH}文字以上で設定してください。")
+                return
             if new1 != new2:
                 QMessageBox.warning(self, "入力エラー", "パスワードが一致しません。")
                 self._new1.clear()
@@ -199,9 +215,14 @@ class LoginDialog(QDialog):
         session = get_session()
         try:
             staff = get_staff(session, staff_id)
-            if staff:
+            if staff and staff.is_active and not staff.is_admin:
                 current_user.set_current(staff.id, staff.name, bool(staff.is_admin))
                 self.accept()
+            elif staff:
+                # 管理者・無効化済みアカウントは保存IDだけで認証しない。
+                config = get_config()
+                config.pop("auto_login_staff_id", None)
+                save_config(config)
         except Exception:
             pass
         finally:

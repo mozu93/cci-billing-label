@@ -130,7 +130,10 @@ class _AdminWidget(QWidget):
         if ans != QMessageBox.StandardButton.Yes:
             return
         self._exec_delete(
-            ["payments", "issuance_lines", "issuances"],
+            [
+                "payments", "issuance_lines", "issuances",
+                "document_sequences",
+            ],
             "発行番号リセット完了",
             "発行書類と入金記録を削除しました。",
         )
@@ -149,6 +152,7 @@ class _AdminWidget(QWidget):
         self._exec_delete(
             [
                 "payments", "issuance_lines", "issuances",
+                "document_sequences",
                 "project_members", "project_templates", "projects",
                 "members", "operation_logs",
                 "item_templates", "categories", "staff",
@@ -170,6 +174,7 @@ class _AdminWidget(QWidget):
         self._exec_delete(
             [
                 "payments", "issuance_lines", "issuances",
+                "document_sequences",
                 "project_members", "project_templates", "projects",
                 "members", "operation_logs",
             ],

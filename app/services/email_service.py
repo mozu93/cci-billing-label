@@ -264,14 +264,17 @@ def build_issuance_context(issuance, company_name: str,
 
 def get_issuance_email_context(session, issuance) -> dict[str, str]:
     """発行データの差し込みタグ置換値を返す。"""
-    from app.database.models import CompanySettings, Project
+    from app.database.models import Project
+    from app.utils.pdf_helpers import get_issuer_for_project
 
-    company = session.query(CompanySettings).first()
+    project = (
+        session.get(Project, issuance.project_id)
+        if issuance.project_id else None
+    )
+    company, _bank, _seal = get_issuer_for_project(
+        session, project, issuance=issuance)
     company_name = company.name if company else ""
-    project_name = ""
-    if issuance.project_id:
-        project = session.get(Project, issuance.project_id)
-        project_name = project.name if project else ""
+    project_name = project.name if project else ""
     return build_issuance_context(issuance, company_name, project_name)
 
 
@@ -331,7 +334,8 @@ def prepare_reminder_email(session, issuance, due_date=None,
     """督促メールの (宛先, 件名, 本文HTML, PDFパスまたはNone) を組み立てる。
     custom_subject / custom_body を渡すとテンプレート設定より優先して使用する。
     """
-    from app.database.models import CompanySettings, ProjectMember, Project
+    from app.database.models import ProjectMember, Project
+    from app.utils.pdf_helpers import get_issuer_for_project
     label = (issuance.recipient_organization or issuance.recipient_name
              or issuance.doc_number or "")
     to_addr = ""
@@ -344,12 +348,14 @@ def prepare_reminder_email(session, issuance, due_date=None,
         to_addr = validate_email_addr(to_addr)
     except ValueError as e:
         raise ValueError(f"{label}：{e}")
-    company = session.query(CompanySettings).first()
+    proj = (
+        session.get(Project, issuance.project_id)
+        if issuance.project_id else None
+    )
+    company, _bank, _seal = get_issuer_for_project(
+        session, proj, issuance=issuance)
     company_name = company.name if company else ""
-    project_name = ""
-    if issuance.project_id:
-        proj = session.get(Project, issuance.project_id)
-        project_name = proj.name if proj else ""
+    project_name = proj.name if proj else ""
     extra = {"支払期限": due_date.strftime("%Y年%m月%d日") if due_date else ""}
     if custom_subject is not None and custom_body is not None:
         ctx = build_issuance_context(issuance, company_name, project_name)

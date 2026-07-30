@@ -17,7 +17,12 @@ def _make_white_transparent(image: Image.Image) -> Image.Image:
         return rgba
 
     pixels = []
-    for red, green, blue, _ in rgba.getdata():
+    source_pixels = (
+        rgba.get_flattened_data()
+        if hasattr(rgba, "get_flattened_data")
+        else rgba.getdata()
+    )
+    for red, green, blue, _ in source_pixels:
         # 白からの距離。JPEGノイズは透明、印影の薄い縁は半透明にする。
         distance = max(255 - red, 255 - green, 255 - blue)
         opacity = max(0, min(255, round((distance - 10) * 255 / 70)))

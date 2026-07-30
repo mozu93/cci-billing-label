@@ -1,5 +1,6 @@
 # app/services/issuance_service.py
 from datetime import datetime, date
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.database.models import (
     Issuance, IssuanceLine, Payment, ProjectTemplate, ProjectMember
@@ -8,6 +9,9 @@ from app.database.models import (
 
 def get_next_doc_number(session: Session, doc_type: str,
                          fiscal_year: int, month: int) -> str:
+    """DBの原子的なUPSERTで次の文書番号を予約する。"""
+    if doc_type not in ("invoice", "receipt"):
+        raise ValueError("文書種別が不正です。")
     prefix = "INV" if doc_type == "invoice" else "RCP"
     ym = f"{fiscal_year}{month:02d}"
     pattern = f"{prefix}-{ym}-%"
@@ -15,10 +19,28 @@ def get_next_doc_number(session: Session, doc_type: str,
             .filter(Issuance.doc_number.like(pattern))
             .order_by(Issuance.doc_number.desc())
             .first())
-    if last:
-        seq = int(last.doc_number.split("-")[-1]) + 1
-    else:
-        seq = 1
+    initial = (
+        int(last.doc_number.split("-")[-1]) + 1
+        if last else 1
+    )
+    seq = session.execute(
+        text(
+            "INSERT INTO document_sequences "
+            "(doc_type, year_month, last_value) "
+            "VALUES (:doc_type, :year_month, :initial) "
+            "ON CONFLICT (doc_type, year_month) DO UPDATE SET "
+            "last_value = CASE "
+            "WHEN document_sequences.last_value + 1 < excluded.last_value "
+            "THEN excluded.last_value "
+            "ELSE document_sequences.last_value + 1 END "
+            "RETURNING last_value"
+        ),
+        {
+            "doc_type": doc_type,
+            "year_month": ym,
+            "initial": initial,
+        },
+    ).scalar_one()
     return f"{prefix}-{ym}-{seq:04d}"
 
 

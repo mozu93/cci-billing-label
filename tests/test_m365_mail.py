@@ -240,6 +240,75 @@ def test_validate_pdf_too_large(tmp_path):
         validate_invoice_mail(["a@example.com"], "件名", "<p>x</p>", str(pdf))
 
 
+def test_issuance_email_context_uses_issuance_company(db_session):
+    from app.database.models import CompanySettings, Issuance, Project
+    from app.services.email_service import get_issuance_email_context
+
+    first = CompanySettings(name="先頭発行元", is_default=True)
+    selected = CompanySettings(name="選択発行元")
+    db_session.add_all([first, selected])
+    db_session.flush()
+    project = Project(
+        name="対象案件", fiscal_year=2026, project_type="list",
+        company_settings_id=first.id)
+    db_session.add(project)
+    db_session.flush()
+    issuance = Issuance(
+        project_id=project.id,
+        doc_type="invoice",
+        doc_number="INV-202607-0001",
+        company_settings_id=selected.id,
+    )
+    db_session.add(issuance)
+    db_session.commit()
+
+    context = get_issuance_email_context(db_session, issuance)
+
+    assert context["会社名"] == "選択発行元"
+    assert context["件名"] == "対象案件"
+
+
+def test_reminder_email_uses_project_company(db_session, tmp_path, monkeypatch):
+    from app.database.models import (
+        CompanySettings, Issuance, Project, ProjectMember)
+    from app.services import email_service
+
+    first = CompanySettings(name="先頭発行元", is_default=True)
+    selected = CompanySettings(name="案件発行元")
+    db_session.add_all([first, selected])
+    db_session.flush()
+    project = Project(
+        name="対象案件", fiscal_year=2026, project_type="list",
+        company_settings_id=selected.id)
+    db_session.add(project)
+    db_session.flush()
+    member = ProjectMember(
+        project_id=project.id, organization_name="請求先",
+        email="customer@example.com")
+    db_session.add(member)
+    db_session.flush()
+    issuance = Issuance(
+        project_id=project.id,
+        project_member_id=member.id,
+        doc_type="invoice",
+        doc_number="INV-202607-0001",
+        amount=1000,
+    )
+    db_session.add(issuance)
+    db_session.commit()
+    monkeypatch.setattr(
+        email_service,
+        "get_email_template",
+        lambda _kind: ("{会社名}", "{会社名}からのご案内"),
+    )
+
+    _to, subject, body_html, _pdf = email_service.prepare_reminder_email(
+        db_session, issuance)
+
+    assert subject == "案件発行元"
+    assert "案件発行元からのご案内" in body_html
+
+
 # ── M365MailService テスト（requests.post をモック）──────────────────────
 
 def test_send_mail_202_success(tmp_path):

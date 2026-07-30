@@ -30,12 +30,139 @@ def test_get_next_doc_number(db_session):
     n1 = get_next_doc_number(db_session, "invoice", 2026, 5)
     n2 = get_next_doc_number(db_session, "invoice", 2026, 5)
     assert n1 == "INV-202605-0001"
-    assert n2 == "INV-202605-0001"  # まだ保存されていないので同じ番号
+    assert n2 == "INV-202605-0002"
 
 
 def test_get_next_doc_number_receipt(db_session):
     n = get_next_doc_number(db_session, "receipt", 2026, 5)
     assert n == "RCP-202605-0001"
+
+
+def test_get_next_doc_number_resumes_after_existing_data(db_session):
+    from app.database.models import Issuance, Project
+
+    project = Project(
+        name="既存案件", fiscal_year=2026, project_type="counter")
+    db_session.add(project)
+    db_session.flush()
+    db_session.add(Issuance(
+        project_id=project.id,
+        doc_type="invoice",
+        doc_number="INV-202605-0042",
+    ))
+    db_session.commit()
+
+    assert get_next_doc_number(
+        db_session, "invoice", 2026, 5) == "INV-202605-0043"
+
+
+def test_get_next_doc_number_catches_up_when_sequence_is_behind(db_session):
+    from app.database.models import DocumentSequence, Issuance
+
+    proj, _tmpl, _pm = _setup(db_session)
+    db_session.add(DocumentSequence(
+        doc_type="invoice", year_month="202605", last_value=10))
+    db_session.add(Issuance(
+        project_id=proj.id,
+        doc_type="invoice",
+        doc_number="INV-202605-0042",
+        recipient_name="既存",
+        amount=0,
+    ))
+    db_session.commit()
+
+    assert get_next_doc_number(
+        db_session, "invoice", 2026, 5) == "INV-202605-0043"
+
+
+def test_document_number_reservation_is_rolled_back(db_session):
+    first = get_next_doc_number(db_session, "invoice", 2026, 5)
+    db_session.rollback()
+    retried = get_next_doc_number(db_session, "invoice", 2026, 5)
+
+    assert first == "INV-202605-0001"
+    assert retried == "INV-202605-0001"
+
+
+def test_duplicate_document_number_is_rejected(db_session):
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+    from app.database.models import Issuance, Project
+
+    project = Project(
+        name="重複確認", fiscal_year=2026, project_type="counter")
+    db_session.add(project)
+    db_session.flush()
+    db_session.add_all([
+        Issuance(
+            project_id=project.id,
+            doc_type="invoice",
+            doc_number="INV-202605-0001",
+        ),
+        Issuance(
+            project_id=project.id,
+            doc_type="invoice",
+            doc_number="INV-202605-0001",
+        ),
+    ])
+
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_document_number_is_unique_during_concurrent_issue(tmp_path):
+    import threading
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.database.models import Base, Issuance, Project
+
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'concurrent.db'}",
+        connect_args={"timeout": 10},
+    )
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    setup_session = session_factory()
+    project = Project(
+        name="同時発行", fiscal_year=2026, project_type="counter")
+    setup_session.add(project)
+    setup_session.commit()
+    project_id = project.id
+    setup_session.close()
+
+    barrier = threading.Barrier(2)
+    numbers = []
+    errors = []
+
+    def _issue():
+        session = session_factory()
+        try:
+            barrier.wait()
+            number = get_next_doc_number(
+                session, "invoice", 2026, 5)
+            session.add(Issuance(
+                project_id=project_id,
+                doc_type="invoice",
+                doc_number=number,
+            ))
+            session.commit()
+            numbers.append(number)
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=_issue) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+
+    assert errors == []
+    assert sorted(numbers) == [
+        "INV-202605-0001",
+        "INV-202605-0002",
+    ]
 
 
 def test_create_issuance_for_member(db_session):

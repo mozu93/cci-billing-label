@@ -83,6 +83,22 @@ def _migrate(engine):
         if "email" not in staff_cols:
             conn.execute(text("ALTER TABLE staff ADD COLUMN email VARCHAR(200)"))
             conn.commit()
+
+        # 文書番号の重複をDB側でも拒否する。空番号の旧データは対象外。
+        try:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "uq_issuance_doc_type_number "
+                "ON issuances(doc_type, doc_number) "
+                "WHERE doc_number IS NOT NULL AND doc_number <> ''"
+            ))
+            conn.commit()
+        except Exception as exc:
+            raise RuntimeError(
+                "既存データに重複した請求書・領収書番号があります。"
+                "重複を解消してから再起動してください。"
+            ) from exc
+
         cols = _table_columns(conn, dialect, "company_settings")
         if "print_seal" not in cols:
             conn.execute(text(

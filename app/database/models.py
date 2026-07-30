@@ -2,7 +2,7 @@
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Text, Date, DateTime,
-    Numeric, Boolean, ForeignKey, LargeBinary
+    Numeric, Boolean, ForeignKey, LargeBinary, Index
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -185,8 +185,24 @@ class ProjectMember(Base):
     created_at = Column(DateTime, default=datetime.now)
 
 
+class DocumentSequence(Base):
+    """請求書・領収書番号をDBトランザクション内で安全に採番する。"""
+    __tablename__ = "document_sequences"
+    doc_type = Column(String(20), primary_key=True)
+    year_month = Column(String(6), primary_key=True)
+    last_value = Column(Integer, nullable=False, default=0)
+
+
 class Issuance(Base):
     __tablename__ = "issuances"
+    __table_args__ = (
+        Index(
+            "uq_issuance_doc_type_number",
+            "doc_type",
+            "doc_number",
+            unique=True,
+        ),
+    )
     id = Column(Integer, primary_key=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     project_member_id = Column(Integer, ForeignKey("project_members.id"), nullable=True)

@@ -10,7 +10,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 
 class _VersionCheckThread(QThread):
-    found = pyqtSignal(str, str)   # (tag_name, download_url)
+    found = pyqtSignal(str, str, str)  # (tag_name, download_url, sha256)
 
     def run(self):
         try:
@@ -18,7 +18,11 @@ class _VersionCheckThread(QThread):
             from app.version import __version__
             result = check_latest_version()
             if result and is_newer_version(__version__, result["tag_name"]):
-                self.found.emit(result["tag_name"], result["download_url"])
+                self.found.emit(
+                    result["tag_name"],
+                    result["download_url"],
+                    result["sha256"],
+                )
         except Exception:
             return
 
@@ -28,13 +32,18 @@ class _DownloadThread(QThread):
     finished = pyqtSignal(str)        # tmp_path
     failed   = pyqtSignal()
 
-    def __init__(self, url: str, parent=None):
+    def __init__(self, url: str, sha256: str, parent=None):
         super().__init__(parent)
         self._url = url
+        self._sha256 = sha256
 
     def run(self):
         from app.utils.updater import download_new_exe
-        path = download_new_exe(self._url, progress_callback=self.progress.emit)
+        path = download_new_exe(
+            self._url,
+            self._sha256,
+            progress_callback=self.progress.emit,
+        )
         if path:
             self.finished.emit(path)
         else:
@@ -47,6 +56,7 @@ class UpdateBanner(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._download_url = ""
+        self._download_sha256 = ""
         self._tmp_exe_path = ""
         self._init_ui()
         self.setVisible(False)
@@ -97,8 +107,9 @@ class UpdateBanner(QWidget):
         self._check_thread.found.connect(self._on_update_found)
         self._check_thread.start()
 
-    def _on_update_found(self, tag: str, url: str):
+    def _on_update_found(self, tag: str, url: str, sha256: str):
         self._download_url = url
+        self._download_sha256 = sha256
         self._lbl.setText(f"新しいバージョン {tag} が利用可能です")
         self.setVisible(True)
 
@@ -106,7 +117,8 @@ class UpdateBanner(QWidget):
         self._btn_dl.setVisible(False)
         self._progress.setVisible(True)
         self._progress.setRange(0, 0)
-        self._dl_thread = _DownloadThread(self._download_url, self)
+        self._dl_thread = _DownloadThread(
+            self._download_url, self._download_sha256, self)
         self._dl_thread.progress.connect(self._on_progress)
         self._dl_thread.finished.connect(self._on_download_done)
         self._dl_thread.failed.connect(self._on_download_failed)
