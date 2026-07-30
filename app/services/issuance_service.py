@@ -43,7 +43,11 @@ def _build_lines_from_project(session: Session, project_id: int,
     total = 0
     for pt in pts:
         tmpl = pt.item_template
-        price = (unit_prices or {}).get(tmpl.id) or int(pt.unit_price_override or tmpl.unit_price)
+        price = (unit_prices or {}).get(tmpl.id)
+        if price is None:
+            price = int(pt.unit_price_override
+                        if pt.unit_price_override is not None
+                        else tmpl.unit_price)
         fallback_qty = default_quantity if default_quantity is not None else (pt.default_quantity or 1)
         qty = (quantities or {}).get(tmpl.id, fallback_qty)
         if qty <= 0:
@@ -96,6 +100,39 @@ def create_issuance_for_member(session: Session, project_id: int,
     for line_data in lines:
         session.add(IssuanceLine(issuance_id=issuance.id, **line_data))
     session.commit()
+    session.refresh(issuance)
+    return issuance
+
+
+def update_issuance_lines_from_project(
+        session: Session, issuance_id: int,
+        quantities: dict[int, int] | None = None,
+        unit_prices: dict[int, int] | None = None,
+        commit: bool = True) -> Issuance:
+    """Excel・画面で編集した単価と数量を既存発行データの明細へ反映する。"""
+    issuance = session.get(Issuance, issuance_id)
+    if issuance is None:
+        raise ValueError("発行データが見つかりません。")
+    if issuance.status == "支払済み":
+        raise ValueError(
+            f"{issuance.doc_number or '発行データ'}：支払済みのため"
+            "単価・数量は変更できません。")
+    lines, total = _build_lines_from_project(
+        session,
+        issuance.project_id,
+        quantities=quantities,
+        unit_prices=unit_prices,
+    )
+    for line in list(issuance.lines):
+        session.delete(line)
+    session.flush()
+    for line_data in lines:
+        session.add(IssuanceLine(issuance_id=issuance.id, **line_data))
+    issuance.amount = total
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     session.refresh(issuance)
     return issuance
 
@@ -183,7 +220,8 @@ def create_combined_issuance(session: Session,
 def mark_as_issued(session: Session, issuance_id: int,
                    staff_id: int | None, staff_name: str,
                    delivery_method: str = "印刷",
-                   issued_at: datetime | None = None) -> None:
+                   issued_at: datetime | None = None,
+                   commit: bool = True) -> None:
     issuance = session.get(Issuance, issuance_id)
     if issuance:
         issuance.status = "発行済み"
@@ -191,7 +229,10 @@ def mark_as_issued(session: Session, issuance_id: int,
         issuance.staff_id = staff_id
         issuance.staff_name = staff_name
         issuance.delivery_method = delivery_method
-        session.commit()
+        if commit:
+            session.commit()
+        else:
+            session.flush()
 
 
 def record_payment(session: Session, issuance_id: int,
@@ -228,6 +269,7 @@ def create_direct_issuance(session: Session, lines_data: list[dict],
                             recipient_department: str = "",
                             recipient_name_kana: str = "",
                             recipient_phone: str = "",
+                            recipient_email: str = "",
                             company_settings_id: int | None = None,
                             bank_account_id: int | None = None,
                             seal_image_id: int | None = None,
@@ -260,6 +302,7 @@ def create_direct_issuance(session: Session, lines_data: list[dict],
         recipient_name=recipient_name,
         recipient_name_kana=recipient_name_kana,
         recipient_phone=recipient_phone,
+        recipient_email=recipient_email,
         doc_type=doc_type,
         doc_number=doc_number,
         status="支払済み" if is_receipt else "発行済み",
@@ -311,6 +354,7 @@ def update_direct_issuance(session: Session, issuance_id: int,
                             recipient_department: str = "",
                             recipient_name_kana: str = "",
                             recipient_phone: str = "",
+                            recipient_email: str = "",
                             company_settings_id: int | None = None,
                             bank_account_id: int | None = None,
                             seal_image_id: int | None = None,
@@ -329,6 +373,7 @@ def update_direct_issuance(session: Session, issuance_id: int,
     issuance.recipient_name = recipient_name
     issuance.recipient_name_kana = recipient_name_kana
     issuance.recipient_phone = recipient_phone
+    issuance.recipient_email = recipient_email
     issuance.delivery_method = delivery_method
     issuance.company_settings_id = company_settings_id
     issuance.bank_account_id = bank_account_id

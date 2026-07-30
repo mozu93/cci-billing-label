@@ -39,7 +39,7 @@ class SettingsTab(QWidget):
         from app.utils import current_user
 
         inner.addTab(CompanySettingsWidget(), "発行元情報")
-        inner.addTab(EmailSettingsWidget(), "メール設定")
+        inner.addTab(EmailSettingsWidget(), "メール送信設定")
         inner.addTab(BackupSettingsWidget(), "バックアップ")
         inner.addTab(LabelSettingsWidget(), "ラベル印刷")
         inner.addTab(OperationLogWidget(), "操作ログ")

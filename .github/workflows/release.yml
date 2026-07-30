@@ -22,7 +22,15 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pyinstaller
+        run: pip install -r requirements.txt -r requirements-dev.txt pyinstaller
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          python -m pytest -q
+          python -m compileall -q app main.py
+          python -m pip check
 
       - name: Get version
         id: ver

@@ -19,7 +19,7 @@ def test_top_level_tabs_order(qtbot, memory_db):
     assert isinstance(tabs, QTabWidget)
     assert _tab_titles(tabs) == [
         "単発発行", "まとめて発行", "宛名ラベル発行",
-        "修正・再発行", "登録・マスタ", "設定",
+        "修正・再発行", "登録・マスタ", "メールテンプレート", "設定",
     ]
 
 

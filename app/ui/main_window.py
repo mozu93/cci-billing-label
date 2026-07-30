@@ -92,6 +92,10 @@ class MainWindow(QMainWindow):
 
         from app.ui.settings_tab import MasterTab, SettingsTab
         tabs.addTab(MasterTab(), "登録・マスタ")
+
+        from app.ui.email_settings import EmailTemplateWidget
+        tabs.addTab(EmailTemplateWidget(), "メールテンプレート")
+
         tabs.addTab(SettingsTab(), "設定")
 
         tabs.setCurrentIndex(0)

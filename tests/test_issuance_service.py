@@ -53,6 +53,103 @@ def test_create_issuance_for_member(db_session):
     assert int(issuance.lines[0].unit_price) == 10000
 
 
+def test_update_issuance_lines_from_project_applies_excel_values(db_session):
+    from app.services.issuance_service import update_issuance_lines_from_project
+
+    proj, tmpl, pm = _setup(db_session)
+    issuance = create_issuance_for_member(
+        db_session, project_id=proj.id, project_member_id=pm.id,
+        recipient_organization=pm.organization_name,
+        recipient_name=pm.representative_name,
+        doc_type="invoice", fiscal_year=2026, month=5,
+    )
+
+    updated = update_issuance_lines_from_project(
+        db_session,
+        issuance.id,
+        quantities={tmpl.id: 3},
+        unit_prices={tmpl.id: 2500},
+    )
+
+    assert int(updated.amount) == 7500
+    assert len(updated.lines) == 1
+    assert int(updated.lines[0].quantity) == 3
+    assert int(updated.lines[0].unit_price) == 2500
+    assert int(updated.lines[0].line_total) == 7500
+
+
+def test_project_issuance_accepts_zero_unit_price(db_session):
+    from app.services.issuance_service import update_issuance_lines_from_project
+
+    proj, tmpl, pm = _setup(db_session)
+    issuance = create_issuance_for_member(
+        db_session, project_id=proj.id, project_member_id=pm.id,
+        recipient_organization=pm.organization_name,
+        recipient_name=pm.representative_name,
+        doc_type="invoice", fiscal_year=2026, month=5,
+    )
+
+    updated = update_issuance_lines_from_project(
+        db_session,
+        issuance.id,
+        quantities={tmpl.id: 1},
+        unit_prices={tmpl.id: 0},
+    )
+
+    assert int(updated.amount) == 0
+    assert int(updated.lines[0].unit_price) == 0
+
+
+def test_paid_issuance_rejects_project_line_update(db_session):
+    from app.services.issuance_service import update_issuance_lines_from_project
+
+    proj, tmpl, pm = _setup(db_session)
+    issuance = create_issuance_for_member(
+        db_session, project_id=proj.id, project_member_id=pm.id,
+        recipient_organization=pm.organization_name,
+        recipient_name=pm.representative_name,
+        doc_type="invoice", fiscal_year=2026, month=5,
+    )
+    issuance.status = "支払済み"
+    db_session.commit()
+
+    import pytest
+    with pytest.raises(ValueError, match="支払済み"):
+        update_issuance_lines_from_project(
+            db_session,
+            issuance.id,
+            quantities={tmpl.id: 3},
+            unit_prices={tmpl.id: 2500},
+        )
+
+
+def test_project_line_update_can_be_rolled_back_before_pdf_success(db_session):
+    from app.services.issuance_service import update_issuance_lines_from_project
+
+    proj, tmpl, pm = _setup(db_session)
+    issuance = create_issuance_for_member(
+        db_session, project_id=proj.id, project_member_id=pm.id,
+        recipient_organization=pm.organization_name,
+        recipient_name=pm.representative_name,
+        doc_type="invoice", fiscal_year=2026, month=5,
+    )
+    issuance_id = issuance.id
+
+    update_issuance_lines_from_project(
+        db_session,
+        issuance_id,
+        quantities={tmpl.id: 3},
+        unit_prices={tmpl.id: 2500},
+        commit=False,
+    )
+    assert int(db_session.get(type(issuance), issuance_id).amount) == 7500
+
+    db_session.rollback()
+    restored = db_session.get(type(issuance), issuance_id)
+    assert int(restored.amount) == 10000
+    assert int(restored.lines[0].quantity) == 1
+
+
 def test_mark_as_issued(db_session):
     proj, tmpl, pm = _setup(db_session)
     issuance = create_issuance_for_member(
@@ -276,7 +373,7 @@ def test_search_unpaid_invoices(db_session):
 
 
 def test_create_direct_issuance_stores_issuer_and_display_settings(db_session):
-    """単発発行で選んだ発行元・銀行口座・印鑑・宛名表示設定が Issuance に保存される。"""
+    """単発発行で発行元・口座・印鑑・宛名表示・メールアドレスを保存する。"""
     from app.services.issuance_service import create_direct_issuance
     from app.database.models import CompanySettings, BankAccount, SealImage
 
@@ -296,15 +393,17 @@ def test_create_direct_issuance_stores_issuer_and_display_settings(db_session):
         doc_type="invoice", fiscal_year=2026, month=6,
         company_settings_id=cs.id, bank_account_id=bank.id,
         seal_image_id=seal.id, show_recipient_person=False,
+        recipient_email="billing@example.com",
     )
     assert iss.company_settings_id == cs.id
     assert iss.bank_account_id == bank.id
     assert iss.seal_image_id == seal.id
     assert iss.show_recipient_person is False
+    assert iss.recipient_email == "billing@example.com"
 
 
 def test_update_direct_issuance_updates_issuer_and_display_settings(db_session):
-    """内容修正で発行元・宛名表示設定を変更できる。"""
+    """内容修正で発行元・宛名表示・メールアドレスを変更できる。"""
     from app.services.issuance_service import create_direct_issuance, update_direct_issuance
     from app.database.models import CompanySettings
 
@@ -327,6 +426,8 @@ def test_update_direct_issuance_updates_issuer_and_display_settings(db_session):
         recipient_organization="○○商事", recipient_name="",
         delivery_method="窓口手渡し",
         company_settings_id=cs2.id, show_recipient_person=False,
+        recipient_email="updated@example.com",
     )
     assert updated.company_settings_id == cs2.id
     assert updated.show_recipient_person is False
+    assert updated.recipient_email == "updated@example.com"

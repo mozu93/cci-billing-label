@@ -27,9 +27,20 @@ def get_m365_config() -> dict:
     return get_config().get("m365", {})
 
 
-def save_m365_config(client_id: str, tenant_id: str) -> None:
+def save_m365_config(client_id: str, tenant_id: str,
+                     account_username: str | None = None,
+                     sender_address: str | None = None,
+                     test_recipient: str | None = None) -> None:
     config = get_config()
-    config["m365"] = {"client_id": client_id, "tenant_id": tenant_id}
+    m365 = dict(config.get("m365", {}))
+    m365.update({"client_id": client_id, "tenant_id": tenant_id})
+    if account_username is not None:
+        m365["account_username"] = account_username
+    if sender_address is not None:
+        m365["sender_address"] = sender_address
+    if test_recipient is not None:
+        m365["test_recipient"] = test_recipient
+    config["m365"] = m365
     save_config(config)
 
 
@@ -39,6 +50,18 @@ def get_m365_client_id() -> str:
 
 def get_m365_tenant_id() -> str:
     return get_m365_config().get("tenant_id", "")
+
+
+def get_m365_account_username() -> str:
+    return get_m365_config().get("account_username", "")
+
+
+def get_m365_sender_address() -> str:
+    return get_m365_config().get("sender_address", "")
+
+
+def get_m365_test_recipient() -> str:
+    return get_m365_config().get("test_recipient", "")
 
 
 def get_label_print_offset(layout_key: str) -> tuple[float, float]:

@@ -261,18 +261,25 @@ class IssuanceCounterWidget(QWidget):
             self._seal_combo.blockSignals(False)
 
             if hasattr(self, "_bank_combo"):
+                bank_selected = False
                 if select_bank_id is not None:
                     for i in range(self._bank_combo.count()):
                         if self._bank_combo.itemData(i) == select_bank_id:
                             self._bank_combo.setCurrentIndex(i)
+                            bank_selected = True
                             break
-                else:
+                if not bank_selected:
                     for i in range(self._bank_combo.count()):
                         if self._bank_combo.itemData(i) is not None:
                             b = session.get(BankAccount, self._bank_combo.itemData(i))
                             if b and b.is_default:
                                 self._bank_combo.setCurrentIndex(i)
+                                bank_selected = True
                                 break
+                # 既存データにデフォルト指定がない場合も「なし」にせず、
+                # その発行元で最初に登録された口座を初期選択する。
+                if not bank_selected and self._bank_combo.count() > 1:
+                    self._bank_combo.setCurrentIndex(1)
 
             if select_seal_id is not None:
                 for i in range(self._seal_combo.count()):
@@ -312,6 +319,7 @@ class IssuanceCounterWidget(QWidget):
             self._rep_name_edit.setText(iss.recipient_name or "")
             self._rep_kana_edit.setText(iss.recipient_name_kana or "")
             self._phone_edit.setText(iss.recipient_phone or "")
+            self._email.setText(getattr(iss, "recipient_email", "") or "")
             if any([iss.recipient_kana,
                     getattr(iss, "recipient_department", ""),
                     iss.recipient_name, iss.recipient_name_kana]):
@@ -1114,6 +1122,7 @@ class IssuanceCounterWidget(QWidget):
                     recipient_department   = dept,
                     recipient_name_kana    = rep_kana,
                     recipient_phone        = phone,
+                    recipient_email        = email,
                     company_settings_id   = issuer_company_id,
                     bank_account_id       = bank_account_id,
                     seal_image_id         = seal_image_id,
@@ -1141,6 +1150,7 @@ class IssuanceCounterWidget(QWidget):
                     recipient_department   = dept,
                     recipient_name_kana    = rep_kana,
                     recipient_phone        = phone,
+                    recipient_email        = email,
                     company_settings_id   = issuer_company_id,
                     bank_account_id       = bank_account_id,
                     seal_image_id         = seal_image_id,
@@ -1188,7 +1198,8 @@ class IssuanceCounterWidget(QWidget):
                                   recipient_postal_code=postal_code,
                                   recipient_address=address1,
                                   recipient_address2=address2,
-                                  project=_proj)
+                                  project=_proj,
+                                  receipt_include_copy=doc_type != "receipt")
             elif _save_path:
                 # 指定パスに保存してビューアで開く
                 generate_and_open(iss, session, due_date=due_date,
@@ -1199,7 +1210,10 @@ class IssuanceCounterWidget(QWidget):
                                   recipient_address2=address2,
                                   project=_proj)
             if _delivery_text == "メール送付":
-                from app.services.email_service import prepare_issuance_email
+                from app.services.email_service import (
+                    get_issuance_email_context,
+                    prepare_issuance_email,
+                )
                 from app.services.operation_log_service import add_log
                 from app.ui.invoice_mail_confirm_dialog import InvoiceMailConfirmDialog
                 from app.ui.m365_mail_worker import M365MailWorker
@@ -1223,8 +1237,20 @@ class IssuanceCounterWidget(QWidget):
                         customer_name=(iss.recipient_organization
                                        or iss.recipient_name or ""),
                         amount_text=f"¥{iss.amount:,}" if iss.amount else "",
+                        template_kind=iss.doc_type,
+                        template_context=get_issuance_email_context(
+                            session, iss),
                     )
                     if dlg.exec() == QDialog.DialogCode.Accepted:
+                        to_recipients = dlg.to_recipients()
+                        cc_recipients = dlg.cc_recipients()
+                        bcc_recipients = dlg.bcc_recipients()
+                        subject = dlg.subject()
+                        body_html = dlg.body_html()
+                        to_addr = to_recipients[0]
+                        # 確認画面で変更した主宛先も再発行用に保持する。
+                        iss.recipient_email = to_addr
+                        session.commit()
                         client_id = get_m365_client_id()
                         tenant_id = get_m365_tenant_id()
                         if not client_id or not tenant_id:
@@ -1232,12 +1258,14 @@ class IssuanceCounterWidget(QWidget):
                                 self, "設定エラー",
                                 "Microsoft 365 の Client ID / Tenant ID が"
                                 "設定されていません。\n"
-                                "設定 → メール設定から入力してください。")
+                                "設定 → メール送信設定から入力してください。")
                         else:
                             thread = QThread(self)
                             worker = M365MailWorker(
-                                client_id, tenant_id, [to_addr],
-                                subject, body_html, pdf_path)
+                                client_id, tenant_id, to_recipients,
+                                subject, body_html, pdf_path,
+                                cc_recipients=cc_recipients or None,
+                                bcc_recipients=bcc_recipients or None)
                             worker.moveToThread(thread)
                             prog = QProgressDialog(
                                 "Microsoft 365 でメール送信中…",
@@ -1264,10 +1292,12 @@ class IssuanceCounterWidget(QWidget):
                             if "ok" in _result:
                                 add_log(session, "メール送信", "issuance",
                                         iss.id,
-                                        f"{iss.doc_number} → {to_addr}")
+                                        f"{iss.doc_number} → "
+                                        f"{', '.join(to_recipients)}")
                                 QMessageBox.information(
                                     self, "メール送信",
-                                    f"{to_addr} にメールを送信しました。")
+                                    f"{', '.join(to_recipients)} "
+                                    "にメールを送信しました。")
                             else:
                                 err_msg = _result.get("err", "不明なエラー")
                                 add_log(session, "メール送信失敗", "issuance",

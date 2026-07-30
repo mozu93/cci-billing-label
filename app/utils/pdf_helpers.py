@@ -26,7 +26,7 @@ def build_pdf_filename(issuance, fields: list[str] | None = None,
     )
     roster_no = str(getattr(issuance, "roster_no", "") or "").strip()
     values = {
-        "roster_no": f"NO.{roster_no}" if roster_no else "NO.未設定",
+        "roster_no": roster_no or "未設定",
         "organization": organization,
         "issued_date": issued_date,
         "doc_number": getattr(issuance, "doc_number", "") or "管理番号未設定",
@@ -149,7 +149,9 @@ def generate_and_open(issuance, session, reissue: bool = False,
                       recipient_address: str = "",
                       recipient_address2: str = "",
                       project=None,
-                      save_path: str | None = None) -> str | None:
+                      save_path: str | None = None,
+                      commit: bool = True,
+                      receipt_include_copy: bool = True) -> str | None:
     """発行データのPDFを生成し、open_file=True ならビューアで開く。
 
     一括発行時は open_file=False で生成だけ行い、
@@ -196,20 +198,27 @@ def generate_and_open(issuance, session, reissue: bool = False,
                              due_date=due_date,  # None → invoice_pdf側で翌月末自動設定
                              notes=proj_notes)
         issuance.pdf_path = path
-        session.commit()
+        if commit:
+            session.commit()
+        else:
+            session.flush()
         if open_file:
             from app.services.print_service import open_pdf
             open_pdf(path)
         return path
 
-    # 領収書（A5縦・原本+控え）
+    # 領収書（通常はA5縦・原本+控え、メール添付時はA6横・原本のみ）
     path = save_path or available_pdf_path(
         output_dir, build_pdf_filename(issuance, reissue=reissue))
     from app.services.pdf.receipt_pdf import generate_receipt_pdf
     generate_receipt_pdf(issuance, company, path,
-                         seal_image=seal, reissue=reissue)
+                         seal_image=seal, reissue=reissue,
+                         include_copy=receipt_include_copy)
     issuance.pdf_path = path
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     if open_file:
         from app.services.print_service import open_pdf
         open_pdf(path)

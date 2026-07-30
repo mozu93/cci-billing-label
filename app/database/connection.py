@@ -135,6 +135,7 @@ def _migrate(engine):
             ("recipient_department", "VARCHAR(100) DEFAULT ''"),
             ("recipient_name_kana",  "VARCHAR(100) DEFAULT ''"),
             ("recipient_phone",      "VARCHAR(50) DEFAULT ''"),
+            ("recipient_email",      "VARCHAR(200) DEFAULT ''"),
             ("company_settings_id",   "INTEGER REFERENCES company_settings(id)"),
             ("bank_account_id",       "INTEGER REFERENCES bank_accounts(id)"),
             ("seal_image_id",          "INTEGER REFERENCES seal_images(id)"),

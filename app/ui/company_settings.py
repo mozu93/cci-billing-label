@@ -74,13 +74,16 @@ class CompanySettingsWidget(QWidget):
         bank_layout = QVBoxLayout(grp2)
         bank_layout.setSpacing(4)
         bank_layout.setContentsMargins(6, 4, 6, 6)
-        self._bank_table = QTableWidget(0, 6)
+        self._bank_table = QTableWidget(0, 7)
         self._bank_table.setHorizontalHeaderLabels(
-            ["ラベル", "銀行名", "支店名", "種別", "口座番号", "口座名義（フリガナ）"])
+            ["ラベル", "銀行名", "支店名", "種別", "口座番号",
+             "口座名義（フリガナ）", ""])
         self._bank_table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch)
         self._bank_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.ResizeToContents)
+        self._bank_table.horizontalHeader().setSectionResizeMode(
+            6, QHeaderView.ResizeMode.ResizeToContents)
         self._bank_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._bank_table.setFixedHeight(155)
         bank_layout.addWidget(self._bank_table)
@@ -90,10 +93,13 @@ class CompanySettingsWidget(QWidget):
         btn_add_bank.clicked.connect(self._add_bank)
         btn_edit_bank = QPushButton("編集")
         btn_edit_bank.clicked.connect(self._edit_bank)
+        btn_default_bank = QPushButton("★ デフォルトに設定")
+        btn_default_bank.clicked.connect(self._set_default_bank)
         btn_del_bank = QPushButton("削除")
         btn_del_bank.clicked.connect(self._del_bank)
         bank_btn_row.addWidget(btn_add_bank)
         bank_btn_row.addWidget(btn_edit_bank)
+        bank_btn_row.addWidget(btn_default_bank)
         bank_btn_row.addWidget(btn_del_bank)
         bank_btn_row.addStretch()
         bank_layout.addLayout(bank_btn_row)
@@ -193,9 +199,11 @@ class CompanySettingsWidget(QWidget):
             for b in cs.bank_accounts:
                 r = self._bank_table.rowCount()
                 self._bank_table.insertRow(r)
+                default_mark = "★ デフォルト" if b.is_default else ""
                 for col, val in enumerate([b.label, b.bank_name, b.bank_branch,
                                             b.bank_account_type, b.bank_account_number,
-                                            b.bank_account_name_kana or ""]):
+                                            b.bank_account_name_kana or "",
+                                            default_mark]):
                     item = QTableWidgetItem(val)
                     item.setData(0x0100, b.id)
                     self._bank_table.setItem(r, col, item)
@@ -317,6 +325,22 @@ class CompanySettingsWidget(QWidget):
                                 bank_id=bank_id)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._load_bank_seal()
+
+    def _set_default_bank(self):
+        row = self._bank_table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "未選択", "デフォルトにする口座を選択してください。")
+            return
+        bank_id = self._bank_table.item(row, 0).data(0x0100)
+        session = get_session()
+        try:
+            for bank in session.query(BankAccount).filter_by(
+                    company_id=self._selected_company_id).all():
+                bank.is_default = (bank.id == bank_id)
+            session.commit()
+        finally:
+            session.close()
+        self._load_bank_seal()
 
     def _del_bank(self):
         row = self._bank_table.currentRow()
@@ -593,8 +617,13 @@ class BankAccountDialog(QDialog):
             return
         session = get_session()
         try:
+            is_first = (
+                self._bank_id is None
+                and session.query(BankAccount).filter_by(
+                    company_id=self._company_id).count() == 0
+            )
             b = session.get(BankAccount, self._bank_id) if self._bank_id else BankAccount(
-                company_id=self._company_id)
+                company_id=self._company_id, is_default=is_first)
             if b is None:
                 QMessageBox.warning(self, "保存エラー", "銀行口座が見つかりません。")
                 return

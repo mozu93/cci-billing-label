@@ -13,7 +13,11 @@ from app.services.project_service import (
     get_projects, get_project_members, get_project_templates
 )
 from app.services.category_service import get_active_categories
-from app.services.issuance_service import create_issuance_for_member, mark_as_issued
+from app.services.issuance_service import (
+    create_issuance_for_member,
+    mark_as_issued,
+    update_issuance_lines_from_project,
+)
 from app.utils import current_user
 
 
@@ -1006,6 +1010,16 @@ class IssuanceFromProjectWidget(QWidget):
                             roster_no=pm.roster_no or "",
                         )
                         issuance_id = iss.id
+                    else:
+                        # Excel取込や画面で変更した単価・数量を、既存の
+                        # 準備中／発行済みデータにも反映してからPDFを作る。
+                        update_issuance_lines_from_project(
+                            session,
+                            issuance_id,
+                            quantities=quantities,
+                            unit_prices=unit_prices,
+                            commit=False,
+                        )
 
                     iss = session.get(Issuance, issuance_id)
                     if iss is None:
@@ -1013,30 +1027,24 @@ class IssuanceFromProjectWidget(QWidget):
                     # 旧データを再出力する場合も、現在の名簿NO.をファイル名に利用する。
                     if (iss.roster_no or "") != (pm.roster_no or ""):
                         iss.roster_no = pm.roster_no or ""
-                        session.commit()
                     was_issued = iss.status == "発行済み"
                     if not was_issued:
                         mark_as_issued(session, issuance_id,
                                        staff_id=current_user.get_id(),
                                        staff_name=current_user.get_name(),
                                        delivery_method=delivery,
-                                       issued_at=receipt_issued_at)
+                                       issued_at=receipt_issued_at,
+                                       commit=False)
                         iss = session.get(Issuance, issuance_id)
-                        from app.services.operation_log_service import add_log
-                        _lbl = "請求書" if doc_type == "invoice" else "領収書"
-                        add_log(session, "発行", "issuance", issuance_id,
-                                f"{_lbl} {iss.doc_number} 宛先：{iss.recipient_organization or iss.recipient_name}")
                     elif (iss.delivery_method or "") != delivery:
                         # 発行済み行の再実行時も配付方法を実態に合わせる
                         iss.delivery_method = delivery
-                        session.commit()
 
                     try:
                         from app.database.models import Project as _Project
                         _proj = session.get(_Project, iss.project_id)
                         if due_date and _proj and _proj.due_date != due_date:
                             _proj.due_date = due_date
-                            session.commit()
                         if save_dir:
                             from app.utils.pdf_helpers import (
                                 available_pdf_path, build_pdf_filename,
@@ -1049,19 +1057,31 @@ class IssuanceFromProjectWidget(QWidget):
                                                  open_file=open_each,
                                                  save_path=_pdf_save_path,
                                                  window_envelope=window_envelope,
-                                                 project=_proj)
-                        if path:
-                            pdf_paths.append(path)
-                    except Exception as e:
+                                                 project=_proj,
+                                                 commit=False,
+                                                 receipt_include_copy=not (
+                                                     delivery == "メール送付"
+                                                     and doc_type == "receipt"
+                                                 ))
+                        if not path:
+                            raise RuntimeError("発行元情報が設定されていません。")
+                        session.commit()
+                        pdf_paths.append(path)
                         if not was_issued:
-                            # PDFが作れなかった行は発行前の状態に戻す
-                            iss.status = "準備中"
-                            iss.issued_at = None
-                            session.commit()
+                            from app.services.operation_log_service import add_log
+                            _lbl = "請求書" if doc_type == "invoice" else "領収書"
+                            add_log(
+                                session, "発行", "issuance", issuance_id,
+                                f"{_lbl} {iss.doc_number} 宛先："
+                                f"{iss.recipient_organization or iss.recipient_name}",
+                            )
+                    except Exception as e:
+                        # 明細・金額・発行状態をPDF生成前の状態へ戻す。
+                        session.rollback()
                         name = (iss.recipient_organization
                                 or iss.recipient_name or iss.doc_number)
                         errors.append(
-                            f"{name}：PDF生成に失敗したため発行を取り消しました（{e}）")
+                            f"{name}：PDF生成に失敗したため変更を取り消しました（{e}）")
                         continue
                     issued_issuances.append((iss, session))
                     notify_items.append({
@@ -1093,7 +1113,10 @@ class IssuanceFromProjectWidget(QWidget):
         from PyQt6.QtCore import QThread
         from PyQt6.QtWidgets import QApplication, QProgressDialog, QDialog
         from app.database.models import ProjectMember
-        from app.services.email_service import prepare_issuance_email
+        from app.services.email_service import (
+            get_issuance_email_context,
+            prepare_issuance_email,
+        )
         from app.services.operation_log_service import add_log
         from app.ui.invoice_mail_confirm_dialog import InvoiceMailConfirmDialog
         from app.ui.m365_mail_worker import M365MailWorker
@@ -1106,7 +1129,7 @@ class IssuanceFromProjectWidget(QWidget):
             QMessageBox.critical(
                 self, "設定エラー",
                 "Microsoft 365 の Client ID / Tenant ID が設定されていません。\n"
-                "設定 → メール設定から入力してください。")
+                "設定 → メール送信設定から入力してください。")
             return
 
         sent = 0
@@ -1135,14 +1158,28 @@ class IssuanceFromProjectWidget(QWidget):
                 customer_name=(iss.recipient_organization
                                or iss.recipient_name or ""),
                 amount_text=f"¥{iss.amount:,}" if iss.amount else "",
+                template_kind=iss.doc_type,
+                template_context=get_issuance_email_context(sess, iss),
             )
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 continue
 
+            to_recipients = dlg.to_recipients()
+            cc_recipients = dlg.cc_recipients()
+            bcc_recipients = dlg.bcc_recipients()
+            to_addr = to_recipients[0]
+            subject = dlg.subject()
+            body_html = dlg.body_html()
+            iss.recipient_email = to_addr
+            sess.commit()
+
             thread = QThread(self)
             worker = M365MailWorker(
-                client_id, tenant_id, [to_addr],
-                subject, body_html, pdf_path)
+                client_id, tenant_id, to_recipients,
+                subject, body_html, pdf_path,
+                cc_recipients=cc_recipients,
+                bcc_recipients=bcc_recipients,
+            )
             worker.moveToThread(thread)
             prog = QProgressDialog(
                 f"送信中（{iss.doc_number}）…", None, 0, 0, self)

@@ -452,10 +452,9 @@ class _ReminderDialog(QDialog):
             return
 
         # メール内容の確認・編集ダイアログ
-        from app.services.email_service import get_email_template, PLACEHOLDER_KEYS
-        tmpl_subject, tmpl_body = get_email_template("reminder")
+        from app.services.email_service import get_email_templates
         preview_dlg = _ReminderPreviewDialog(
-            len(ids), tmpl_subject, tmpl_body, self)
+            len(ids), get_email_templates("reminder"), self)
         if preview_dlg.exec() != QDialog.DialogCode.Accepted:
             return
         custom_subject = preview_dlg.subject()
@@ -475,7 +474,7 @@ class _ReminderDialog(QDialog):
             QMessageBox.critical(
                 self, "設定エラー",
                 "Microsoft 365 の Client ID / Tenant ID が設定されていません。\n"
-                "設定 → メール設定から入力してください。")
+                "設定 → メール送信設定から入力してください。")
             return
 
         # 送信データを事前に組み立て
@@ -518,7 +517,7 @@ class _ReminderDialog(QDialog):
         # M365でバックグラウンド送信
         self._btn_send.setEnabled(False)
         progress = QProgressDialog(
-            "督促メールを送信中…", None, 0, len(items), self)
+            "督促メールを送信中…", "送信を中止", 0, len(items), self)
         progress.setWindowTitle("督促メール")
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
@@ -528,6 +527,7 @@ class _ReminderDialog(QDialog):
         worker = M365ReminderBatchWorker(client_id, tenant_id, items)
         worker.moveToThread(thread)
         worker.progress.connect(lambda cur, _tot: progress.setValue(cur))
+        progress.canceled.connect(lambda: worker.cancel())
         _result: dict = {}
         def _on_done(sent, errors, _r=_result, _t=thread):
             _r["sent"]   = sent
@@ -545,18 +545,27 @@ class _ReminderDialog(QDialog):
         # 操作ログ & 結果列の更新
         sent   = _result.get("sent", 0)
         w_errors = _result.get("errors", [])
+        result_by_issuance = {
+            result["item"].get("iss_id"): result
+            for result in worker.results
+            if result["item"].get("iss_id") is not None
+        }
         session2 = get_session()
         try:
-            for i, item in enumerate(items):
+            for item in items:
                 iss_id = item["iss_id"]
                 r = self._row_for_iss_id(iss_id)
-                if i < sent:
+                result = result_by_issuance.get(iss_id)
+                if result and result["success"]:
                     add_log(session2, "督促メール送信", "issuance", iss_id,
                             f"{item['doc_number']} → {item['to']}")
                     if r is not None:
                         self._set_row_result(r, "送信済み", success=True)
                 else:
-                    err_msg = w_errors[i - sent] if (i - sent) < len(w_errors) else "失敗"
+                    err_msg = (
+                        result["error"] if result
+                        else "安全中断または認証失敗のため未送信"
+                    )
                     add_log(session2, "督促メール送信失敗", "issuance", iss_id,
                             f"{item['doc_number']}：{err_msg}")
                     if r is not None:
@@ -579,8 +588,7 @@ class _ReminderDialog(QDialog):
 class _ReminderPreviewDialog(QDialog):
     """督促メールの件名・本文を確認・編集してから送信するダイアログ。"""
 
-    def __init__(self, count: int, tmpl_subject: str, tmpl_body: str,
-                 parent=None):
+    def __init__(self, count: int, templates: list[dict], parent=None):
         super().__init__(parent)
         self.setWindowTitle("メール内容の確認・編集")
         self.resize(620, 500)
@@ -593,14 +601,28 @@ class _ReminderPreviewDialog(QDialog):
 
         form = QFormLayout()
         form.setVerticalSpacing(6)
-        self._subject = QLineEdit(tmpl_subject)
+        self._template_choice = QComboBox()
+        for template in templates:
+            label = (
+                "★ " + template["name"]
+                if template["is_default"] else template["name"])
+            self._template_choice.addItem(label, template)
+        default_index = next(
+            (index for index, template in enumerate(templates)
+             if template["is_default"]),
+            0,
+        )
+        self._template_choice.setCurrentIndex(default_index)
+        selected = self._template_choice.currentData()
+        self._subject = QLineEdit(selected["subject"])
+        form.addRow("使用テンプレート", self._template_choice)
         form.addRow("件名", self._subject)
         layout.addLayout(form)
 
         layout.addWidget(QLabel("本文："))
         self._body = QTextEdit()
         self._body.setAcceptRichText(False)
-        self._body.setPlainText(tmpl_body)
+        self._body.setPlainText(selected["body"])
         self._body.setMinimumHeight(280)
         layout.addWidget(self._body)
 
@@ -608,7 +630,8 @@ class _ReminderPreviewDialog(QDialog):
         btn_cancel = QPushButton("キャンセル")
         btn_cancel.clicked.connect(self.reject)
         btn_save_tmpl = QPushButton("テンプレートとして保存")
-        btn_save_tmpl.setToolTip("編集内容をメール設定のテンプレートに上書き保存します")
+        btn_save_tmpl.setToolTip(
+            "編集内容を「メールテンプレート」の督促文面に上書き保存します")
         btn_save_tmpl.clicked.connect(self._save_template)
         btn_send = QPushButton("この内容で送信")
         btn_send.setStyleSheet(
@@ -621,6 +644,8 @@ class _ReminderPreviewDialog(QDialog):
         btn_row.addStretch()
         btn_row.addWidget(btn_send)
         layout.addLayout(btn_row)
+        self._template_choice.currentIndexChanged.connect(
+            self._on_template_changed)
 
     def subject(self) -> str:
         return self._subject.text().strip()
@@ -628,13 +653,26 @@ class _ReminderPreviewDialog(QDialog):
     def body(self) -> str:
         return self._body.toPlainText()
 
+    def _on_template_changed(self):
+        template = self._template_choice.currentData()
+        if template:
+            self._subject.setText(template["subject"])
+            self._body.setPlainText(template["body"])
+
     def _save_template(self):
-        from app.utils.app_config import get_config, save_config
-        config = get_config()
-        config.setdefault("email_templates", {}).setdefault("reminder", {})
-        config["email_templates"]["reminder"]["subject"] = self.subject()
-        config["email_templates"]["reminder"]["body"]    = self.body()
-        save_config(config)
+        from app.services.email_service import save_email_template
+        selected = self._template_choice.currentData()
+        save_email_template(
+            "reminder",
+            self.subject(),
+            self.body(),
+            template_id=selected["id"] if selected else None,
+        )
+        if selected:
+            selected["subject"] = self.subject()
+            selected["body"] = self.body()
+            self._template_choice.setItemData(
+                self._template_choice.currentIndex(), selected)
         QMessageBox.information(self, "保存完了",
                                 "督促メールのテンプレートを保存しました。\n"
                                 "次回以降、この内容がデフォルトで表示されます。")

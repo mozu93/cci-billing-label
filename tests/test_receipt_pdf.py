@@ -1,5 +1,7 @@
 # tests/test_receipt_pdf.py
 import os, tempfile
+import pytest
+from pypdf import PdfReader
 from app.services.category_service import create_category
 from app.services.item_template_service import create_item_template
 from app.services.project_service import create_project, add_template_to_project
@@ -33,6 +35,21 @@ def test_generate_receipt_pdf(db_session):
         result = generate_receipt_pdf(issuance, company, path)
         assert os.path.exists(result)
         assert os.path.getsize(result) > 1000
+        standard_page = PdfReader(result).pages[0]
+
+        with tempfile.NamedTemporaryFile(
+                suffix=".pdf", delete=False) as email_file:
+            email_path = email_file.name
+        generate_receipt_pdf(
+            issuance, company, email_path, include_copy=False)
+        email_page = PdfReader(email_path).pages[0]
+
+        assert float(email_page.mediabox.width) == pytest.approx(
+            float(standard_page.mediabox.width))
+        assert float(email_page.mediabox.height) == pytest.approx(
+            float(standard_page.mediabox.height) / 2)
     finally:
         if os.path.exists(path):
             os.unlink(path)
+        if "email_path" in locals() and os.path.exists(email_path):
+            os.unlink(email_path)

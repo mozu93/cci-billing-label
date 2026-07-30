@@ -31,7 +31,7 @@ def test_build_pdf_filename_can_include_roster_no():
     from app.utils.pdf_helpers import build_pdf_filename
     assert build_pdf_filename(
         _Issuance(), fields=["roster_no", "organization"]
-    ) == "NO.12_〇〇_商事.pdf"
+    ) == "12_〇〇_商事.pdf"
 
 
 def test_available_pdf_path_avoids_overwrite(tmp_path):

@@ -198,6 +198,7 @@ class Issuance(Base):
     recipient_name = Column(String(100), default="")
     recipient_name_kana = Column(String(100), default="")
     recipient_phone = Column(String(50), default="")
+    recipient_email = Column(String(200), default="")
     doc_type = Column(String(20), nullable=False)
     doc_number = Column(String(50), default="")
     status = Column(String(20), default="準備中")

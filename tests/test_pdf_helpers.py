@@ -116,11 +116,13 @@ def test_generate_and_open_uses_save_path(db_session, tmp_path, monkeypatch):
     db_session.commit()
 
     saved_to = []
+    receipt_options = []
 
     def fake_generate_receipt(issuance, company, path, **kwargs):
         with open(path, "wb") as f:
             f.write(b"%PDF")
         saved_to.append(path)
+        receipt_options.append(kwargs)
 
     monkeypatch.setattr(
         "app.services.pdf.receipt_pdf.generate_receipt_pdf",
@@ -136,10 +138,13 @@ def test_generate_and_open_uses_save_path(db_session, tmp_path, monkeypatch):
     db_session.commit()
 
     custom_path = str(tmp_path / "my_receipt.pdf")
-    result = generate_and_open(iss, db_session, open_file=False, save_path=custom_path)
+    result = generate_and_open(
+        iss, db_session, open_file=False, save_path=custom_path,
+        receipt_include_copy=False)
 
     assert result == custom_path
     assert saved_to == [custom_path]
+    assert receipt_options[0]["include_copy"] is False
 
 
 def test_generate_and_open_default_path_when_save_path_none(db_session, tmp_path, monkeypatch):

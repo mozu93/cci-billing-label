@@ -1,5 +1,6 @@
 # tests/test_invoice_pdf.py
 import os, tempfile
+from pypdf import PdfReader
 from app.services.category_service import create_category
 from app.services.item_template_service import create_item_template
 from app.services.project_service import (
@@ -46,6 +47,8 @@ def test_generate_invoice_pdf(db_session):
         result = generate_invoice_pdf(issuance, company, path)
         assert os.path.exists(result)
         assert os.path.getsize(result) > 1000
+        text = PdfReader(result).pages[0].extract_text()
+        assert "単位（円）" in text
     finally:
         if os.path.exists(path):
             os.unlink(path)
@@ -54,6 +57,7 @@ def test_generate_invoice_pdf(db_session):
 def test_bank_block_shows_account_name_kana():
     from app.services.pdf.invoice_pdf import _build_bank_block
     from app.database.models import BankAccount
+    from reportlab.lib.units import mm
     bank = BankAccount(
         bank_name="テスト銀行", bank_account_name="四日市商工会議所",
         bank_account_name_kana="ヨッカイチショウコウカイギショ",
@@ -65,7 +69,25 @@ def test_bank_block_shows_account_name_kana():
         for cell in row
         if hasattr(cell, "text")
     ]
-    assert any("ヨッカイチショウコウカイギショ" in text for text in texts)
+    assert "フリガナ：ﾖｯｶｲﾁｼｮｳｺｳｶｲｷﾞｼｮ" in texts
+    assert not any("口座名義（フリガナ）" in text for text in texts)
+    assert all(
+        cell.style.leading == 11.5
+        for row in table._cellvalues
+        for cell in row
+        if hasattr(cell, "style")
+    )
+    cell_styles = [style for row in table._cellStyles for style in row]
+    assert all(style.topPadding == 0.375 * mm for style in cell_styles)
+    assert all(style.bottomPadding == 0.375 * mm for style in cell_styles)
+
+
+def test_account_name_kana_converts_voiced_marks_and_space_to_halfwidth():
+    from app.services.pdf.invoice_pdf import _to_halfwidth_kana
+
+    assert _to_halfwidth_kana("カブシキガイシャ　テスト") == (
+        "ｶﾌﾞｼｷｶﾞｲｼｬ ﾃｽﾄ"
+    )
 
 
 def test_issuer_block_is_indented_and_ordered():

@@ -238,7 +238,11 @@ class ReissueWidget(QWidget):
 
             dest   = (iss.recipient_organization or iss.recipient_name or "").strip()
             issued = iss.issued_at.strftime("%Y/%m/%d") if iss.issued_at else ""
-            mail_addr = pm_email_map.get(iss.project_member_id, "") if iss.project_member_id else ""
+            mail_addr = (
+                (getattr(iss, "recipient_email", "") or "").strip()
+                or (pm_email_map.get(iss.project_member_id, "")
+                    if iss.project_member_id else "")
+            )
 
             # チェックボックス列
             chk_item = QTableWidgetItem("")
@@ -402,7 +406,9 @@ class ReissueWidget(QWidget):
                 _tmp_path = _tmp.name
                 _tmp.close()
                 generate_and_open(iss, session, reissue=True, due_date=due_date,
-                                  save_path=_tmp_path, project=_proj, open_file=False)
+                                  save_path=_tmp_path, project=_proj,
+                                  open_file=False,
+                                  receipt_include_copy=iss.doc_type != "receipt")
                 add_log(session, "再発行", "issuance", iss.id,
                         f"{_lbl} {iss.doc_number} 宛先：{iss.recipient_organization or iss.recipient_name}")
                 self._send_reissue_email(session, iss, _tmp_path)
@@ -433,7 +439,9 @@ class ReissueWidget(QWidget):
         from PyQt6.QtCore import QThread
         from PyQt6.QtWidgets import QApplication, QDialog, QInputDialog, QProgressDialog
         from app.services.email_service import (
-            prepare_issuance_email, validate_email_addr,
+            get_issuance_email_context,
+            prepare_issuance_email,
+            validate_email_addr,
         )
         from app.services.operation_log_service import add_log
         from app.ui.invoice_mail_confirm_dialog import InvoiceMailConfirmDialog
@@ -446,7 +454,7 @@ class ReissueWidget(QWidget):
             QMessageBox.critical(
                 self, "設定エラー",
                 "Microsoft 365 の Client ID / Tenant ID が設定されていません。\n"
-                "設定 → メール設定から入力してください。")
+                "設定 → メール送信設定から入力してください。")
             return
 
         _lbl = "請求書" if iss.doc_type == "invoice" else "領収書"
@@ -475,6 +483,8 @@ class ReissueWidget(QWidget):
             except ValueError as e:
                 QMessageBox.critical(self, "エラー", str(e))
                 return
+            iss.recipient_email = to_addr
+            session.commit()
 
         dlg = InvoiceMailConfirmDialog(
             self,
@@ -485,13 +495,25 @@ class ReissueWidget(QWidget):
             invoice_no=iss.doc_number,
             customer_name=(iss.recipient_organization or iss.recipient_name or ""),
             amount_text=f"¥{iss.amount:,}" if iss.amount else "",
+            template_kind=iss.doc_type,
+            template_context=get_issuance_email_context(session, iss),
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
+        to_recipients = dlg.to_recipients()
+        cc_recipients = dlg.cc_recipients()
+        bcc_recipients = dlg.bcc_recipients()
+        to_addr = to_recipients[0]
+        subject = dlg.subject()
+        body_html = dlg.body_html()
+        iss.recipient_email = to_addr
+        session.commit()
 
         thread = QThread(self)
         worker = M365MailWorker(
-            client_id, tenant_id, [to_addr], subject, body_html, pdf_path)
+            client_id, tenant_id, to_recipients, subject, body_html, pdf_path,
+            cc_recipients=cc_recipients or None,
+            bcc_recipients=bcc_recipients or None)
         worker.moveToThread(thread)
         prog = QProgressDialog(f"送信中（{iss.doc_number}）…", None, 0, 0, self)
         prog.setWindowTitle("メール送信")
@@ -518,10 +540,12 @@ class ReissueWidget(QWidget):
 
         if "ok" in _result:
             add_log(session, "メール送信", "issuance", iss.id,
-                    f"{_lbl} {iss.doc_number} 再発行 → {to_addr}")
+                    f"{_lbl} {iss.doc_number} 再発行 → "
+                    f"{', '.join(to_recipients)}")
             QMessageBox.information(
                 self, "送信完了",
-                f"{_lbl}（再発行）をメールで送信しました。\n宛先：{to_addr}")
+                f"{_lbl}（再発行）をメールで送信しました。\n"
+                f"宛先：{', '.join(to_recipients)}")
         else:
             err_msg = _result.get("err", "不明なエラー")
             add_log(session, "メール送信失敗", "issuance", iss.id,

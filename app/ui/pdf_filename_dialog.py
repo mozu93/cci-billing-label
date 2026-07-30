@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
 
 
 _FIELDS = (
-    ("roster_no", "NO."),
+    ("roster_no", "名簿NO.（ファイル名は番号のみ）"),
     ("organization", "事業所名"),
     ("issued_date", "発行日"),
     ("doc_number", "管理番号"),

@@ -1,6 +1,7 @@
 # app/services/pdf/invoice_pdf.py
 import os
 import calendar as _cal
+import unicodedata
 from datetime import date as _date
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -207,6 +208,10 @@ def generate_invoice_pdf(issuance, company, output_path: str,
     story.append(Spacer(1, 3*mm))
 
     # ── ④ 明細テーブル（税率区分列あり） ─────────────────────
+    story.append(Paragraph(
+        "単位（円）",
+        _s("line_unit_note", size=10, align=TA_RIGHT, color=C_SUB, leading=13),
+    ))
     story.append(_build_line_table(issuance, W))
     story.append(Spacer(1, 3*mm))
 
@@ -536,7 +541,8 @@ def _build_tax_rows(issuance, suffix: str, total: int, tax_W: float = 120*mm):
 
 
 def _build_bank_block(ba, W: float) -> Table:
-    i_style = _s("bank", size=10, leading=16)
+    # 文字サイズは維持し、行間の余白だけを従来のおよそ4分の1にする。
+    i_style = _s("bank", size=10, leading=11.5)
     rows = []
     label = f"金融機関・支店：{ba.bank_name}"
     if ba.bank_branch:
@@ -550,11 +556,32 @@ def _build_bank_block(ba, W: float) -> Table:
         rows.append([Paragraph(f"口座名義：{ba.bank_account_name}", i_style)])
     if getattr(ba, "bank_account_name_kana", ""):
         rows.append([Paragraph(
-            f"口座名義（フリガナ）：{ba.bank_account_name_kana}", i_style)])
+            f"フリガナ：{_to_halfwidth_kana(ba.bank_account_name_kana)}",
+            i_style)])
     tbl = Table(rows, colWidths=[W * 0.65], hAlign="LEFT")
     tbl.setStyle(TableStyle([
-        ("TOPPADDING",    (0, 0), (-1, -1), 1.5*mm),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5*mm),
+        ("TOPPADDING",    (0, 0), (-1, -1), 0.375*mm),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0.375*mm),
         ("LEFTPADDING",   (0, 0), (-1, -1), 10),
     ]))
     return tbl
+
+
+def _to_halfwidth_kana(value: str) -> str:
+    """全角カナを半角カナへ変換する（漢字などその他の文字は維持）。"""
+    source = str(value or "")
+    halfwidth_chars = [chr(code) for code in range(0xFF61, 0xFFA0)]
+    kana_map = {
+        unicodedata.normalize("NFKC", char): char
+        for char in halfwidth_chars
+    }
+    for char in halfwidth_chars:
+        for mark in ("\uFF9E", "\uFF9F"):
+            halfwidth = char + mark
+            normalized = unicodedata.normalize("NFKC", halfwidth)
+            if len(normalized) == 1:
+                kana_map[normalized] = halfwidth
+    return "".join(
+        " " if char == "\u3000" else kana_map.get(char, char)
+        for char in source
+    )

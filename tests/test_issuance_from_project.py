@@ -95,6 +95,104 @@ def _select_project(w, proj_id):
             return
 
 
+def test_excel_round_trip_updates_existing_issuance_lines(
+        qtbot, memory_db, monkeypatch, tmp_path):
+    import openpyxl
+    from PyQt6.QtWidgets import QFileDialog, QMessageBox
+    from app.database.connection import get_session
+    from app.database.models import Issuance
+    from app.services.category_service import create_category
+    from app.services.item_template_service import create_item_template
+    from app.services.project_service import (
+        create_project, add_template_to_project, add_roster_entries,
+        get_project_members,
+    )
+    from app.services.issuance_service import create_issuance_for_member
+    from app.ui.issuance_from_project import IssuanceFromProjectWidget
+    import app.utils.app_config as app_config
+    import app.utils.pdf_helpers as pdf_helpers
+
+    session = get_session()
+    category = create_category(session, "青年部")
+    template = create_item_template(
+        session, category.id, "参加費", 5000, "人", 10, "invoice", "")
+    project = create_project(
+        session, "2026 参加費", category.id, 2026, "list")
+    add_template_to_project(session, project.id, template.id)
+    add_roster_entries(
+        session, project.id, [{"organization_name": "○○商事"}])
+    member = get_project_members(session, project.id)[0]
+    issuance = create_issuance_for_member(
+        session, project.id, member.id, "○○商事", "",
+        "invoice", 2026, 7,
+    )
+    project_id, issuance_id = project.id, issuance.id
+    session.close()
+
+    widget = IssuanceFromProjectWidget("invoice")
+    qtbot.addWidget(widget)
+    _select_project(widget, project_id)
+    assert widget._table.rowCount() == 1
+
+    xlsx_path = tmp_path / "単価数量入力.xlsx"
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName",
+        staticmethod(lambda *args, **kwargs: (str(xlsx_path), "Excel (*.xlsx)")))
+    monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: None)
+    widget._export_excel()
+
+    workbook = openpyxl.load_workbook(xlsx_path)
+    sheet = workbook.active
+    sheet["F2"] = 2500
+    sheet["G2"] = 3
+    workbook.save(xlsx_path)
+    workbook.close()
+
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName",
+        staticmethod(lambda *args, **kwargs: (str(xlsx_path), "Excel (*.xlsx)")))
+    widget._import_excel()
+
+    assert widget._table.cellWidget(0, 5).value() == 2500
+    assert widget._table.cellWidget(0, 6).value() == 3
+    assert widget._table.item(0, 0).checkState().value == 2
+
+    monkeypatch.setattr(app_config, "save_config", lambda _cfg: None)
+    monkeypatch.setattr(
+        QFileDialog, "getExistingDirectory",
+        staticmethod(lambda *args, **kwargs: str(tmp_path)))
+    monkeypatch.setattr(
+        pdf_helpers, "generate_and_open",
+        lambda *args, **kwargs: str(tmp_path / "invoice.pdf"))
+    errors, _ = widget._do_issue_rows(widget._checked_rows())
+    assert errors == []
+
+    session = get_session()
+    updated = session.get(Issuance, issuance_id)
+    assert int(updated.amount) == 7500
+    assert int(updated.lines[0].unit_price) == 2500
+    assert int(updated.lines[0].quantity) == 3
+    session.close()
+
+    # 再編集後にPDF生成が失敗しても、確定済みの明細は変更しない。
+    widget._table.cellWidget(0, 5).setValue(4000)
+    widget._table.cellWidget(0, 6).setValue(4)
+
+    def _fail_pdf(*args, **kwargs):
+        raise RuntimeError("PDF error")
+
+    monkeypatch.setattr(pdf_helpers, "generate_and_open", _fail_pdf)
+    errors, _ = widget._do_issue_rows(widget._checked_rows())
+    assert any("変更を取り消しました" in error for error in errors)
+
+    session = get_session()
+    restored = session.get(Issuance, issuance_id)
+    assert int(restored.amount) == 7500
+    assert int(restored.lines[0].unit_price) == 2500
+    assert int(restored.lines[0].quantity) == 3
+    session.close()
+
+
 def test_two_columns_show_invoice_and_receipt_status(qtbot, memory_db):
     from app.ui.issuance_from_project import IssuanceFromProjectWidget, COL_ORG
     proj_id = _seed_two_members_with_issuances()

@@ -2,7 +2,8 @@
 import html as _html
 import os
 import re
-from app.utils.app_config import get_config
+from uuid import uuid4
+from app.utils.app_config import get_config, save_config
 
 
 _ADDR_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -47,7 +48,20 @@ _TEMPLATE_DEFAULTS = {
     "reminder": (DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY),
 }
 
-# メール設定画面のヘルプ表示にも使う
+# テンプレート画面・送信確認画面で共通利用するタグ説明。
+# キー文字列は既存テンプレートとの互換性のため変更しない。
+PLACEHOLDER_DESCRIPTIONS = {
+    "宛名": "請求先の表示名（事業所名と代表者名）",
+    "事業所名": "請求先の事業所名",
+    "代表者名": "請求先の代表者名",
+    "会社名": "請求書を発行する自社・商工会議所名",
+    "書類名": "請求書または領収書",
+    "文書番号": "請求書番号または領収書番号",
+    "金額": "請求金額または領収金額",
+    "件名": "請求対象の案件名・業務名",
+    "発行日": "請求書・領収書の発行日",
+    "支払期限": "請求書に設定された支払期限",
+}
 PLACEHOLDER_KEYS = [
     "宛名", "事業所名", "代表者名", "会社名",
     "書類名", "文書番号", "金額", "件名", "発行日",
@@ -60,13 +74,171 @@ def render_email_template(text: str, context: dict[str, str]) -> str:
     return text
 
 
-def get_email_template(kind: str) -> tuple[str, str]:
-    """kind: invoice / receipt / reminder のテンプレート（件名, 本文）を返す。"""
-    d_subject, d_body = _TEMPLATE_DEFAULTS.get(
-        kind, (DEFAULT_SUBJECT, DEFAULT_BODY))
-    tmpl = get_config().get("email_templates", {}).get(kind, {})
-    return (tmpl.get("subject") or d_subject,
-            tmpl.get("body") or d_body)
+def _template_collection(kind: str, config: dict | None = None) -> dict:
+    if kind not in _TEMPLATE_DEFAULTS:
+        raise ValueError("メールテンプレート種別が不正です。")
+    config = config if config is not None else get_config()
+    saved = config.get("email_templates", {}).get(kind, {})
+    default_subject, default_body = _TEMPLATE_DEFAULTS[kind]
+
+    # v2.2以前の単一テンプレートは、標準テンプレート1件として扱う。
+    if not isinstance(saved.get("items"), list):
+        item = {
+            "id": "standard",
+            "name": "標準テンプレート",
+            "subject": saved.get("subject") or default_subject,
+            "body": saved.get("body") or default_body,
+        }
+        return {"default_id": item["id"], "items": [item]}
+
+    items = []
+    for raw in saved["items"]:
+        if not isinstance(raw, dict) or not raw.get("id"):
+            continue
+        items.append({
+            "id": str(raw["id"]),
+            "name": str(raw.get("name") or "名称未設定"),
+            "subject": raw.get("subject") or default_subject,
+            "body": raw.get("body") or default_body,
+        })
+    if not items:
+        items = [{
+            "id": "standard",
+            "name": "標準テンプレート",
+            "subject": default_subject,
+            "body": default_body,
+        }]
+    default_id = saved.get("default_id")
+    if default_id not in {item["id"] for item in items}:
+        default_id = items[0]["id"]
+    return {"default_id": default_id, "items": items}
+
+
+def get_email_templates(kind: str) -> list[dict]:
+    """指定書類のテンプレート一覧を、既定フラグ付きで返す。"""
+    collection = _template_collection(kind)
+    return [
+        {**item, "is_default": item["id"] == collection["default_id"]}
+        for item in collection["items"]
+    ]
+
+
+def get_email_template(
+        kind: str, template_id: str | None = None) -> tuple[str, str]:
+    """指定テンプレート（未指定なら既定）の件名と本文を返す。"""
+    collection = _template_collection(kind)
+    wanted = template_id or collection["default_id"]
+    default_item = next(
+        entry for entry in collection["items"]
+        if entry["id"] == collection["default_id"])
+    item = next(
+        (entry for entry in collection["items"] if entry["id"] == wanted),
+        default_item,
+    )
+    return item["subject"], item["body"]
+
+
+def _write_template_collection(
+        config: dict, kind: str, collection: dict) -> None:
+    config.setdefault("email_templates", {})[kind] = {
+        "default_id": collection["default_id"],
+        "items": collection["items"],
+    }
+
+
+def save_email_template(
+        kind: str,
+        subject: str,
+        body: str,
+        template_id: str | None = None,
+        name: str | None = None,
+) -> str:
+    """テンプレートを更新する。ID未指定時は既定テンプレートを更新する。"""
+    config = get_config()
+    collection = _template_collection(kind, config)
+    wanted = template_id or collection["default_id"]
+    item = next(
+        (entry for entry in collection["items"] if entry["id"] == wanted),
+        None,
+    )
+    if item is None:
+        item = {
+            "id": wanted or uuid4().hex,
+            "name": name or "新しいテンプレート",
+            "subject": subject,
+            "body": body,
+        }
+        collection["items"].append(item)
+    else:
+        item["subject"] = subject
+        item["body"] = body
+        if name:
+            item["name"] = name
+    _write_template_collection(config, kind, collection)
+    save_config(config)
+    return item["id"]
+
+
+def create_email_template(
+        kind: str, name: str, subject: str, body: str) -> str:
+    if not name.strip():
+        raise ValueError("テンプレート名を入力してください。")
+    config = get_config()
+    collection = _template_collection(kind, config)
+    template_id = uuid4().hex
+    collection["items"].append({
+        "id": template_id,
+        "name": name.strip(),
+        "subject": subject,
+        "body": body,
+    })
+    _write_template_collection(config, kind, collection)
+    save_config(config)
+    return template_id
+
+
+def rename_email_template(kind: str, template_id: str, name: str) -> None:
+    if not name.strip():
+        raise ValueError("テンプレート名を入力してください。")
+    config = get_config()
+    collection = _template_collection(kind, config)
+    item = next(
+        (entry for entry in collection["items"]
+         if entry["id"] == template_id),
+        None,
+    )
+    if item is None:
+        raise ValueError("メールテンプレートが見つかりません。")
+    item["name"] = name.strip()
+    _write_template_collection(config, kind, collection)
+    save_config(config)
+
+
+def delete_email_template(kind: str, template_id: str) -> None:
+    config = get_config()
+    collection = _template_collection(kind, config)
+    if template_id not in {item["id"] for item in collection["items"]}:
+        raise ValueError("メールテンプレートが見つかりません。")
+    if len(collection["items"]) <= 1:
+        raise ValueError("最後のテンプレートは削除できません。")
+    collection["items"] = [
+        item for item in collection["items"] if item["id"] != template_id]
+    if len(collection["items"]) == 0:
+        raise ValueError("メールテンプレートが見つかりません。")
+    if collection["default_id"] == template_id:
+        collection["default_id"] = collection["items"][0]["id"]
+    _write_template_collection(config, kind, collection)
+    save_config(config)
+
+
+def set_default_email_template(kind: str, template_id: str) -> None:
+    config = get_config()
+    collection = _template_collection(kind, config)
+    if template_id not in {item["id"] for item in collection["items"]}:
+        raise ValueError("メールテンプレートが見つかりません。")
+    collection["default_id"] = template_id
+    _write_template_collection(config, kind, collection)
+    save_config(config)
 
 
 def build_issuance_context(issuance, company_name: str,
@@ -90,6 +262,19 @@ def build_issuance_context(issuance, company_name: str,
     }
 
 
+def get_issuance_email_context(session, issuance) -> dict[str, str]:
+    """発行データの差し込みタグ置換値を返す。"""
+    from app.database.models import CompanySettings, Project
+
+    company = session.query(CompanySettings).first()
+    company_name = company.name if company else ""
+    project_name = ""
+    if issuance.project_id:
+        project = session.get(Project, issuance.project_id)
+        project_name = project.name if project else ""
+    return build_issuance_context(issuance, company_name, project_name)
+
+
 def build_issuance_email(issuance, company_name: str,
                          project_name: str = "",
                          kind: str | None = None,
@@ -110,9 +295,11 @@ def prepare_issuance_email(session, issuance,
 
     to_addr 未指定時は ProjectMember.email を宛先に使う。
     """
-    from app.database.models import CompanySettings, ProjectMember, Project
+    from app.database.models import ProjectMember
     label = (issuance.recipient_organization or issuance.recipient_name
              or issuance.doc_number or "")
+    if not to_addr:
+        to_addr = (getattr(issuance, "recipient_email", "") or "").strip()
     if not to_addr and issuance.project_member_id:
         pm = session.get(ProjectMember, issuance.project_member_id)
         to_addr = (pm.email or "").strip() if pm else ""
@@ -124,13 +311,10 @@ def prepare_issuance_email(session, issuance,
         raise ValueError(f"{label}：{e}")
     if not issuance.pdf_path or not os.path.exists(issuance.pdf_path):
         raise ValueError(f"{label}：添付するPDFファイルが見つかりません。")
-    company = session.query(CompanySettings).first()
-    company_name = company.name if company else ""
-    project_name = ""
-    if issuance.project_id:
-        proj = session.get(Project, issuance.project_id)
-        project_name = proj.name if proj else ""
-    subject, body = build_issuance_email(issuance, company_name, project_name)
+    context = get_issuance_email_context(session, issuance)
+    subject_t, body_t = get_email_template(issuance.doc_type)
+    subject = render_email_template(subject_t, context)
+    body = render_email_template(body_t, context)
     import html as _html
     body_html = (
         "<div style='font-family:sans-serif; font-size:14px; line-height:1.8;'>"

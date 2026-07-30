@@ -1,7 +1,8 @@
 # app/services/pdf/receipt_pdf.py
 """
 領収書 PDF 生成
-  A5縦（1事業所）: 上=原本 / 下=控え
+  通常: A5縦（1事業所）・上=原本 / 下=控え
+  メール添付用: A6横・原本のみ
 """
 import os
 from datetime import date as date_type
@@ -27,39 +28,42 @@ def _seal_source(seal_image):
 
 def generate_receipt_pdf(issuance, company, output_path: str,
                           seal_image=None, copies: int = 4,
-                          reissue: bool = False) -> str:
+                          reissue: bool = False,
+                          include_copy: bool = True) -> str:
     register_fonts()
     parent = os.path.dirname(os.path.abspath(output_path))
     os.makedirs(parent, exist_ok=True)
 
-    # A5縦（148mm × 210mm）
-    page_w, page_h = A5
+    # 原本1面はA6横。通常はA5縦へ原本と控えを上下に配置する。
+    page_w, page_h = A5 if include_copy else (A5[0], A5[1] / 2)
     margin = 3 * mm
-    slot_h = page_h / 2        # 上下2等分（各A6高さ）
+    slot_h = page_h / 2 if include_copy else page_h
     draw_w = page_w - 2 * margin
     draw_h = slot_h - 2 * margin
 
-    c = Canvas(output_path, pagesize=A5)
+    c = Canvas(output_path, pagesize=(page_w, page_h))
     c.setTitle(f"領収書_{issuance.doc_number}")
     c.setAuthor(getattr(company, "name", "") or "")
 
-    # 上：原本
+    # 原本
     _draw_one(c, issuance, company, seal_image,
-              margin, slot_h + margin, draw_w, draw_h,
+              margin, slot_h + margin if include_copy else margin,
+              draw_w, draw_h,
               is_copy=False, reissue=reissue)
 
-    # 下：控え
-    _draw_one(c, issuance, company, seal_image,
-              margin, margin, draw_w, draw_h,
-              is_copy=True, reissue=reissue)
+    if include_copy:
+        # 下：控え
+        _draw_one(c, issuance, company, seal_image,
+                  margin, margin, draw_w, draw_h,
+                  is_copy=True, reissue=reissue)
 
-    # 切り取り線（中央水平）
-    c.saveState()
-    c.setStrokeColor(C_CUT_LINE)
-    c.setLineWidth(0.4)
-    c.setDash([3, 3], 0)
-    c.line(margin, slot_h, page_w - margin, slot_h)
-    c.restoreState()
+        # 切り取り線（中央水平）
+        c.saveState()
+        c.setStrokeColor(C_CUT_LINE)
+        c.setLineWidth(0.4)
+        c.setDash([3, 3], 0)
+        c.line(margin, slot_h, page_w - margin, slot_h)
+        c.restoreState()
 
     c.save()
     return output_path

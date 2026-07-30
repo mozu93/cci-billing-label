@@ -2,8 +2,9 @@
 import re
 from pathlib import Path
 
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_MAX_PDF_BYTES = 3 * 1024 * 1024  # 3 MB
+_EMAIL_RE = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
+# GraphのJSON添付はBase64化で約4/3に増えるため、3MB境界に余裕を持たせる。
+_MAX_PDF_BYTES = int(2.5 * 1024 * 1024)
 
 
 class MailValidationError(ValueError):
@@ -12,15 +13,21 @@ class MailValidationError(ValueError):
 
 def _check_email_list(addrs: list[str], field: str) -> None:
     for a in addrs:
-        if not _EMAIL_RE.match(a):
+        if not _EMAIL_RE.fullmatch((a or "").strip()):
             raise MailValidationError(f"{field}のメールアドレス形式が不正です: {a}")
 
 
-def validate_invoice_mail(
+def validate_email_address(address: str, field: str = "メールアドレス") -> str:
+    value = (address or "").strip()
+    _check_email_list([value], field)
+    return value
+
+
+def validate_mail(
     to_recipients:  list[str],
     subject:        str,
     body_html:      str,
-    pdf_path:       str,
+    pdf_path:       str | None = None,
     cc_recipients:  list[str] | None = None,
     bcc_recipients: list[str] | None = None,
 ) -> None:
@@ -38,14 +45,30 @@ def validate_invoice_mail(
     if not body_html.strip():
         raise MailValidationError("本文を入力してください。")
 
+    if pdf_path is None:
+        return
+
     pdf = Path(pdf_path)
-    if not pdf.exists():
+    if not pdf.is_file():
         raise MailValidationError(f"PDFファイルが存在しません: {pdf_path}")
     if pdf.suffix.lower() != ".pdf":
         raise MailValidationError("添付ファイルはPDFである必要があります。")
-
     if pdf.stat().st_size >= _MAX_PDF_BYTES:
-        # TODO: 3MB以上のPDFは Microsoft Graph large attachment upload session で対応する
         raise MailValidationError(
-            "PDFファイルが3MB以上です。現在の実装では3MB未満のPDFのみ送信できます。"
+            "PDFファイルが安全上限の2.5MB以上です。"
+            "現在の実装では2.5MB未満のPDFのみ送信できます。"
         )
+
+
+def validate_invoice_mail(
+    to_recipients:  list[str],
+    subject:        str,
+    body_html:      str,
+    pdf_path:       str,
+    cc_recipients:  list[str] | None = None,
+    bcc_recipients: list[str] | None = None,
+) -> None:
+    validate_mail(
+        to_recipients, subject, body_html, pdf_path,
+        cc_recipients, bcc_recipients,
+    )

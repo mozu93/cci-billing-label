@@ -127,6 +127,71 @@ def test_issuer_combo_changing_resets_bank_and_seal(qtbot, memory_db):
     assert w._seal_combo.currentData() == seal2_id
 
 
+def test_invoice_defaults_to_first_bank_when_no_bank_is_marked_default(
+        qtbot, memory_db, monkeypatch):
+    """既存データに口座のデフォルト指定がなくても「なし」を初期選択しない。"""
+    from app.database.connection import get_session
+    from app.database.models import CompanySettings, BankAccount
+    from app.ui.issuance_counter import IssuanceCounterWidget
+    import app.utils.app_config as cfg_mod
+
+    monkeypatch.setattr(cfg_mod, "get_config", lambda: {})
+    s = get_session()
+    company = CompanySettings(name="発行元", is_default=True)
+    s.add(company)
+    s.commit()
+    bank = BankAccount(
+        company_id=company.id,
+        label="メイン口座",
+        bank_name="○○銀行",
+        is_default=False,
+    )
+    s.add(bank)
+    s.commit()
+    bank_id = bank.id
+    s.close()
+
+    w = IssuanceCounterWidget("invoice")
+    qtbot.addWidget(w)
+
+    assert w._bank_combo.currentData() == bank_id
+
+
+def test_invoice_falls_back_to_first_bank_when_saved_bank_no_longer_exists(
+        qtbot, memory_db, monkeypatch):
+    """削除済みの前回口座IDが設定に残っていても、利用可能な口座を選ぶ。"""
+    from app.database.connection import get_session
+    from app.database.models import CompanySettings, BankAccount
+    from app.ui.issuance_counter import IssuanceCounterWidget
+    import app.utils.app_config as cfg_mod
+
+    s = get_session()
+    company = CompanySettings(name="発行元", is_default=True)
+    s.add(company)
+    s.commit()
+    bank = BankAccount(
+        company_id=company.id,
+        label="利用可能口座",
+        bank_name="○○銀行",
+        is_default=False,
+    )
+    s.add(bank)
+    s.commit()
+    company_id, bank_id = company.id, bank.id
+    s.close()
+    monkeypatch.setattr(cfg_mod, "get_config", lambda: {
+        "last_issuance_counter_invoice": {
+            "company_id": company_id,
+            "bank_account_id": 999999,
+        }
+    })
+
+    w = IssuanceCounterWidget("invoice")
+    qtbot.addWidget(w)
+
+    assert w._bank_combo.currentData() == bank_id
+
+
 def test_show_person_checkbox_defaults_to_true_when_unset(qtbot, memory_db, monkeypatch):
     """recipient_person_last が未設定の場合はチェック済み（既存挙動）になる。
 
@@ -254,6 +319,7 @@ def test_edit_issuance_restores_issuer_and_display_setting(qtbot, memory_db):
         recipient_organization="○○商事", recipient_name="",
         doc_type="invoice", fiscal_year=2026, month=6,
         company_settings_id=cs2.id, show_recipient_person=False,
+        recipient_email="billing@example.com",
     )
     iss_id, cs2_id = iss.id, cs2.id
     s.close()
@@ -265,4 +331,5 @@ def test_edit_issuance_restores_issuer_and_display_setting(qtbot, memory_db):
 
     assert w._issuer_combo.currentData() == cs2_id
     assert w._show_person_chk.isChecked() is False
+    assert w._email.text() == "billing@example.com"
 
