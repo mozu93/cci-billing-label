@@ -9,3 +9,7 @@ build/
 installer_output/
 *.spec.bak
 *.csv
+
+# 印鑑画像（機密情報）
+docs/会議所印鑑.png
+docs/20260408125408588_0001.jpg

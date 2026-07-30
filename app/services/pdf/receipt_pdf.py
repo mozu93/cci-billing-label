@@ -354,6 +354,8 @@ def _draw_company_info(c, company, seal_image, x0, y0, w, top):
     co_addr   = getattr(company, "address",           "") or ""
     co_phone  = getattr(company, "phone",             "") or ""
     co_reg    = getattr(company, "invoice_reg_number", "") or ""
+    _seal_src = _seal_source(seal_image)
+    has_seal = _seal_src is not None
 
     cur = top - 1.5 * mm
 
@@ -365,8 +367,11 @@ def _draw_company_info(c, company, seal_image, x0, y0, w, top):
         c.setFillColor(black)
 
     if co_name:
-        seal_left   = x0 + w - 22.5 * mm - P - 2 * mm   # 印鑑位置に合わせ 3mm 左へ
-        name_max_w  = seal_left - (x0 + P) - 2 * mm
+        if has_seal:
+            seal_left  = x0 + w - 22.5 * mm - P - 2 * mm
+            name_max_w = seal_left - (x0 + P) - 2 * mm
+        else:
+            name_max_w = w - 2 * P
         name_fs     = 11
         while name_fs > 6 and stringWidth(co_name, FONT_BOLD, name_fs) > name_max_w:
             name_fs -= 0.5
@@ -394,8 +399,7 @@ def _draw_company_info(c, company, seal_image, x0, y0, w, top):
     phone_bottom_y = cur
 
     # 印鑑
-    _seal_src = _seal_source(seal_image)
-    if _seal_src is not None:
+    if has_seal:
         seal_y = max(phone_bottom_y, y0 + 1 * mm)
         sz = min(22.5 * mm, top - seal_y - 1 * mm, w - 2 * mm)
         if sz > 4 * mm:

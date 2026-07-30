@@ -95,6 +95,40 @@ def test_issuer_block_is_indented_and_ordered():
     ]
     assert all(
         p.style.leftIndent == 11 * ISSUER_NAME_INDENT_CHARS for p in info)
+    assert all(p.style.rightIndent == 0 for p in info)
+
+
+def test_issuer_block_moves_left_and_reserves_seal_space(monkeypatch):
+    from app.services.pdf import invoice_pdf
+    from app.database.models import CompanySettings, Issuance
+
+    monkeypatch.setattr(invoice_pdf, "_seal_source", lambda seal: object())
+    company = CompanySettings(
+        name="四日市商工会議所",
+        address="三重県四日市市諏訪町2番5号",
+    )
+    issuance = Issuance(doc_number="INV-202607-0001", doc_type="invoice")
+
+    parts = invoice_pdf._build_company_block(
+        issuance, company, "2026年7月30日",
+        seal_image=object(), col_w=240,
+    )
+    overlay = parts[-1]
+    content = overlay._content._cellvalues[0][0]
+    info = [p for p in content if hasattr(p, "text")]
+
+    assert all(
+        p.style.leftIndent == 11 * invoice_pdf.ISSUER_SEAL_INDENT_CHARS
+        for p in info
+    )
+    assert all(
+        p.style.rightIndent
+        == invoice_pdf.ISSUER_SEAL_SIZE + invoice_pdf.ISSUER_SEAL_GAP
+        - 11 * invoice_pdf.ISSUER_SEAL_INDENT_CHARS
+        for p in info
+    )
+    assert info[0].style.fontSize == 11
+    assert all(p.style.fontSize == 10 for p in info[1:])
 
 
 def test_build_client_block_hides_person_when_disabled():

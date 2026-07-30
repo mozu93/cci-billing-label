@@ -21,6 +21,9 @@ C_BORDER = HexColor("#888888")
 C_LIGHT  = HexColor("#EEEEEE")
 C_PALE   = HexColor("#F8F8F8")
 ISSUER_NAME_INDENT_CHARS = 8
+ISSUER_SEAL_INDENT_CHARS = 2
+ISSUER_SEAL_SIZE = 25 * mm
+ISSUER_SEAL_GAP = 2 * mm
 
 
 def _seal_source(seal_image):
@@ -314,13 +317,27 @@ def _build_client_block(issuance, subject: str = "",
 
 def _build_company_block(issuance, company, issue_str: str,
                           seal_image=None, col_w: float = None) -> list:
+    _seal_src = _seal_source(seal_image)
+    has_seal = _seal_src is not None and bool(col_w)
+    # 押印時は通常位置から6文字分左へ寄せる。右側は印鑑と約2文字分の
+    # 重なりを許容し、長い会社情報でも10ptのまま1行に収める。
+    # 未押印時は従来の位置・横幅を保つ。
+    left_indent = (
+        11 * ISSUER_SEAL_INDENT_CHARS
+        if has_seal else 11 * ISSUER_NAME_INDENT_CHARS
+    )
+    right_indent = (
+        ISSUER_SEAL_SIZE + ISSUER_SEAL_GAP
+        - 11 * ISSUER_SEAL_INDENT_CHARS
+        if has_seal else 0
+    )
     r_style  = _s("co_r",    size=10, align=TA_RIGHT)
     nm_style = _s(
         "co_name", size=11, bold=True,
-        leftIndent=11 * ISSUER_NAME_INDENT_CHARS)
+        leftIndent=left_indent, rightIndent=right_indent)
     i_style  = _s(
         "co_info", size=10,
-        leftIndent=11 * ISSUER_NAME_INDENT_CHARS)
+        leftIndent=left_indent, rightIndent=right_indent)
 
     co_parts = []
     if company:
@@ -338,8 +355,7 @@ def _build_company_block(issuance, company, issue_str: str,
                 f"登録番号：{company.invoice_reg_number}", i_style))
         co_parts.append(Spacer(1, 11*mm))
 
-    _seal_src = _seal_source(seal_image)
-    if _seal_src is not None and col_w:
+    if has_seal:
         co_content = [_IssuerSealOverlay(co_parts, _seal_src, col_w)]
     else:
         co_content = list(co_parts)
@@ -358,7 +374,7 @@ class _IssuerSealOverlay(Flowable):
         super().__init__()
         self._seal_src = seal_src
         self._block_width = width
-        self._seal_size = 25 * mm
+        self._seal_size = ISSUER_SEAL_SIZE
         self._content = Table([[content]], colWidths=[width])
         self._content.setStyle(TableStyle([
             ("VALIGN",        (0, 0), (-1, -1), "TOP"),
@@ -378,7 +394,6 @@ class _IssuerSealOverlay(Flowable):
     def draw(self):
         _, content_h = self._content.wrap(
             self._block_width, self.height)
-        self._content.drawOn(self.canv, 0, self.height - content_h)
         try:
             self.canv.drawImage(
                 self._seal_src,
@@ -391,6 +406,8 @@ class _IssuerSealOverlay(Flowable):
             )
         except Exception:
             pass
+        # 文字を印鑑より後に描き、重なった箇所でも文字を手前に表示する。
+        self._content.drawOn(self.canv, 0, self.height - content_h)
 
 
 # 税率区分の表示文字列
