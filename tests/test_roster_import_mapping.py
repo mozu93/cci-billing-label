@@ -99,3 +99,24 @@ def test_roster_import_includes_roster_no(qtbot, memory_db):
     assert ROSTER_COLUMNS[0] == "roster_no"
     assert FIELD_LABELS["roster_no"] == "NO."
     assert "roster_no" in dlg._field_combos
+
+
+def test_roster_import_auto_detects_event_header(qtbot, memory_db):
+    from app.ui.roster_import import RosterImportDialog
+    dlg = RosterImportDialog(project_id=1)
+    qtbot.addWidget(dlg)
+    dlg._set_raw_rows([
+        ["NO.", "事業所名", "参加者名①", "フリガナ①",
+         "事業所所在地：郵便番号", "事業所所在地：市区町村番地",
+         "事業所所在地：マンション・ビル名", "事業所電話番号"],
+        ["1", "〇〇商事", "山田太郎", "ヤマダタロウ",
+         "5100001", "四日市市〇〇町1-2", "〇〇ビル", "059-123-4567"],
+    ])
+    assert dlg._header_chk.isChecked()
+    rows = dlg._mapped_rows()
+    assert len(rows) == 1
+    assert rows[0]["roster_no"] == "1"
+    assert rows[0]["organization_name"] == "〇〇商事"
+    assert rows[0]["representative_name"] == "山田太郎"
+    assert rows[0]["postal_code"] == "5100001"
+    assert rows[0]["address"] == "四日市市〇〇町1-2"

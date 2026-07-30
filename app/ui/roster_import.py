@@ -27,6 +27,20 @@ from app.utils.excel_utils import (
 
 HEADERS = [FIELD_LABELS[c] for c in ROSTER_COLUMNS]
 
+_HEADER_ALIASES = {
+    "参加者名①": "representative_name",
+    "参加者名1": "representative_name",
+    "フリガナ①": "representative_kana",
+    "フリガナ1": "representative_kana",
+    "事業所所在地：郵便番号": "postal_code",
+    "事業所所在地:郵便番号": "postal_code",
+    "事業所所在地：市区町村番地": "address",
+    "事業所所在地:市区町村番地": "address",
+    "事業所所在地：マンション・ビル名": "address2",
+    "事業所所在地:マンション・ビル名": "address2",
+    "事業所電話番号": "phone",
+}
+
 
 def _default_positional_mapping_roster(num_cols: int) -> dict[str, int | None]:
     """ROSTER_COLUMNS 基準で左から順に割り当てた初期マッピング。
@@ -46,9 +60,17 @@ def _guess_mapping_from_header_roster(header_cells: list[str]) -> dict[str, int 
             mapping[label_to_field[h]] = i
         elif h.lower() in {"no", "no.", "no．", "ｎｏ", "ｎｏ.", "№"}:
             mapping["roster_no"] = i
+        elif h in _HEADER_ALIASES:
+            mapping[_HEADER_ALIASES[h]] = i
         elif h in ROSTER_COLUMNS:
             mapping[h] = i
     return mapping
+
+
+def _looks_like_header(row: list[str]) -> bool:
+    """既知の見出しが2項目以上あれば、先頭行を見出しと判定する。"""
+    guessed = _guess_mapping_from_header_roster(row)
+    return sum(index is not None for index in guessed.values()) >= 2
 
 
 class RosterImportDialog(QDialog):
@@ -166,6 +188,9 @@ class RosterImportDialog(QDialog):
 
     def _set_raw_rows(self, rows: list[list[str]]):
         self._raw_rows = rows
+        self._header_chk.blockSignals(True)
+        self._header_chk.setChecked(bool(rows) and _looks_like_header(rows[0]))
+        self._header_chk.blockSignals(False)
         self._map_group.setEnabled(True)
         self._rebuild_mapping_ui()
         self._refresh_preview()
@@ -225,6 +250,18 @@ class RosterImportDialog(QDialog):
     def _import(self):
         rows = self._mapped_rows()
         from app.services.project_service import add_roster_entries
-        add_roster_entries(get_session(), self._project_id, rows)
+        session = get_session()
+        try:
+            add_roster_entries(session, self._project_id, rows)
+        except Exception as e:
+            session.rollback()
+            QMessageBox.critical(
+                self, "インポートエラー",
+                "名簿を登録できませんでした。\n"
+                "列の割り当てと各項目の内容を確認してください。\n\n"
+                f"{e}")
+            return
+        finally:
+            session.close()
         QMessageBox.information(self, "インポート完了", f"{len(rows)} 件を追加しました。")
         self.accept()
