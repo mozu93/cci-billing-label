@@ -53,7 +53,7 @@ class _CompactDelegate(QStyledItemDelegate):
 # col 0 = チェックボックス（None=編集不可）、以降は元の順
 _COL_FIELDS = [
     None,            # チェックボックス
-    "member_number", "organization_name", "organization_kana",
+    "roster_no", "member_number", "organization_name", "organization_kana",
     "representative_name", "representative_kana", "department",
     "postal_code", "address", "address2", "phone", "email",
     None,            # 登録日
@@ -61,6 +61,7 @@ _COL_FIELDS = [
 
 COLS = [
     ("",             28),
+    ("NO.",           55),
     ("会員番号",       80),
     ("事業所名",      180),
     ("フリガナ",      160),
@@ -80,6 +81,7 @@ class RosterEntryDialog(QDialog):
     """名簿の1エントリ入力ダイアログ"""
 
     FIELDS = [
+        ("roster_no",            "NO."),
         ("member_number",        "会員番号"),
         ("organization_name",    "事業所名"),
         ("organization_kana",    "フリガナ（事業所）"),
@@ -272,6 +274,7 @@ class ProjectMemberPanel(QWidget):
             self._table.insertRow(row)
             reg = pm.created_at.strftime("%Y/%m/%d") if pm.created_at else ""
             vals = [
+                pm.roster_no or "",
                 pm.member_number or "",
                 pm.organization_name or "",
                 pm.organization_kana or "",
@@ -360,6 +363,7 @@ class ProjectMemberPanel(QWidget):
             if pm is None:
                 return
             initial = {
+                "roster_no": pm.roster_no,
                 "member_number": pm.member_number,
                 "organization_name": pm.organization_name,
                 "organization_kana": pm.organization_kana,

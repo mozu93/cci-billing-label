@@ -53,4 +53,5 @@ def test_member_panel_has_registration_date_column(qtbot, memory_db):
     headers = [panel._table.horizontalHeaderItem(i).text()
                for i in range(panel._table.columnCount())]
     assert "登録日" in headers
+    assert "NO." in headers
     assert panel._table.isSortingEnabled()

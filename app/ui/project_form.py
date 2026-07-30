@@ -147,10 +147,12 @@ class ProjectFormDialog(QDialog):
     def __init__(self, project_id: int | None = None, parent=None):
         super().__init__(parent)
         self._project_id = project_id
+        self.created_project_id: int | None = None
+        self.saved_fiscal_year: int | None = None
         self._templates: list = []
         self._rows: list[_ItemRow] = []
-        self.setWindowTitle("請求・領収書データの登録" if project_id is None
-                            else "請求・領収書データの編集")
+        self.setWindowTitle("まとめて発行データの新規作成" if project_id is None
+                            else "まとめて発行データの編集")
         self.resize(780, 560)
         self.setStyleSheet(
             "QLineEdit, QComboBox, QSpinBox { "
@@ -297,7 +299,8 @@ class ProjectFormDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_cancel = QPushButton("キャンセル")
         btn_cancel.clicked.connect(self.reject)
-        btn_ok = QPushButton("保存")
+        btn_ok = QPushButton(
+            "保存して名簿を取り込む" if self._project_id is None else "変更を保存")
         btn_ok.setStyleSheet(
             "QPushButton { background: #2563EB; color: white; border-radius: 4px;"
             " font-weight: bold; padding: 2px 12px; }"
@@ -679,6 +682,7 @@ class ProjectFormDialog(QDialog):
                     add_template_to_project(session, proj.id, tid, sort_order=i,
                                             default_quantity=qty,
                                             tax_rate_override=tax_ovr)
+                self.created_project_id = proj.id
             else:
                 proj = get_project_by_id(session, self._project_id)
                 proj.name = title
@@ -696,6 +700,7 @@ class ProjectFormDialog(QDialog):
                     add_template_to_project(session, proj.id, tid, sort_order=i,
                                             default_quantity=qty,
                                             tax_rate_override=tax_ovr)
+            self.saved_fiscal_year = self._fiscal_year.value()
         finally:
             session.close()
         self.accept()

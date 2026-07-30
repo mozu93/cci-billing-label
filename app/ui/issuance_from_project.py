@@ -187,6 +187,21 @@ class IssuanceFromProjectWidget(QWidget):
             "Excel出力したファイルを読み込み、数量と発行チェックを画面に反映します。")
         self._btn_import_xlsx.clicked.connect(self._import_excel)
         action_row.addWidget(self._btn_import_xlsx)
+        action_row.addSpacing(8)
+        action_row.addWidget(QLabel("PDF出力："))
+        self._pdf_output_combo = QComboBox()
+        self._pdf_output_combo.addItem(
+            "事業所ごとの個別PDF", "individual")
+        self._pdf_output_combo.addItem(
+            "一括PDF＋個別PDF", "merged")
+        self._pdf_output_combo.setToolTip(
+            "個別PDFでは、各事業所を設定済みのファイル名で保存します。")
+        action_row.addWidget(self._pdf_output_combo)
+        btn_filename = QPushButton("ファイル名設定…")
+        btn_filename.setToolTip(
+            "PDFファイル名に事業所名・発行日・管理番号・請求金額を設定します。")
+        btn_filename.clicked.connect(self._open_filename_settings)
+        action_row.addWidget(btn_filename)
         layout.addLayout(action_row)
 
         if self._doc_type == "invoice":
@@ -878,6 +893,10 @@ class IssuanceFromProjectWidget(QWidget):
                     result.append((r, data_item.data(Qt.ItemDataRole.UserRole)))
         return result
 
+    def _open_filename_settings(self):
+        from app.ui.pdf_filename_dialog import PdfFilenameDialog
+        PdfFilenameDialog(self).exec()
+
     def _restore_from_project_settings(self):
         from app.utils.app_config import get_config
         cfg = get_config().get("last_issuance_from_project", {})
@@ -888,6 +907,10 @@ class IssuanceFromProjectWidget(QWidget):
         if self._doc_type == "invoice":
             self._window_envelope_chk.setChecked(cfg.get("window_envelope", False))
             self._show_person_chk.setChecked(cfg.get("show_person", True))
+        output_mode = cfg.get("pdf_output_mode", "individual")
+        output_idx = self._pdf_output_combo.findData(output_mode)
+        if output_idx >= 0:
+            self._pdf_output_combo.setCurrentIndex(output_idx)
 
     # ── 発行処理 ──────────────────────────────────────────────────
 
@@ -904,6 +927,7 @@ class IssuanceFromProjectWidget(QWidget):
             "delivery_method": self._delivery_combo.currentText(),
             "window_envelope": self._window_envelope_chk.isChecked() if self._doc_type == "invoice" else False,
             "show_person": self._show_person_chk.isChecked() if self._doc_type == "invoice" else True,
+            "pdf_output_mode": self._pdf_output_combo.currentData(),
         }
         _scfg(_cfg)
 
@@ -927,7 +951,7 @@ class IssuanceFromProjectWidget(QWidget):
                 continue
             targets.append((pm_id, issuance_id, quantities, unit_prices))
         if not targets:
-            return errors
+            return errors, []
 
         # ── 支払期限・封筒オプション（請求書のみ）/ 発行日（領収書のみ）──
         due_date = None
@@ -979,12 +1003,17 @@ class IssuanceFromProjectWidget(QWidget):
                             quantities=quantities if quantities else None,
                             unit_prices=unit_prices if unit_prices else None,
                             show_recipient_person=show_recipient_person,
+                            roster_no=pm.roster_no or "",
                         )
                         issuance_id = iss.id
 
                     iss = session.get(Issuance, issuance_id)
                     if iss is None:
                         continue
+                    # 旧データを再出力する場合も、現在の名簿NO.をファイル名に利用する。
+                    if (iss.roster_no or "") != (pm.roster_no or ""):
+                        iss.roster_no = pm.roster_no or ""
+                        session.commit()
                     was_issued = iss.status == "発行済み"
                     if not was_issued:
                         mark_as_issued(session, issuance_id,
@@ -1008,10 +1037,14 @@ class IssuanceFromProjectWidget(QWidget):
                         if due_date and _proj and _proj.due_date != due_date:
                             _proj.due_date = due_date
                             session.commit()
-                        _pdf_save_path = (
-                            os.path.join(save_dir, f"{iss.doc_number}.pdf")
-                            if save_dir else None
-                        )
+                        if save_dir:
+                            from app.utils.pdf_helpers import (
+                                available_pdf_path, build_pdf_filename,
+                            )
+                            _pdf_save_path = available_pdf_path(
+                                save_dir, build_pdf_filename(iss))
+                        else:
+                            _pdf_save_path = None
                         path = generate_and_open(iss, session, due_date=due_date,
                                                  open_file=open_each,
                                                  save_path=_pdf_save_path,
@@ -1041,12 +1074,16 @@ class IssuanceFromProjectWidget(QWidget):
 
             if delivery == "メール送付" and issued_issuances:
                 self._send_issue_emails(issued_issuances, errors)
-            elif len(pdf_paths) > 1:
+            elif (len(pdf_paths) > 1
+                  and self._pdf_output_combo.currentData() == "merged"):
                 # 一括発行：個別に開かず1つに結合して開く（連続印刷用）
                 try:
                     merge_and_open(pdf_paths, self._proj_combo.currentText(), output_dir=save_dir)
                 except Exception as e:
                     errors.append(f"PDF結合に失敗しました：{e}")
+            elif len(pdf_paths) > 1 and save_dir:
+                # 個別PDFモード：各社のPDFを確認できるよう保存先を開く。
+                os.startfile(save_dir)
         finally:
             session.close()
         return errors, notify_items

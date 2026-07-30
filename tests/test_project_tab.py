@@ -15,6 +15,15 @@ def test_project_tab_buttons_simplified(qtbot, memory_db):
     assert "受付開始（active）" not in texts
     assert "一括PDF生成" not in texts
     assert "アーカイブ" not in texts
+    assert "＋ 名簿・請求内容を作成" in texts
+
+
+def test_project_tab_explains_empty_state(qtbot, memory_db):
+    from app.ui.project_tab import ProjectTab
+    w = ProjectTab()
+    qtbot.addWidget(w)
+    assert w._empty_label.isVisibleTo(w)
+    assert "受付中のデータはありません" in w._empty_label.text()
 
 
 def test_project_tab_shows_business_and_title_columns(qtbot, memory_db):

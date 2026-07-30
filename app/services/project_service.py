@@ -96,6 +96,7 @@ def add_roster_entries(session: Session, project_id: int,
     for i, e in enumerate(entries):
         pm = ProjectMember(
             project_id=project_id,
+            roster_no=e.get("roster_no", ""),
             member_number=e.get("member_number", ""),
             organization_name=e.get("organization_name", ""),
             organization_kana=e.get("organization_kana", ""),
@@ -120,6 +121,7 @@ def copy_roster_from_project(session: Session, src_project_id: int,
                              dst_project_id: int) -> list[ProjectMember]:
     src = get_project_members(session, src_project_id)
     entries = [{
+        "roster_no": p.roster_no,
         "member_number": p.member_number,
         "organization_name": p.organization_name,
         "organization_kana": p.organization_kana,

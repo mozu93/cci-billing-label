@@ -42,6 +42,7 @@ def generate_batch_pdf(session, project_id: int, company: CompanySettings,
                 recipient_name=pm.representative_name,
                 doc_type=doc_type,
                 fiscal_year=today.year, month=today.month,
+                roster_no=pm.roster_no or "",
             )
             is_new = True
         path = os.path.join(output_dir, f"{iss.doc_number}.pdf")

@@ -167,6 +167,7 @@ class ProjectMember(Base):
     __tablename__ = "project_members"
     id = Column(Integer, primary_key=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    roster_no = Column(String(50), default="")
     member_number = Column(String(50), default="")
     organization_name = Column(String(200), default="")
     organization_kana = Column(String(200), default="")
@@ -188,6 +189,7 @@ class Issuance(Base):
     id = Column(Integer, primary_key=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     project_member_id = Column(Integer, ForeignKey("project_members.id"), nullable=True)
+    roster_no = Column(String(50), default="")
     member_number = Column(String(50), default="")
     recipient_organization = Column(String(200), default="")
     recipient_kana = Column(String(200), default="")

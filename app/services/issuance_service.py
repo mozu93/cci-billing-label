@@ -72,7 +72,8 @@ def create_issuance_for_member(session: Session, project_id: int,
                                 quantities: dict[int, int] | None = None,
                                 unit_prices: dict[int, int] | None = None,
                                 recipient_department: str = "",
-                                show_recipient_person: bool = True) -> Issuance:
+                                show_recipient_person: bool = True,
+                                roster_no: str = "") -> Issuance:
     doc_number = get_next_doc_number(session, doc_type, fiscal_year, month)
     lines, total = _build_lines_from_project(
         session, project_id, quantities=quantities, unit_prices=unit_prices)
@@ -80,6 +81,7 @@ def create_issuance_for_member(session: Session, project_id: int,
     issuance = Issuance(
         project_id=project_id,
         project_member_id=project_member_id,
+        roster_no=roster_no,
         recipient_organization=recipient_organization,
         recipient_name=recipient_name,
         recipient_department=recipient_department,

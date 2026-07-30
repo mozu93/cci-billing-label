@@ -2,7 +2,7 @@
 """事業名簿向けの取り込みダイアログ（列マッピング方式）。
 
 member_import.MemberImportDialog をベースに、
-- マッピング対象を ROSTER_COLUMNS（member_number を除く8項目）に変更
+- マッピング対象を ROSTER_COLUMNS（NO.を含む名簿項目）に変更
 - 取り込み先を会員マスタではなく事業名簿（add_roster_entries）に変更
 """
 from PyQt6.QtWidgets import (
@@ -30,7 +30,7 @@ HEADERS = [FIELD_LABELS[c] for c in ROSTER_COLUMNS]
 
 def _default_positional_mapping_roster(num_cols: int) -> dict[str, int | None]:
     """ROSTER_COLUMNS 基準で左から順に割り当てた初期マッピング。
-    （MEMBER_COLUMNS 基準の default_positional_mapping は列0=member_number なので使えない。）
+    名簿では列0を NO. として扱う。
     """
     return {field: (i if i < num_cols else None)
             for i, field in enumerate(ROSTER_COLUMNS)}
@@ -44,6 +44,8 @@ def _guess_mapping_from_header_roster(header_cells: list[str]) -> dict[str, int 
         h = (raw or "").strip()
         if h in label_to_field:
             mapping[label_to_field[h]] = i
+        elif h.lower() in {"no", "no.", "no．", "ｎｏ", "ｎｏ.", "№"}:
+            mapping["roster_no"] = i
         elif h in ROSTER_COLUMNS:
             mapping[h] = i
     return mapping

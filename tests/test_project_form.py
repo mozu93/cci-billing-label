@@ -101,3 +101,13 @@ def test_project_form_preview_uses_selected_templates(qtbot, memory_db, monkeypa
     assert len(captured["lines"]) == 1
     assert captured["lines"][0]["item_name"] == "視察研修会参加費"
     assert int(captured["lines"][0]["unit_price"]) == 5000
+
+
+def test_new_project_form_uses_next_step_wording(qtbot, memory_db):
+    from PyQt6.QtWidgets import QPushButton
+    from app.ui.project_form import ProjectFormDialog
+    dlg = ProjectFormDialog()
+    qtbot.addWidget(dlg)
+    assert dlg.windowTitle() == "まとめて発行データの新規作成"
+    texts = [b.text() for b in dlg.findChildren(QPushButton)]
+    assert "保存して名簿を取り込む" in texts

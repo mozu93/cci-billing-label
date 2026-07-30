@@ -15,10 +15,11 @@ MEMBER_COLUMNS = [
     "email",
 ]
 
-ROSTER_COLUMNS = MEMBER_COLUMNS
+ROSTER_COLUMNS = ["roster_no", *MEMBER_COLUMNS]
 
 # 取り込み先フィールド → 日本語ラベル（MEMBER_COLUMNS と同順）
 FIELD_LABELS = {
+    "roster_no": "NO.",
     "member_number": "会員番号",
     "organization_name": "事業所名",
     "organization_kana": "フリガナ",
@@ -136,9 +137,10 @@ def build_member_rows(raw_rows: list[list[str]],
     """
     data_rows = raw_rows[1:] if has_header else raw_rows
     result = []
+    fields = ROSTER_COLUMNS if "roster_no" in mapping else MEMBER_COLUMNS
     for cells in data_rows:
         row = {}
-        for field in MEMBER_COLUMNS:
+        for field in fields:
             idx = mapping.get(field)
             if idx is None or idx >= len(cells):
                 row[field] = ""

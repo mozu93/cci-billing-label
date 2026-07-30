@@ -579,6 +579,9 @@ class IssuanceCounterWidget(QWidget):
             opts_form.addRow("支払期日", self._due_date)
             self._window_envelope_chk = QCheckBox("窓あき封筒モード（住所を印字）")
             opts_form.addRow(self._window_envelope_chk)
+            self._btn_filename = QPushButton("PDFファイル名を設定…")
+            self._btn_filename.clicked.connect(self._open_filename_settings)
+            opts_form.addRow("保存名", self._btn_filename)
 
             self._addr_widget = QWidget()
             addr_form = QFormLayout(self._addr_widget)
@@ -984,6 +987,10 @@ class IssuanceCounterWidget(QWidget):
                 seen[name] = True
         return "・".join(seen.keys()) if seen else "直接発行"
 
+    def _open_filename_settings(self):
+        from app.ui.pdf_filename_dialog import PdfFilenameDialog
+        PdfFilenameDialog(self).exec()
+
     def _issue(self):
         org = self._org_name.text().strip()
         if not org:
@@ -1149,7 +1156,8 @@ class IssuanceCounterWidget(QWidget):
             # 発行・修正再発行どちらも保存先を選択させる（PDF再生成のたびに保存先を確認）
             if _delivery_text != "メール送付":
                 _out_dir = get_pdf_output_dir()
-                _default_name = os.path.join(_out_dir, f"{iss.doc_number}.pdf")
+                from app.utils.pdf_helpers import build_pdf_filename
+                _default_name = os.path.join(_out_dir, build_pdf_filename(iss))
                 _save_path, _ = QFileDialog.getSaveFileName(
                     self, "PDFの保存先を選択", _default_name, "PDF ファイル (*.pdf)"
                 )

@@ -1,6 +1,57 @@
 # app/utils/pdf_helpers.py
 import os
+import re
+from datetime import date
 from app.database.models import CompanySettings, BankAccount
+
+
+def build_pdf_filename(issuance, fields: list[str] | None = None,
+                       issued_date: str | None = None,
+                       reissue: bool = False) -> str:
+    """設定された構成要素から安全なPDFファイル名を作る。"""
+    if fields is None:
+        from app.utils.app_config import get_config
+        fields = get_config().get("pdf_filename_fields", ["doc_number"])
+
+    issued = getattr(issuance, "issued_at", None)
+    if issued_date is None:
+        if issued:
+            issued_date = issued.strftime("%Y%m%d")
+        else:
+            issued_date = date.today().strftime("%Y%m%d")
+    organization = (
+        getattr(issuance, "recipient_organization", "")
+        or getattr(issuance, "recipient_name", "")
+        or "宛先未設定"
+    )
+    roster_no = str(getattr(issuance, "roster_no", "") or "").strip()
+    values = {
+        "roster_no": f"NO.{roster_no}" if roster_no else "NO.未設定",
+        "organization": organization,
+        "issued_date": issued_date,
+        "doc_number": getattr(issuance, "doc_number", "") or "管理番号未設定",
+        "amount": f"請求金額{int(getattr(issuance, 'amount', 0) or 0):,}円",
+    }
+    parts = [str(values[key]).strip() for key in fields if key in values]
+    base = "_".join(p for p in parts if p) or values["doc_number"]
+    base = re.sub(r'[\\/:*?"<>|]', "_", base).rstrip(" .")
+    if reissue:
+        base += "_再発行"
+    return f"{base}.pdf"
+
+
+def available_pdf_path(directory: str, filename: str) -> str:
+    """既存ファイルを上書きしない保存パスを返す。"""
+    path = os.path.join(directory, filename)
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(filename)
+    number = 2
+    while True:
+        candidate = os.path.join(directory, f"{stem}_{number}{ext}")
+        if not os.path.exists(candidate):
+            return candidate
+        number += 1
 
 
 def get_company_and_bank(session) -> tuple:
@@ -109,9 +160,9 @@ def generate_and_open(issuance, session, reissue: bool = False,
         return None
     output_dir = get_pdf_output_dir()
 
-    suffix = "_再発行" if reissue else ""
     if issuance.doc_type == "invoice":
-        path = save_path or os.path.join(output_dir, f"{issuance.doc_number}{suffix}.pdf")
+        path = save_path or available_pdf_path(
+            output_dir, build_pdf_filename(issuance, reissue=reissue))
         from app.services.pdf.invoice_pdf import generate_invoice_pdf
         postal_code = address = address2 = ""
         if window_envelope and issuance.project_member_id:
@@ -152,7 +203,8 @@ def generate_and_open(issuance, session, reissue: bool = False,
         return path
 
     # 領収書（A5縦・原本+控え）
-    path = save_path or os.path.join(output_dir, f"{issuance.doc_number}{suffix}.pdf")
+    path = save_path or available_pdf_path(
+        output_dir, build_pdf_filename(issuance, reissue=reissue))
     from app.services.pdf.receipt_pdf import generate_receipt_pdf
     generate_receipt_pdf(issuance, company, path,
                          seal_image=seal, reissue=reissue)

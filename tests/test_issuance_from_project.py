@@ -21,7 +21,7 @@ def test_invoice_widget_has_correct_buttons(qtbot, memory_db):
     w = IssuanceFromProjectWidget("invoice")
     qtbot.addWidget(w)
     texts = _texts(w)
-    assert "選択した請求書を発行" in texts
+    assert "チェックした請求書を発行する" in texts
     assert "準備（採番）" not in texts
 
 
@@ -30,7 +30,16 @@ def test_receipt_widget_has_correct_buttons(qtbot, memory_db):
     w = IssuanceFromProjectWidget("receipt")
     qtbot.addWidget(w)
     texts = _texts(w)
-    assert "選択した領収書を発行" in texts
+    assert "チェックした領収書を発行する" in texts
+
+
+def test_batch_output_mode_can_select_individual_pdf(qtbot, memory_db):
+    from app.ui.issuance_from_project import IssuanceFromProjectWidget
+    w = IssuanceFromProjectWidget("invoice")
+    qtbot.addWidget(w)
+    assert w._pdf_output_combo.itemData(0) == "individual"
+    assert w._pdf_output_combo.itemText(0) == "事業所ごとの個別PDF"
+    assert w._pdf_output_combo.itemData(1) == "merged"
 
 
 def test_widget_has_no_doctype_combo(qtbot, memory_db):
@@ -221,7 +230,9 @@ def test_unissued_filter_hides_voided_invoice(qtbot, memory_db):
     assert "××物産" in orgs       # 純粋な未発行は出る
 
 
-def test_issue_checked_skips_voided_invoice(qtbot, memory_db):
+def test_issue_checked_skips_voided_invoice(qtbot, memory_db, monkeypatch):
+    import app.utils.app_config as app_config
+    monkeypatch.setattr(app_config, "save_config", lambda _cfg: None)
     from app.database.connection import get_session
     from app.services.category_service import create_category
     from app.services.item_template_service import create_item_template

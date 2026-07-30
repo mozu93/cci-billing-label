@@ -108,6 +108,10 @@ def _migrate(engine):
             conn.execute(text(
                 "ALTER TABLE project_members ADD COLUMN member_number VARCHAR(50) DEFAULT ''"))
             conn.commit()
+        if "roster_no" not in pm_cols:
+            conn.execute(text(
+                "ALTER TABLE project_members ADD COLUMN roster_no VARCHAR(50) DEFAULT ''"))
+            conn.commit()
         if "address2" not in pm_cols:
             conn.execute(text(
                 "ALTER TABLE project_members ADD COLUMN address2 VARCHAR(300) DEFAULT ''"))
@@ -125,6 +129,7 @@ def _migrate(engine):
 
         iss_cols = _table_columns(conn, dialect, "issuances")
         for col, ddl in [
+            ("roster_no",            "VARCHAR(50) DEFAULT ''"),
             ("member_number",        "VARCHAR(50) DEFAULT ''"),
             ("recipient_kana",       "VARCHAR(200) DEFAULT ''"),
             ("recipient_department", "VARCHAR(100) DEFAULT ''"),

@@ -69,10 +69,11 @@ def test_roster_import_dialog_maps_rows(qtbot, memory_db):
     from app.ui.roster_import import RosterImportDialog
     dlg = RosterImportDialog(project_id=1)
     qtbot.addWidget(dlg)
-    # 先頭列=会員番号、2列目=事業所名 の順でデータを渡す
-    dlg._set_raw_rows([["A-001", "○○商事", "田中"]])
+    # 先頭列=NO.、2列目=会員番号、3列目=事業所名 の順でデータを渡す
+    dlg._set_raw_rows([["1", "A-001", "○○商事", "田中"]])
     rows = dlg._mapped_rows()
     assert len(rows) == 1
+    assert rows[0]["roster_no"] == "1"
     assert rows[0]["organization_name"] == "○○商事"
     assert rows[0]["member_number"] == "A-001"
 
@@ -88,3 +89,13 @@ def test_roster_import_includes_member_number(qtbot, memory_db):
     # 住所が住所１・住所２に分かれている
     assert "address" in ROSTER_COLUMNS
     assert "address2" in ROSTER_COLUMNS
+
+
+def test_roster_import_includes_roster_no(qtbot, memory_db):
+    from app.ui.roster_import import RosterImportDialog
+    from app.utils.excel_utils import ROSTER_COLUMNS, FIELD_LABELS
+    dlg = RosterImportDialog(project_id=1)
+    qtbot.addWidget(dlg)
+    assert ROSTER_COLUMNS[0] == "roster_no"
+    assert FIELD_LABELS["roster_no"] == "NO."
+    assert "roster_no" in dlg._field_combos

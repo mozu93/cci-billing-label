@@ -36,7 +36,11 @@ class ProjectTab(QWidget):
         self._year_combo.currentIndexChanged.connect(self._load)
         top_row.addWidget(self._year_combo)
 
-        btn_add = QPushButton("＋ 新規作成")
+        btn_add = QPushButton("＋ 名簿・請求内容を作成")
+        btn_add.setStyleSheet(
+            "QPushButton { background: #2563EB; color: white; border-radius: 4px;"
+            " font-weight: bold; padding: 4px 12px; }"
+            "QPushButton:hover { background: #1D4ED8; }")
         btn_add.clicked.connect(self._add)
         btn_edit = QPushButton("編集")
         btn_edit.clicked.connect(self._edit)
@@ -89,6 +93,13 @@ class ProjectTab(QWidget):
         self._member_panel_container = QWidget()
         from PyQt6.QtWidgets import QVBoxLayout as VL
         self._member_panel_layout = VL(self._member_panel_container)
+        self._empty_label = QLabel(
+            "受付中のデータはありません。\n"
+            "「＋ 名簿・請求内容を作成」から、件名と請求内容を登録してください。")
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setStyleSheet(
+            "color: #64748B; font-size: 13px; padding: 24px;")
+        self._member_panel_layout.addWidget(self._empty_label)
         splitter.addWidget(self._member_panel_container)
         splitter.setSizes([300, 300])
         layout.addWidget(splitter)
@@ -136,6 +147,15 @@ class ProjectTab(QWidget):
                     "総額": total_amount,
                     "入金額": paid_amount,
                 })
+            self._clear_member_panel()
+            if projects:
+                self._empty_label.setText(
+                    "一覧からデータを選択すると、名簿の確認・取り込みができます。")
+            else:
+                self._empty_label.setText(
+                    "受付中のデータはありません。\n"
+                    "「＋ 名簿・請求内容を作成」から、件名と請求内容を登録してください。")
+            self._empty_label.setVisible(True)
         finally:
             session.close()
 
@@ -154,13 +174,18 @@ class ProjectTab(QWidget):
             session.close()
         self._btn_close.setEnabled(status == "active")
         self._btn_reopen.setEnabled(status == "closed")
-        for i in reversed(range(self._member_panel_layout.count())):
-            w = self._member_panel_layout.itemAt(i).widget()
-            if w:
-                w.deleteLater()
+        self._clear_member_panel()
+        self._empty_label.setVisible(False)
         if project_type == "list":
             panel = ProjectMemberPanel(project_id)
             self._member_panel_layout.addWidget(panel)
+
+    def _clear_member_panel(self):
+        for i in reversed(range(self._member_panel_layout.count())):
+            w = self._member_panel_layout.itemAt(i).widget()
+            if w and w is not self._empty_label:
+                self._member_panel_layout.removeWidget(w)
+                w.deleteLater()
 
     def _selected_project_id(self) -> int | None:
         row = self._table.currentRow()
@@ -171,7 +196,26 @@ class ProjectTab(QWidget):
     def _add(self):
         dlg = ProjectFormDialog(parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            if dlg.saved_fiscal_year is not None:
+                idx = self._year_combo.findData(dlg.saved_fiscal_year)
+                if idx >= 0:
+                    self._year_combo.blockSignals(True)
+                    self._year_combo.setCurrentIndex(idx)
+                    self._year_combo.blockSignals(False)
             self._load()
+            if dlg.created_project_id is not None:
+                self._select_project(dlg.created_project_id)
+                from app.ui.roster_import import RosterImportDialog
+                import_dlg = RosterImportDialog(dlg.created_project_id, self)
+                if import_dlg.exec() == QDialog.DialogCode.Accepted:
+                    self._select_project(dlg.created_project_id)
+
+    def _select_project(self, project_id: int):
+        for row in range(self._table.rowCount()):
+            item = self._table.item(row, 0)
+            if item and item.data(Qt.ItemDataRole.UserRole) == project_id:
+                self._table.setCurrentCell(row, 0)
+                return
 
     def _edit(self):
         pid = self._selected_project_id()

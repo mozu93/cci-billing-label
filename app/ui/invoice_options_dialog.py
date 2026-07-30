@@ -23,7 +23,7 @@ class InvoiceOptionsDialog(QDialog):
     def __init__(self, issued_at=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("請求書の発行オプション")
-        self.setFixedSize(320, 160)
+        self.setFixedSize(360, 205)
 
         from app.utils.app_config import get_config
         _cfg = get_config()
@@ -43,6 +43,9 @@ class InvoiceOptionsDialog(QDialog):
         self._window_envelope = QCheckBox("窓あき封筒モード（宛先に住所を印字する）")
         self._window_envelope.setChecked(_cfg.get("window_envelope_last", False))
         form.addRow(self._window_envelope)
+        btn_filename = QPushButton("PDFファイル名を設定…")
+        btn_filename.clicked.connect(self._open_filename_settings)
+        form.addRow("保存名", btn_filename)
         layout.addLayout(form)
 
         btn_row = QHBoxLayout()
@@ -66,3 +69,7 @@ class InvoiceOptionsDialog(QDialog):
         cfg["window_envelope_last"] = checked
         save_config(cfg)
         return checked
+
+    def _open_filename_settings(self):
+        from app.ui.pdf_filename_dialog import PdfFilenameDialog
+        PdfFilenameDialog(self).exec()

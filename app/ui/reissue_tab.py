@@ -410,7 +410,9 @@ class ReissueWidget(QWidget):
                 from PyQt6.QtWidgets import QFileDialog
                 from app.utils.pdf_helpers import get_pdf_output_dir
                 _out_dir = get_pdf_output_dir()
-                _default_name = os.path.join(_out_dir, f"{iss.doc_number}_再発行.pdf")
+                from app.utils.pdf_helpers import build_pdf_filename
+                _default_name = os.path.join(
+                    _out_dir, build_pdf_filename(iss, reissue=True))
                 _save_path, _ = QFileDialog.getSaveFileName(
                     self, "PDFの保存先を選択", _default_name, "PDF ファイル (*.pdf)"
                 )
