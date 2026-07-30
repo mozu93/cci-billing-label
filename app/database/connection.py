@@ -154,6 +154,13 @@ def _migrate(engine):
                 "WHERE id = (SELECT MIN(id) FROM company_settings)"))
             conn.commit()
 
+        bank_cols = _table_columns(conn, dialect, "bank_accounts")
+        if "bank_account_name_kana" not in bank_cols:
+            conn.execute(text(
+                "ALTER TABLE bank_accounts "
+                "ADD COLUMN bank_account_name_kana VARCHAR(200) DEFAULT ''"))
+            conn.commit()
+
         proj_cols = _table_columns(conn, dialect, "projects")
         for col, ddl in [
             ("company_settings_id", "INTEGER REFERENCES company_settings(id)"),

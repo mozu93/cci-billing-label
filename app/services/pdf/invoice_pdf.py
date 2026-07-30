@@ -6,11 +6,13 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib.colors import HexColor, black, white
 from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable,
+    Flowable,
 )
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 from app.services.pdf.fonts import register_fonts, FONT_NORMAL, FONT_BOLD
+from app.services.pdf.seal_image import seal_image_reader
 
 # ── 白黒カラー ──────────────────────────────────────────────
 C_BLACK  = HexColor("#1A1A1A")
@@ -18,21 +20,11 @@ C_DARK   = HexColor("#333333")
 C_BORDER = HexColor("#888888")
 C_LIGHT  = HexColor("#EEEEEE")
 C_PALE   = HexColor("#F8F8F8")
+ISSUER_NAME_INDENT_CHARS = 8
 
 
 def _seal_source(seal_image):
-    """image_data (BLOB) → ImageReader、なければ path を返す。どちらもなければ None。"""
-    if seal_image is None:
-        return None
-    data = getattr(seal_image, "image_data", None)
-    if data:
-        from io import BytesIO
-        from reportlab.lib.utils import ImageReader
-        return ImageReader(BytesIO(data))
-    path = getattr(seal_image, "path", None)
-    if path and os.path.exists(path):
-        return path
-    return None
+    return seal_image_reader(seal_image)
 C_SUB    = HexColor("#555555")
 
 
@@ -323,41 +315,32 @@ def _build_client_block(issuance, subject: str = "",
 def _build_company_block(issuance, company, issue_str: str,
                           seal_image=None, col_w: float = None) -> list:
     r_style  = _s("co_r",    size=10, align=TA_RIGHT)
-    nm_style = _s("co_name", size=11, bold=True)
-    i_style  = _s("co_info", size=10)
+    nm_style = _s(
+        "co_name", size=11, bold=True,
+        leftIndent=11 * ISSUER_NAME_INDENT_CHARS)
+    i_style  = _s(
+        "co_info", size=10,
+        leftIndent=11 * ISSUER_NAME_INDENT_CHARS)
 
     co_parts = []
     if company:
         co_parts.append(Paragraph(company.name or "（自社名未設定）", nm_style))
-        if company.invoice_reg_number:
-            co_parts.append(Paragraph(
-                f"登録番号：{company.invoice_reg_number}", i_style))
         if company.postal_code:
             co_parts.append(Paragraph(f"〒{company.postal_code}", i_style))
         if company.address:
             co_parts.append(Paragraph(company.address, i_style))
         if company.phone:
             co_parts.append(Paragraph(f"TEL：{company.phone}", i_style))
+        if company.fax:
+            co_parts.append(Paragraph(f"FAX：{company.fax}", i_style))
+        if company.invoice_reg_number:
+            co_parts.append(Paragraph(
+                f"登録番号：{company.invoice_reg_number}", i_style))
         co_parts.append(Spacer(1, 11*mm))
 
     _seal_src = _seal_source(seal_image)
     if _seal_src is not None and col_w:
-        from reportlab.platypus import Image as RLImage
-        seal_sz = 20*mm
-        text_w  = col_w - seal_sz
-        try:
-            seal_img = RLImage(_seal_src, width=seal_sz, height=seal_sz)
-        except Exception:
-            seal_img = Spacer(seal_sz, seal_sz)
-        co_block = Table([[co_parts, seal_img]], colWidths=[text_w, seal_sz])  # noqa: F821
-        co_block.setStyle(TableStyle([
-            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING",   (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
-            ("TOPPADDING",    (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        co_content = [co_block]
+        co_content = [_IssuerSealOverlay(co_parts, _seal_src, col_w)]
     else:
         co_content = list(co_parts)
 
@@ -366,6 +349,48 @@ def _build_company_block(issuance, company, issue_str: str,
         Paragraph(f"請求日　{issue_str}", r_style),
         Spacer(1, 11*mm),
     ] + co_content
+
+
+class _IssuerSealOverlay(Flowable):
+    """発行元情報の右側へ印鑑を重ねて描画する。"""
+
+    def __init__(self, content: list, seal_src, width: float):
+        super().__init__()
+        self._seal_src = seal_src
+        self._block_width = width
+        self._seal_size = 25 * mm
+        self._content = Table([[content]], colWidths=[width])
+        self._content.setStyle(TableStyle([
+            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
+            ("TOPPADDING",    (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+
+    def wrap(self, avail_width, avail_height):
+        _, content_h = self._content.wrap(
+            self._block_width, avail_height)
+        self.width = self._block_width
+        self.height = max(content_h, self._seal_size)
+        return self.width, self.height
+
+    def draw(self):
+        _, content_h = self._content.wrap(
+            self._block_width, self.height)
+        self._content.drawOn(self.canv, 0, self.height - content_h)
+        try:
+            self.canv.drawImage(
+                self._seal_src,
+                self._block_width - self._seal_size,
+                self.height - self._seal_size - 2 * mm,
+                self._seal_size,
+                self._seal_size,
+                mask="auto",
+                preserveAspectRatio=True,
+            )
+        except Exception:
+            pass
 
 
 # 税率区分の表示文字列
@@ -506,6 +531,9 @@ def _build_bank_block(ba, W: float) -> Table:
         rows.append([Paragraph(f"口座番号：{ba.bank_account_number}", i_style)])
     if ba.bank_account_name:
         rows.append([Paragraph(f"口座名義：{ba.bank_account_name}", i_style)])
+    if getattr(ba, "bank_account_name_kana", ""):
+        rows.append([Paragraph(
+            f"口座名義（フリガナ）：{ba.bank_account_name_kana}", i_style)])
     tbl = Table(rows, colWidths=[W * 0.65], hAlign="LEFT")
     tbl.setStyle(TableStyle([
         ("TOPPADDING",    (0, 0), (-1, -1), 1.5*mm),

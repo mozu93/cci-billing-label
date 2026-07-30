@@ -74,9 +74,9 @@ class CompanySettingsWidget(QWidget):
         bank_layout = QVBoxLayout(grp2)
         bank_layout.setSpacing(4)
         bank_layout.setContentsMargins(6, 4, 6, 6)
-        self._bank_table = QTableWidget(0, 5)
+        self._bank_table = QTableWidget(0, 6)
         self._bank_table.setHorizontalHeaderLabels(
-            ["ラベル", "銀行名", "支店名", "種別", "口座番号"])
+            ["ラベル", "銀行名", "支店名", "種別", "口座番号", "口座名義（フリガナ）"])
         self._bank_table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch)
         self._bank_table.horizontalHeader().setSectionResizeMode(
@@ -88,9 +88,12 @@ class CompanySettingsWidget(QWidget):
         bank_btn_row = QHBoxLayout()
         btn_add_bank = QPushButton("＋ 口座追加")
         btn_add_bank.clicked.connect(self._add_bank)
+        btn_edit_bank = QPushButton("編集")
+        btn_edit_bank.clicked.connect(self._edit_bank)
         btn_del_bank = QPushButton("削除")
         btn_del_bank.clicked.connect(self._del_bank)
         bank_btn_row.addWidget(btn_add_bank)
+        bank_btn_row.addWidget(btn_edit_bank)
         bank_btn_row.addWidget(btn_del_bank)
         bank_btn_row.addStretch()
         bank_layout.addLayout(bank_btn_row)
@@ -191,7 +194,8 @@ class CompanySettingsWidget(QWidget):
                 r = self._bank_table.rowCount()
                 self._bank_table.insertRow(r)
                 for col, val in enumerate([b.label, b.bank_name, b.bank_branch,
-                                            b.bank_account_type, b.bank_account_number]):
+                                            b.bank_account_type, b.bank_account_number,
+                                            b.bank_account_name_kana or ""]):
                     item = QTableWidgetItem(val)
                     item.setData(0x0100, b.id)
                     self._bank_table.setItem(r, col, item)
@@ -300,6 +304,17 @@ class CompanySettingsWidget(QWidget):
             QMessageBox.warning(self, "未選択", "発行元を選択してから口座を追加してください。")
             return
         dlg = BankAccountDialog(self, company_id=self._selected_company_id)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._load_bank_seal()
+
+    def _edit_bank(self):
+        row = self._bank_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "未選択", "編集する口座を選択してください。")
+            return
+        bank_id = self._bank_table.item(row, 0).data(0x0100)
+        dlg = BankAccountDialog(self, company_id=self._selected_company_id,
+                                bank_id=bank_id)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._load_bank_seal()
 
@@ -507,16 +522,20 @@ class IssuerEditDialog(QDialog):
 
 
 class BankAccountDialog(QDialog):
-    def __init__(self, parent=None, company_id: int | None = None):
+    def __init__(self, parent=None, company_id: int | None = None,
+                 bank_id: int | None = None):
         super().__init__(parent)
         self._company_id = company_id
-        self.setWindowTitle("銀行口座登録")
-        self.setFixedSize(360, 260)
+        self._bank_id = bank_id
+        self.setWindowTitle("銀行口座編集" if bank_id else "銀行口座登録")
+        self.setFixedSize(390, 300)
         self.setStyleSheet(
             "QLineEdit { border: 1px solid #b5b5b5; border-radius: 3px; "
             "padding: 3px 4px; background: white; }"
         )
         self._build()
+        if bank_id:
+            self._load(bank_id)
 
     def _build(self):
         layout = QVBoxLayout(self)
@@ -530,21 +549,40 @@ class BankAccountDialog(QDialog):
         self._account_type = QLineEdit("普通")
         self._account_number = QLineEdit()
         self._account_name   = QLineEdit()
+        self._account_name_kana = QLineEdit()
+        self._account_name_kana.setPlaceholderText("例：ヨッカイチショウコウカイギショ")
         form.addRow("ラベル",   self._label)
         form.addRow("銀行名",   self._bank_name)
         form.addRow("支店名",   self._branch)
         form.addRow("口座種別", self._account_type)
         form.addRow("口座番号", self._account_number)
         form.addRow("口座名義", self._account_name)
+        form.addRow("口座名義フリガナ", self._account_name_kana)
         layout.addLayout(form)
         btn_row = QHBoxLayout()
         btn_cancel = QPushButton("キャンセル")
         btn_cancel.clicked.connect(self.reject)
-        btn_ok = QPushButton("登録")
+        btn_ok = QPushButton("保存" if self._bank_id else "登録")
         btn_ok.clicked.connect(self._save)
         btn_row.addWidget(btn_cancel)
         btn_row.addWidget(btn_ok)
         layout.addLayout(btn_row)
+
+    def _load(self, bank_id: int):
+        session = get_session()
+        try:
+            b = session.get(BankAccount, bank_id)
+            if not b:
+                return
+            self._label.setText(b.label or "")
+            self._bank_name.setText(b.bank_name or "")
+            self._branch.setText(b.bank_branch or "")
+            self._account_type.setText(b.bank_account_type or "")
+            self._account_number.setText(b.bank_account_number or "")
+            self._account_name.setText(b.bank_account_name or "")
+            self._account_name_kana.setText(b.bank_account_name_kana or "")
+        finally:
+            session.close()
 
     def _save(self):
         if not self._label.text().strip():
@@ -555,16 +593,20 @@ class BankAccountDialog(QDialog):
             return
         session = get_session()
         try:
-            b = BankAccount(
-                company_id=self._company_id,
-                label=self._label.text().strip(),
-                bank_name=self._bank_name.text().strip(),
-                bank_branch=self._branch.text().strip(),
-                bank_account_type=self._account_type.text().strip(),
-                bank_account_name=self._account_name.text().strip(),
-                bank_account_number=self._account_number.text().strip(),
-            )
-            session.add(b)
+            b = session.get(BankAccount, self._bank_id) if self._bank_id else BankAccount(
+                company_id=self._company_id)
+            if b is None:
+                QMessageBox.warning(self, "保存エラー", "銀行口座が見つかりません。")
+                return
+            if self._bank_id is None:
+                session.add(b)
+            b.label = self._label.text().strip()
+            b.bank_name = self._bank_name.text().strip()
+            b.bank_branch = self._branch.text().strip()
+            b.bank_account_type = self._account_type.text().strip()
+            b.bank_account_name = self._account_name.text().strip()
+            b.bank_account_name_kana = self._account_name_kana.text().strip()
+            b.bank_account_number = self._account_number.text().strip()
             session.commit()
         finally:
             session.close()

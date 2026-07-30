@@ -11,6 +11,7 @@ from reportlab.lib.colors import HexColor, black
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from app.services.pdf.fonts import register_fonts, FONT_NORMAL, FONT_BOLD
+from app.services.pdf.seal_image import seal_image_reader
 
 C_GRAY_BOX   = HexColor("#D8D8D8")
 C_BORDER     = HexColor("#555555")
@@ -21,18 +22,7 @@ C_TEXT_SUB   = HexColor("#555555")
 
 
 def _seal_source(seal_image):
-    """image_data (BLOB) → ImageReader、なければ path を返す。どちらもなければ None。"""
-    if seal_image is None:
-        return None
-    data = getattr(seal_image, "image_data", None)
-    if data:
-        from io import BytesIO
-        from reportlab.lib.utils import ImageReader
-        return ImageReader(BytesIO(data))
-    path = getattr(seal_image, "path", None)
-    if path and os.path.exists(path):
-        return path
-    return None
+    return seal_image_reader(seal_image)
 
 
 def generate_receipt_pdf(issuance, company, output_path: str,

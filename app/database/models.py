@@ -68,6 +68,7 @@ class BankAccount(Base):
     bank_account_type = Column(String(20), default="普通")
     bank_account_number = Column(String(20), default="")
     bank_account_name = Column(String(100), default="")
+    bank_account_name_kana = Column(String(200), default="")
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
 

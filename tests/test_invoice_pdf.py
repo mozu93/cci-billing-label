@@ -51,6 +51,52 @@ def test_generate_invoice_pdf(db_session):
             os.unlink(path)
 
 
+def test_bank_block_shows_account_name_kana():
+    from app.services.pdf.invoice_pdf import _build_bank_block
+    from app.database.models import BankAccount
+    bank = BankAccount(
+        bank_name="テスト銀行", bank_account_name="四日市商工会議所",
+        bank_account_name_kana="ヨッカイチショウコウカイギショ",
+    )
+    table = _build_bank_block(bank, 500)
+    texts = [
+        cell.text
+        for row in table._cellvalues
+        for cell in row
+        if hasattr(cell, "text")
+    ]
+    assert any("ヨッカイチショウコウカイギショ" in text for text in texts)
+
+
+def test_issuer_block_is_indented_and_ordered():
+    from app.services.pdf.invoice_pdf import (
+        _build_company_block, ISSUER_NAME_INDENT_CHARS,
+    )
+    from app.database.models import CompanySettings, Issuance
+    company = CompanySettings(
+        name="四日市商工会議所",
+        postal_code="510-8501",
+        address="三重県四日市市諏訪町2番5号",
+        phone="059-352-8191",
+        fax="059-354-3737",
+        invoice_reg_number="T1234567890123",
+    )
+    issuance = Issuance(doc_number="INV-202607-0001", doc_type="invoice")
+    parts = _build_company_block(
+        issuance, company, "2026年7月30日", seal_image=None, col_w=240)
+    info = [p for p in parts if hasattr(p, "text")][2:]
+    assert [p.text for p in info] == [
+        "四日市商工会議所",
+        "〒510-8501",
+        "三重県四日市市諏訪町2番5号",
+        "TEL：059-352-8191",
+        "FAX：059-354-3737",
+        "登録番号：T1234567890123",
+    ]
+    assert all(
+        p.style.leftIndent == 11 * ISSUER_NAME_INDENT_CHARS for p in info)
+
+
 def test_build_client_block_hides_person_when_disabled():
     from app.services.pdf.invoice_pdf import _build_client_block
     from app.database.models import Issuance

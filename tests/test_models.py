@@ -51,3 +51,18 @@ def test_project_has_issuer_fks(db_session):
     assert proj.seal_image_id is None
     assert proj.issuer.name == "テスト会社"
     assert proj.bank_account.bank_name == "テスト銀行"
+
+
+def test_bank_account_has_name_kana(db_session):
+    from app.database.models import CompanySettings, BankAccount
+    cs = CompanySettings(name="テスト会社")
+    db_session.add(cs)
+    db_session.commit()
+    bank = BankAccount(
+        company_id=cs.id, label="メイン",
+        bank_account_name="四日市商工会議所",
+        bank_account_name_kana="ヨッカイチショウコウカイギショ",
+    )
+    db_session.add(bank)
+    db_session.commit()
+    assert bank.bank_account_name_kana == "ヨッカイチショウコウカイギショ"
