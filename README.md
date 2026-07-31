@@ -14,17 +14,18 @@
 - Microsoft 365によるメール送信・代理送信・テスト送信
 - 複数のメールテンプレートと差し込みタグ
 - SQLite／PostgreSQL対応
+- 社内利用向けのログイン不要起動
 
 ## 最新バージョン
 
-v2.2.2
+v2.2.3
 
 変更内容は [RELEASE_NOTES.md](RELEASE_NOTES.md) を参照してください。
 
 ## インストール
 
 [GitHub Releases](https://github.com/mozu93/cci-billing-label/releases) から
-`CCIBillingLabel_Setup_2.2.2.exe` をダウンロードして実行してください。
+`CCIBillingLabel_Setup_2.2.3.exe` をダウンロードして実行してください。
 管理者権限は不要です。
 
 ## 開発環境での起動

@@ -45,13 +45,15 @@ def main():
 
     from app.database.connection import get_session
     from app.services.staff_service import get_active_staff
+    from app.utils import current_user
+    from app.utils.app_config import get_config
     session = get_session()
     try:
-        has_staff = bool(get_active_staff(session))
+        active_staff = get_active_staff(session)
     finally:
         session.close()
 
-    if not has_staff:
+    if not active_staff:
         from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QLabel
         from app.ui.staff_management import StaffManagementWidget
         dlg = QDialog()
@@ -65,35 +67,35 @@ def main():
         layout.addWidget(btn)
         dlg.exec()
 
-    from app.ui.login_dialog import LoginDialog
+        session = get_session()
+        try:
+            active_staff = get_active_staff(session)
+        finally:
+            session.close()
+
+    # 社内専用アプリのためパスワード認証は行わない。端末に保存された担当者が
+    # なければ、初回だけ担当者を選択してもらう。
+    preferred_id = get_config().get("auto_login_staff_id")
+    staff = next((s for s in active_staff if s.id == preferred_id), None)
+    if staff is None:
+        from app.ui.staff_selection_dialog import StaffSelectionDialog
+        dlg = StaffSelectionDialog()
+        if dlg.exec() != StaffSelectionDialog.DialogCode.Accepted:
+            sys.exit(0)
+        selected_id = dlg.selected_staff_id()
+        staff = next((s for s in active_staff if s.id == selected_id), None)
+        if staff is None:
+            sys.exit(0)
+        cfg = get_config()
+        cfg["auto_login_staff_id"] = staff.id
+        from app.utils.app_config import save_config
+        save_config(cfg)
+    current_user.set_current(staff.id, staff.name, bool(staff.is_admin))
+
     from app.ui.main_window import MainWindow
-    from app.utils import current_user
-
-    # ログイン→メインウィンドウのループ（ログアウト時に再ログインへ戻る）
-    skip_auto_login = False
-    while True:
-        dlg = LoginDialog(skip_auto_login=skip_auto_login)
-        if dlg.exec() != LoginDialog.DialogCode.Accepted:
-            sys.exit(0)
-
-        window = MainWindow()
-        logged_out = False
-
-        def _on_logout():
-            nonlocal logged_out, skip_auto_login
-            logged_out = True
-            skip_auto_login = True  # ログアウト後は自動ログインをスキップ
-            current_user.clear()
-            window.close()
-            app.quit()  # イベントループを確実に終了
-
-        window.logout_requested.connect(_on_logout)
-        window.show()
-        app.exec()
-
-        if not logged_out:
-            # ウィンドウが閉じられた（アプリ終了）
-            sys.exit(0)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

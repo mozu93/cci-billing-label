@@ -1,15 +1,13 @@
 # app/ui/main_window.py
 from PyQt6.QtWidgets import (
-    QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel, QMessageBox,
+    QDialog, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel, QMessageBox,
     QApplication,
 )
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import pyqtSignal, QTimer
+from PyQt6.QtCore import QTimer
 
 
 class MainWindow(QMainWindow):
-    logout_requested = pyqtSignal()
-
     def __init__(self):
         super().__init__()
         self.setWindowTitle("商工会議所請求書・領収書発行システム")
@@ -28,10 +26,9 @@ class MainWindow(QMainWindow):
 
         # ファイルメニュー
         file_menu = menubar.addMenu("ファイル")
-        act_logout = QAction("ログアウト", self)
-        act_logout.setShortcut("Ctrl+Shift+L")
-        act_logout.triggered.connect(self._logout)
-        file_menu.addAction(act_logout)
+        act_staff = QAction("担当者を変更...", self)
+        act_staff.triggered.connect(self._change_staff)
+        file_menu.addAction(act_staff)
         file_menu.addSeparator()
         act_db = QAction("初期設定（DB接続設定）...", self)
         act_db.triggered.connect(self._open_db_settings)
@@ -113,9 +110,9 @@ class MainWindow(QMainWindow):
         # ログイン中ユーザー名
         user_name = current_user.get_name()
         if user_name:
-            user_lbl = QLabel(f"👤 {user_name}")
-            user_lbl.setStyleSheet("color: #475569; font-size: 12px; padding: 0 8px;")
-            sb.addPermanentWidget(user_lbl)
+            self._user_lbl = QLabel(f"👤 {user_name}")
+            self._user_lbl.setStyleSheet("color: #475569; font-size: 12px; padding: 0 8px;")
+            sb.addPermanentWidget(self._user_lbl)
         ver_lbl = QLabel(f"v{__version__}")
         ver_lbl.setStyleSheet("color: #94A3B8; font-size: 11px; padding: 0 8px;")
         sb.addPermanentWidget(ver_lbl)
@@ -133,16 +130,35 @@ class MainWindow(QMainWindow):
         except Exception:
             pass  # 自動バックアップ失敗はサイレント
 
-    def _logout(self):
-        reply = QMessageBox.question(
+    def _change_staff(self):
+        from app.database.connection import get_session
+        from app.services.staff_service import get_staff
+        from app.ui.staff_selection_dialog import StaffSelectionDialog
+        from app.utils import current_user
+        from app.utils.app_config import get_config, save_config
+
+        dlg = StaffSelectionDialog(self, current_user.get_id())
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        staff_id = dlg.selected_staff_id()
+        session = get_session()
+        try:
+            staff = get_staff(session, staff_id)
+            if staff is None or not staff.is_active:
+                QMessageBox.warning(self, "担当者の変更", "選択した担当者は使用できません。")
+                return
+            current_user.set_current(staff.id, staff.name, bool(staff.is_admin))
+        finally:
+            session.close()
+        cfg = get_config()
+        cfg["auto_login_staff_id"] = staff_id
+        save_config(cfg)
+        self._user_lbl.setText(f"👤 {current_user.get_name()}")
+        QMessageBox.information(
             self,
-            "ログアウト",
-            "ログアウトしてログイン画面に戻りますか？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            "担当者の変更",
+            "担当者を変更しました。\n管理者向け画面の表示は次回起動時に反映されます。",
         )
-        if reply == QMessageBox.StandardButton.Yes:
-            self.logout_requested.emit()
 
     def _open_db_settings(self):
         from app.ui.first_run_wizard import FirstRunWizard

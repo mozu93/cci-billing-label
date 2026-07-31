@@ -9,7 +9,7 @@ from PyQt6.QtCore import Qt
 from app.database.connection import get_session
 from app.services.staff_service import (
     create_staff, get_all_staff, deactivate_staff, reactivate_staff,
-    reset_password, set_admin, has_any_admin, update_staff,
+    set_admin, has_any_admin, update_staff,
     set_department_head, update_staff_email, get_department_heads,
     import_staff_from_csv,
 )
@@ -22,8 +22,7 @@ SCOL_SUP   = 2  # 担当所属長
 SCOL_HEAD  = 3  # 所属長フラグ
 SCOL_EMAIL = 4  # メールアドレス
 SCOL_ADMIN = 5  # 管理者
-SCOL_PW    = 6  # パスワード
-SCOL_STAT  = 7  # 状態
+SCOL_STAT  = 6  # 状態
 
 
 # ── 職員 追加・編集ダイアログ ────────────────────────────────────
@@ -114,10 +113,10 @@ class StaffManagementWidget(QWidget):
         grp_staff = QGroupBox("職員")
         staff_vbox = QVBoxLayout(grp_staff)
 
-        self._table = QTableWidget(0, 8)
+        self._table = QTableWidget(0, 7)
         self._table.setHorizontalHeaderLabels(
             ["ID", "氏名", "担当所属長", "所属長フラグ", "メールアドレス",
-             "管理者", "パスワード", "状態"])
+             "管理者", "状態"])
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(SCOL_ID,    QHeaderView.ResizeMode.Fixed)
         self._table.setColumnWidth(SCOL_ID, 36)
@@ -126,41 +125,32 @@ class StaffManagementWidget(QWidget):
         hdr.setSectionResizeMode(SCOL_SUP,   QHeaderView.ResizeMode.Interactive)
         self._table.setColumnWidth(SCOL_SUP, 120)
         hdr.setSectionResizeMode(SCOL_EMAIL, QHeaderView.ResizeMode.Stretch)
-        for col in (SCOL_HEAD, SCOL_ADMIN, SCOL_PW, SCOL_STAT):
+        for col in (SCOL_HEAD, SCOL_ADMIN, SCOL_STAT):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         staff_vbox.addWidget(self._table)
-
-        own_row = QHBoxLayout()
-        btn_change_pw = QPushButton("自分のパスワードを変更")
-        btn_change_pw.clicked.connect(self._change_my_password)
-        own_row.addWidget(btn_change_pw)
-        own_row.addStretch()
-        staff_vbox.addLayout(own_row)
 
         admin_row = QHBoxLayout()
         self._btn_add          = QPushButton("追加")
         self._btn_edit         = QPushButton("編集")
         self._btn_deact        = QPushButton("無効化")
         self._btn_react        = QPushButton("有効化")
-        self._btn_reset_pw     = QPushButton("パスワードをリセット")
         self._btn_toggle_admin = QPushButton("管理者に設定 / 解除")
         self._btn_add.clicked.connect(self._add)
         self._btn_edit.clicked.connect(self._edit)
         self._btn_deact.clicked.connect(self._deactivate)
         self._btn_react.clicked.connect(self._reactivate)
-        self._btn_reset_pw.clicked.connect(self._reset_password)
         self._btn_toggle_admin.clicked.connect(self._toggle_admin)
         for btn in (self._btn_add, self._btn_edit, self._btn_deact,
-                    self._btn_react, self._btn_reset_pw, self._btn_toggle_admin):
+                    self._btn_react, self._btn_toggle_admin):
             admin_row.addWidget(btn)
         admin_row.addStretch()
         staff_vbox.addLayout(admin_row)
 
         self._admin_btns = [
             self._btn_add, self._btn_edit, self._btn_deact, self._btn_react,
-            self._btn_reset_pw, self._btn_toggle_admin,
+            self._btn_toggle_admin,
         ]
         layout.addWidget(grp_staff)
 
@@ -225,13 +215,13 @@ class StaffManagementWidget(QWidget):
                 rows.append((
                     s.id, s.name, sup_label, s.supervisor_id,
                     s.is_department_head, s.email or "",
-                    s.is_admin, s.password_hash, s.is_active,
+                    s.is_admin, s.is_active,
                 ))
         finally:
             session.close()
 
         self._table.setRowCount(0)
-        for sid, name, sup_label, sup_id, is_head, email, is_admin, pw_hash, is_active in rows:
+        for sid, name, sup_label, sup_id, is_head, email, is_admin, is_active in rows:
             row = self._table.rowCount()
             self._table.insertRow(row)
             self._table.setItem(row, SCOL_ID,   QTableWidgetItem(str(sid)))
@@ -244,8 +234,6 @@ class StaffManagementWidget(QWidget):
             self._table.setItem(row, SCOL_EMAIL, QTableWidgetItem(email))
             self._table.setItem(row, SCOL_ADMIN,
                                 QTableWidgetItem("○" if is_admin else "－"))
-            self._table.setItem(row, SCOL_PW,
-                                QTableWidgetItem("設定済" if pw_hash else "未設定"))
             self._table.setItem(row, SCOL_STAT,
                                 QTableWidgetItem("有効" if is_active else "無効"))
         self._table.resizeRowsToContents()
@@ -339,25 +327,6 @@ class StaffManagementWidget(QWidget):
             session.close()
         self._load_staff()
 
-    def _reset_password(self):
-        staff_id = self._selected_staff_id()
-        if staff_id is None:
-            QMessageBox.warning(self, "選択エラー", "スタッフを選択してください。")
-            return
-        name = self._table.item(self._table.currentRow(), SCOL_NAME).text()
-        if QMessageBox.question(
-                self, "パスワードリセットの確認",
-                f"「{name}」のパスワードをリセットします。\n"
-                "次回ログイン時に新しいパスワードの設定が必要になります。\nよろしいですか？"
-        ) != QMessageBox.StandardButton.Yes:
-            return
-        session = get_session()
-        try:
-            reset_password(session, staff_id)
-        finally:
-            session.close()
-        self._load_staff()
-
     def _toggle_admin(self):
         staff_id = self._selected_staff_id()
         if staff_id is None:
@@ -381,15 +350,6 @@ class StaffManagementWidget(QWidget):
         finally:
             session.close()
         self._load_staff()
-
-    def _change_my_password(self):
-        uid = current_user.get_id()
-        uname = current_user.get_name()
-        if uid is None:
-            return
-        from app.ui.login_dialog import ChangePasswordDialog
-        dlg = ChangePasswordDialog(uid, uname, self)
-        dlg.exec()
 
     # ── CSVインポート ──────────────────────────────────────────────
 
