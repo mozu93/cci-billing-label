@@ -213,9 +213,17 @@ def generate_invoice_pdf(issuance, company, output_path: str,
         _s("line_unit_note", size=10, align=TA_RIGHT, color=C_SUB, leading=13),
     ))
     story.append(_build_line_table(issuance, W))
-    story.append(Spacer(1, 3*mm))
+    # 合計枠は明細の「単位」列から「金額」列までに揃える。
+    total_width_ratio = 0.08 + 0.14 + 0.155
+    total_row = _build_total_row(
+        suffix, total, total_W=W * total_width_ratio,
+    )
+    story.append(_build_right_column_block(
+        [total_row], W, right_width_ratio=total_width_ratio,
+    ))
+    story.append(Spacer(1, 2*mm))
 
-    # ── ⑤ 下部：凡例＋支払期限（左） ／ 税額内訳（右） ────────
+    # ── ⑤ 下部：凡例＋支払期限（左） ／ 税率内訳（右） ────────
     left_cells: list = _build_legend(issuance)
     if due_date:
         left_cells = left_cells + [
@@ -483,6 +491,55 @@ def _build_legend(issuance) -> list:
                        _s("legend", size=8, color=C_SUB, leading=13))]
 
 
+def _build_total_row(suffix: str, total: int, total_W: float = 120*mm) -> Table:
+    """明細直下に表示する合計行。"""
+    lbl = Paragraph(
+        f"合計（{suffix}）",
+        _s("total_lbl", size=10, bold=True, leading=16),
+    )
+    val = Paragraph(
+        f"{_fmt(total)} -",
+        _s("total_val", size=10, bold=True, align=TA_RIGHT, leading=16),
+    )
+    # 合計欄は「単位＋単価」と「金額」の境界を明細表に合わせる。
+    amount_ratio = 0.155 / (0.08 + 0.14 + 0.155)
+    tbl = Table(
+        [[lbl, val]],
+        colWidths=[
+            total_W * (1 - amount_ratio),
+            total_W * amount_ratio,
+        ],
+        hAlign="RIGHT",
+    )
+    tbl.setStyle(TableStyle([
+        ("GRID",          (0, 0), (-1, -1), 0.3, C_BORDER),
+        ("BACKGROUND",    (0, 0), (-1, -1), C_LIGHT),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 3*mm),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 3*mm),
+        ("TOPPADDING",    (0, 0), (-1, -1), 1.5*mm),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5*mm),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    return tbl
+
+
+def _build_right_column_block(
+        content: list, W: float, right_width_ratio: float = 0.58) -> Table:
+    """指定幅の右カラムへ配置し、明細表の罫線位置に揃える。"""
+    tbl = Table(
+        [[Spacer(1, 0), content]],
+        colWidths=[W * (1 - right_width_ratio), W * right_width_ratio],
+    )
+    tbl.setStyle(TableStyle([
+        ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING",   (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 0),
+    ]))
+    return tbl
+
+
 def _build_tax_rows(issuance, suffix: str, total: int, tax_W: float = 120*mm):
     """税額内訳テーブル（右下配置用）。 2列: ラベル | 金額"""
     lines      = issuance.lines
@@ -499,38 +556,31 @@ def _build_tax_rows(issuance, suffix: str, total: int, tax_W: float = 120*mm):
     if tax8_incl:
         rows.append(("8%税率　対象小計",  _fmt(tax8_incl)))
     if tax10_incl:
-        rows.append(("10%　税額",          _fmt(tax10_amt)))
+        rows.append(("10%税額",            _fmt(tax10_amt)))
     if tax8_incl:
-        rows.append(("8%　税額",           _fmt(tax8_amt)))
+        rows.append(("8%税額",             _fmt(tax8_amt)))
     if exempt:
         rows.append(("非課税　合計",        _fmt(exempt)))
     if non_tax:
         rows.append(("不課税　合計",        _fmt(non_tax)))
-    rows.append((f"合　計（{suffix}）",    f"{_fmt(total)} -"))
+    if not rows:
+        return [Spacer(1, 0)]
 
     lbl = _s("tx_lbl", size=10, leading=16)
     val = _s("tx_val", size=10, align=TA_RIGHT, leading=16)
-    tot_lbl = _s("tx_tot_lbl", size=10, bold=True, leading=16)
-    tot_val = _s("tx_tot_val", size=10, bold=True, align=TA_RIGHT, leading=16)
 
-    n = len(rows)
     data = []
-    for i, (l, v) in enumerate(rows):
-        is_last = (i == n - 1)
+    for l, v in rows:
         data.append([
-            Paragraph(l, tot_lbl if is_last else lbl),
-            Paragraph(v, tot_val if is_last else val),
+            Paragraph(l, lbl),
+            Paragraph(v, val),
         ])
 
     lw = tax_W * 0.60
     vw = tax_W * 0.40
     tbl = Table(data, colWidths=[lw, vw], hAlign="RIGHT")
-    n_data = len(data)
     tbl.setStyle(TableStyle([
-        ("GRID",          (0, 0), (-1, -2), 0.3, C_BORDER),
-        ("LINEABOVE",     (0, -1), (-1, -1), 0.8, C_DARK),
-        ("LINEBELOW",     (0, -1), (-1, -1), 0.8, C_DARK),
-        ("BACKGROUND",    (0, -1), (-1, -1), C_LIGHT),
+        ("GRID",          (0, 0), (-1, -1), 0.3, C_BORDER),
         ("LEFTPADDING",   (0, 0), (-1, -1), 3*mm),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 3*mm),
         ("TOPPADDING",    (0, 0), (-1, -1), 1.5*mm),

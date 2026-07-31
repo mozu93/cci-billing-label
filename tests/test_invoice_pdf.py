@@ -185,3 +185,54 @@ def test_build_client_block_shows_person_by_default():
     texts = [p.text for p in parts if hasattr(p, "text")]
     assert any("田中太郎" in t for t in texts)
     assert any("営業部" in t for t in texts)
+
+
+def test_tax_rows_remove_space_before_tax_label_and_exclude_total():
+    from types import SimpleNamespace
+    from app.services.pdf.invoice_pdf import _build_tax_rows
+
+    issuance = SimpleNamespace(lines=[
+        SimpleNamespace(tax_rate=10, line_total=1100),
+        SimpleNamespace(tax_rate=8, line_total=1080),
+    ])
+    table = _build_tax_rows(issuance, "税込", 2180)[0]
+    labels = [row[0].text for row in table._cellvalues]
+
+    assert "10%税額" in labels
+    assert "8%税額" in labels
+    assert all("合計" not in label and "合　計" not in label for label in labels)
+
+
+def test_total_row_is_independent_from_tax_rows():
+    from app.services.pdf.invoice_pdf import C_BORDER, _build_total_row
+
+    table = _build_total_row("税込", 2180)
+
+    assert table._cellvalues[0][0].text == "合計（税込）"
+    assert table._cellvalues[0][1].text == "2,180 -"
+    amount_ratio = 0.155 / (0.08 + 0.14 + 0.155)
+    assert abs(table._argW[1] / sum(table._argW) - amount_ratio) < 1e-9
+    grid = next(cmd for cmd in table._linecmds if cmd[0] == "GRID")
+    assert grid[1:5] == ((0, 0), (-1, -1), 0.3, C_BORDER)
+
+
+def test_total_row_starts_at_unit_column():
+    from app.services.pdf.invoice_pdf import (
+        _build_right_column_block, _build_total_row,
+    )
+
+    width = 500
+    total_width_ratio = 0.08 + 0.14 + 0.155
+    total = _build_total_row(
+        "税込", 2180, total_W=width * total_width_ratio,
+    )
+    block = _build_right_column_block(
+        [total], width, right_width_ratio=total_width_ratio,
+    )
+
+    assert block._argW == [
+        width * (1 - total_width_ratio),
+        width * total_width_ratio,
+    ]
+    assert block._cellStyles[0][1].leftPadding == 0
+    assert block._cellStyles[0][1].rightPadding == 0

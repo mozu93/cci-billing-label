@@ -9,6 +9,7 @@
 - Excel・貼り付けによる名簿取り込み
 - 事業所ごとの個別PDF、一括PDFの出力
 - PDFファイル名のカスタマイズ
+- 税率別内訳と税込合計を備えた請求書PDF
 - 宛名ラベル発行
 - 入金管理、修正・再発行
 - Microsoft 365によるメール送信・代理送信・テスト送信
@@ -18,14 +19,14 @@
 
 ## 最新バージョン
 
-v2.2.3
+v2.2.4
 
 変更内容は [RELEASE_NOTES.md](RELEASE_NOTES.md) を参照してください。
 
 ## インストール
 
 [GitHub Releases](https://github.com/mozu93/cci-billing-label/releases) から
-`CCIBillingLabel_Setup_2.2.3.exe` をダウンロードして実行してください。
+`CCIBillingLabel_Setup_2.2.4.exe` をダウンロードして実行してください。
 管理者権限は不要です。
 
 ## 開発環境での起動
