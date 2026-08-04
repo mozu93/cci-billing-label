@@ -2,7 +2,7 @@
 import sys
 import traceback
 from PyQt6.QtWidgets import QApplication, QMessageBox
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QFontInfo
 from app.ui.theme import STYLESHEET
 
 
@@ -21,7 +21,12 @@ def main():
     app.setApplicationName("商工会議所請求書・領収書発行システム")
     app.setStyle("Fusion")
     app.setStyleSheet(STYLESHEET)
-    app.setFont(QFont("Meiryo UI", 10))
+    # Windows 11 の日本語 UI 標準フォント。無い環境では Meiryo UI にフォールバックする。
+    _ui_font = QFont("Yu Gothic UI", 10)
+    _ui_font.setStyleStrategy(QFont.StyleStrategy.PreferDefault)
+    if not QFontInfo(_ui_font).family().startswith("Yu Gothic"):
+        _ui_font = QFont("Meiryo UI", 10)
+    app.setFont(_ui_font)
 
     from app.utils.app_config import is_first_run
     if is_first_run():

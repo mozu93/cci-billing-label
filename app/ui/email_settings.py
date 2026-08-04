@@ -55,9 +55,7 @@ class EmailTemplateWidget(QWidget):
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(12)
 
-        heading = QLabel("メールテンプレート")
-        heading.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(heading)
+        # 見出しは PageShell（左メニューのページ見出し）が表示するため、ここには置かない
         description = QLabel(
             "請求書・領収書・督促メールの件名と本文を設定します。"
             "差し込みタグは送信時に請求先や発行元の実データへ置き換わります。")
