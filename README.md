@@ -16,17 +16,18 @@
 - 複数のメールテンプレートと差し込みタグ
 - SQLite／PostgreSQL対応
 - 社内利用向けのログイン不要起動
+- Windows 11 デザインガイドラインに準拠した左メニュー（ウィンドウ幅に応じて自動で折りたたみ）
 
 ## 最新バージョン
 
-v2.2.4
+v2.2.5
 
 変更内容は [RELEASE_NOTES.md](RELEASE_NOTES.md) を参照してください。
 
 ## インストール
 
 [GitHub Releases](https://github.com/mozu93/cci-billing-label/releases) から
-`CCIBillingLabel_Setup_2.2.4.exe` をダウンロードして実行してください。
+`CCIBillingLabel_Setup_2.2.5.exe` をダウンロードして実行してください。
 管理者権限は不要です。
 
 ## 開発環境での起動

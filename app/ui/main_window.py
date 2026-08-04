@@ -1,7 +1,7 @@
 # app/ui/main_window.py
 from PyQt6.QtWidgets import (
-    QDialog, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel, QMessageBox,
-    QApplication,
+    QDialog, QMainWindow, QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QMessageBox, QApplication,
 )
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import QTimer
@@ -12,11 +12,14 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("商工会議所請求書・領収書発行システム")
         _screen = QApplication.primaryScreen()
-        _avail_h = _screen.availableGeometry().height() if _screen else 800
-        self.resize(900, min(728, _avail_h))
-        self.setMinimumSize(780, 500)
+        _avail = _screen.availableGeometry() if _screen else None
+        _avail_w = _avail.width() if _avail else 1200
+        _avail_h = _avail.height() if _avail else 800
+        self.resize(min(1120, _avail_w), min(760, _avail_h))
+        self.setMinimumSize(900, 600)
+        self._manual_pane_override = False
         self._setup_menu()
-        self._build_tabs()
+        self._build_nav()
         self._setup_statusbar()
         QTimer.singleShot(0, self._run_auto_backup)
 
@@ -62,51 +65,80 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "マニュアル", f"マニュアルファイルが見つかりません:\n{manual}")
 
-    def _build_tabs(self):
+    def _build_nav(self):
+        """左ナビゲーション + QStackedWidget を構築する。
+
+        ページ本体は従来のタブウィジェットをそのまま流用する。QStackedWidget は
+        ページ切替時に QShowEvent を発行するため、各ページの showEvent による
+        自動リロードは従来どおり機能する。
+        """
+        from app.ui.nav_shell import (
+            NavRail, PageShell, COMPACT_THRESHOLD,
+            GLYPH_DOCUMENT, GLYPH_LIST, GLYPH_PRINT, GLYPH_EDIT,
+            GLYPH_LIBRARY, GLYPH_MAIL, GLYPH_SETTINGS,
+        )
+        from app.ui.counter_issuance_tab import CounterIssuanceTab
+        from app.ui.batch_issuance_tab import BatchIssuanceTab
+        from app.ui.label_issuance_tab import LabelIssuanceTab
+        from app.ui.reissue_tab import ReissueWidget
+        from app.ui.settings_tab import MasterTab, SettingsTab
+        from app.ui.email_settings import EmailTemplateWidget
+        from app.ui.update_banner import UpdateBanner
+
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        outer = QVBoxLayout(central)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        from app.ui.update_banner import UpdateBanner
         self._banner = UpdateBanner(self)
-        layout.addWidget(self._banner)
+        outer.addWidget(self._banner)
 
-        tabs = QTabWidget()
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        outer.addLayout(body, 1)
 
-        from app.ui.counter_issuance_tab import CounterIssuanceTab
-        tabs.addTab(CounterIssuanceTab(), "単発発行")
+        # (見出し, グリフ, ページ本体) — 最後の「設定」はペイン下部に分離配置する
+        pages = [
+            ("単発発行",           GLYPH_DOCUMENT, CounterIssuanceTab),
+            ("まとめて発行",       GLYPH_LIST,     BatchIssuanceTab),
+            ("宛名ラベル発行",     GLYPH_PRINT,    LabelIssuanceTab),
+            ("修正・再発行",       GLYPH_EDIT,     ReissueWidget),
+            ("登録・マスタ",       GLYPH_LIBRARY,  MasterTab),
+            ("メールテンプレート", GLYPH_MAIL,     EmailTemplateWidget),
+            ("設定",               GLYPH_SETTINGS, SettingsTab),
+        ]
 
-        from app.ui.batch_issuance_tab import BatchIssuanceTab
-        tabs.addTab(BatchIssuanceTab(), "まとめて発行")
+        self._nav = NavRail([(title, glyph) for title, glyph, _ in pages],
+                            footer_count=1)
+        body.addWidget(self._nav)
 
-        from app.ui.label_issuance_tab import LabelIssuanceTab
-        tabs.addTab(LabelIssuanceTab(), "宛名ラベル発行")
+        self._stack = QStackedWidget()
+        for title, _glyph, factory in pages:
+            self._stack.addWidget(PageShell(title, factory()))
+        self._stack.setCurrentIndex(0)
+        body.addWidget(self._stack, 1)
 
-        from app.ui.reissue_tab import ReissueWidget
-        tabs.addTab(ReissueWidget(), "修正・再発行")
+        self._compact_threshold = COMPACT_THRESHOLD
+        self._nav.currentChanged.connect(self._stack.setCurrentIndex)
+        self._nav.toggleRequested.connect(self._toggle_pane)
 
-        from app.ui.settings_tab import MasterTab, SettingsTab
-        tabs.addTab(MasterTab(), "登録・マスタ")
+    def _toggle_pane(self):
+        """ハンバーガーボタンによる手動切替。以降は自動切替を抑止する。"""
+        self._manual_pane_override = True
+        self._nav.set_compact(not self._nav.is_compact())
 
-        from app.ui.email_settings import EmailTemplateWidget
-        tabs.addTab(EmailTemplateWidget(), "メールテンプレート")
-
-        tabs.addTab(SettingsTab(), "設定")
-
-        tabs.setCurrentIndex(0)
-        layout.addWidget(tabs)
+    def resizeEvent(self, event):
+        # NavigationView の Auto 相当：幅 1008px を境に展開／折りたたみを切り替える
+        super().resizeEvent(event)
+        if not self._manual_pane_override and hasattr(self, "_nav"):
+            self._nav.set_compact(self.width() < self._compact_threshold)
 
     def _setup_statusbar(self):
         from app.version import __version__
         from app.utils import current_user
-        sb = self.statusBar()
-        sb.setStyleSheet(
-            "QStatusBar { background: #F8FAFC; border-top: 1px solid #E2E8F0; "
-            "font-size: 12px; color: #64748B; }"
-            "QStatusBar::item { border: none; }"
-        )
+        sb = self.statusBar()  # 見た目は theme.py の QStatusBar 定義に従う
         # ログイン中ユーザー名
         user_name = current_user.get_name()
         if user_name:
