@@ -198,8 +198,8 @@ def test_tax_rows_remove_space_before_tax_label_and_exclude_total():
     table = _build_tax_rows(issuance, "税込", 2180)[0]
     labels = [row[0].text for row in table._cellvalues]
 
-    assert "10%税額" in labels
-    assert "8%税額" in labels
+    assert "うち10%税額" in labels
+    assert "うち8%税額" in labels
     assert all("合計" not in label and "合　計" not in label for label in labels)
 
 

@@ -556,9 +556,9 @@ def _build_tax_rows(issuance, suffix: str, total: int, tax_W: float = 120*mm):
     if tax8_incl:
         rows.append(("8%税率　対象小計",  _fmt(tax8_incl)))
     if tax10_incl:
-        rows.append(("10%税額",            _fmt(tax10_amt)))
+        rows.append(("うち10%税額",         _fmt(tax10_amt)))
     if tax8_incl:
-        rows.append(("8%税額",             _fmt(tax8_amt)))
+        rows.append(("うち8%税額",          _fmt(tax8_amt)))
     if exempt:
         rows.append(("非課税　合計",        _fmt(exempt)))
     if non_tax:

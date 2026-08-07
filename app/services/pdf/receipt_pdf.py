@@ -327,7 +327,7 @@ def _draw_naiwa(c, issuance, x0, y0, w, top):
         _line(c, x0, cur, x0 + w, cur, C_LINE, 0.3)
         cur -= ROW
         c.setFillColor(C_TEXT_SUB)
-        c.drawString(COL_TAX, cur + ROW * 0.28, "うち消費税")
+        c.drawString(COL_TAX, cur + ROW * 0.28, f"うち{rate_label}税額")
         c.setFillColor(black)
         c.drawRightString(COL_AMT, cur + ROW * 0.28, f"{tax:,}円")
         _line(c, x0, cur, x0 + w, cur, C_LINE, 0.3)
