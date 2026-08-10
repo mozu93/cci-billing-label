@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QFormLayout, QLineEdit, QComboBox,
     QDialogButtonBox, QStyledItemDelegate, QCheckBox
 )
-from PyQt6.QtCore import Qt, QEvent
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from app.database.connection import get_session
 from app.database.models import ProjectMember
 from app.services.project_service import (
@@ -182,6 +182,9 @@ class ProjectCopyDialog(QDialog):
 
 
 class ProjectMemberPanel(QWidget):
+    #: 名簿の件数が変わったときに発火（一覧側の集計を更新するため）
+    roster_changed = pyqtSignal()
+
     def __init__(self, project_id: int):
         super().__init__()
         self._project_id = project_id
@@ -199,7 +202,10 @@ class ProjectMemberPanel(QWidget):
         btn_edit.clicked.connect(self._edit_entry)
         btn_copy = QPushButton("他の名簿からコピー")
         btn_copy.clicked.connect(self._copy_from_project)
-        btn_import = QPushButton("取り込み（Excel/貼り付け）")
+        btn_import = QPushButton("追加取り込み（Excel/貼り付け）")
+        btn_import.setToolTip(
+            "Excelや貼り付けたデータを、いまの名簿を消さずに追加します。\n"
+            "すでに名簿にある行は重複としてスキップできます。")
         btn_import.clicked.connect(self._open_import)
         self._btn_del = QPushButton("選択削除")
         self._btn_del.clicked.connect(self._remove_checked)
@@ -351,6 +357,7 @@ class ProjectMemberPanel(QWidget):
             finally:
                 session.close()
             self._load()
+            self.roster_changed.emit()
 
     def _edit_entry(self):
         pm_id = self._current_pm_id()
@@ -398,12 +405,15 @@ class ProjectMemberPanel(QWidget):
             finally:
                 session.close()
             self._load()
+            self.roster_changed.emit()
 
     def _open_import(self):
+        """いまの名簿を残したまま、Excel／貼り付けから行を追加する。"""
         from app.ui.roster_import import RosterImportDialog
         dlg = RosterImportDialog(self._project_id, self)
         if dlg.exec():
             self._load()
+            self.roster_changed.emit()
 
     def _remove_checked(self):
         ids = self._checked_pm_ids()
@@ -423,3 +433,4 @@ class ProjectMemberPanel(QWidget):
         finally:
             session.close()
         self._load()
+        self.roster_changed.emit()

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QHeaderView, QComboBox, QCheckBox, QGroupBox
 )
 from PyQt6.QtCore import QMimeData, Qt
+from PyQt6.QtGui import QColor
 
 
 class _TsvPasteEdit(QPlainTextEdit):
@@ -73,18 +74,86 @@ def _looks_like_header(row: list[str]) -> bool:
     return sum(index is not None for index in guessed.values()) >= 2
 
 
+# ── 重複判定 ──────────────────────────────────────────────────────────────
+
+PREVIEW_HEADERS = ["取込", *HEADERS]
+
+
+def _norm(value: str | None) -> str:
+    """比較用に空白（半角・全角）を取り除いた文字列を返す。"""
+    return (value or "").strip().replace(" ", "").replace("\u3000", "")
+
+
+def _dup_keys(row) -> list[tuple]:
+    """重複判定に使うキー。会員番号と「事業所名＋氏名」の両方で照合する。
+
+    row は dict でも ProjectMember でも可。
+    """
+    if isinstance(row, dict):
+        get = row.get
+    else:
+        get = lambda k, d="": getattr(row, k, d)  # noqa: E731
+    keys: list[tuple] = []
+    number = _norm(get("member_number", ""))
+    if number:
+        keys.append(("number", number))
+    org = _norm(get("organization_name", ""))
+    rep = _norm(get("representative_name", ""))
+    if org or rep:
+        keys.append(("name", org, rep))
+    return keys
+
+
 class RosterImportDialog(QDialog):
+    """名簿への取り込みダイアログ。
+
+    すでに登録済みの名簿がある場合も、その内容を残したまま行を追加する。
+    （キャンセル等による後からの追加を想定）
+    """
+
     def __init__(self, project_id: int, parent=None):
         super().__init__(parent)
         self._project_id = project_id
-        self.setWindowTitle("名簿の取り込み")
+        self._existing_keys, self._existing_count = self._load_existing()
+        self.setWindowTitle(
+            "名簿に追加取り込み" if self._existing_count else "名簿の取り込み")
         self.resize(780, 600)
         self._raw_rows: list[list[str]] = []
         self._field_combos: dict[str, QComboBox] = {}
+        self.added_count = 0
+        self.skipped_count = 0
         self._build()
+
+    def _load_existing(self) -> tuple[set, int]:
+        """登録済み名簿の重複判定キーと件数を取得する。"""
+        from app.services.project_service import get_project_members
+        session = get_session()
+        try:
+            members = get_project_members(session, self._project_id)
+            keys = set()
+            for pm in members:
+                keys.update(_dup_keys(pm))
+            return keys, len(members)
+        finally:
+            session.close()
 
     def _build(self):
         layout = QVBoxLayout(self)
+
+        if self._existing_count:
+            notice = QLabel(
+                f"現在の名簿：{self._existing_count} 件\n"
+                "取り込んだデータは、いまの名簿を消さずに「追加」されます。")
+            notice.setStyleSheet(
+                "background: #EFF6FF; border: 1px solid #BFDBFE;"
+                " border-radius: 4px; padding: 6px 10px; color: #1E3A8A;")
+        else:
+            notice = QLabel("この名簿はまだ空です。取り込んだデータが登録されます。")
+            notice.setStyleSheet(
+                "background: #F8FAFC; border: 1px solid #E2E8F0;"
+                " border-radius: 4px; padding: 6px 10px; color: #475569;")
+        layout.addWidget(notice)
+
         layout.addWidget(QLabel(
             "Excelからコピーして下の欄に貼り付けるか、Excelファイルを選択してください。\n"
             "読み込み後、各項目にどの列を当てるかを選べます（列順がバラバラでも可）。"
@@ -135,11 +204,23 @@ class RosterImportDialog(QDialog):
         self._map_group.setEnabled(False)
         layout.addWidget(self._map_group)
 
+        # ── 重複の扱い ────────────────────────────────────────
+        self._dup_chk = QCheckBox(
+            "すでに名簿にある行は取り込まない"
+            "（会員番号、または事業所名＋氏名で判定）")
+        self._dup_chk.setChecked(self._existing_count > 0)
+        self._dup_chk.stateChanged.connect(self._refresh_preview)
+        layout.addWidget(self._dup_chk)
+
         # ── プレビュー ────────────────────────────────────────
-        self._table = QTableWidget(0, len(HEADERS))
-        self._table.setHorizontalHeaderLabels(HEADERS)
-        self._table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch)
+        self._table = QTableWidget(0, len(PREVIEW_HEADERS))
+        self._table.setHorizontalHeaderLabels(PREVIEW_HEADERS)
+        prev_hdr = self._table.horizontalHeader()
+        prev_hdr.setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents)
+        prev_hdr.setSectionResizeMode(
+            1 + ROSTER_COLUMNS.index("organization_name"),
+            QHeaderView.ResizeMode.Stretch)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self._table)
 
@@ -149,7 +230,8 @@ class RosterImportDialog(QDialog):
         btn_row2 = QHBoxLayout()
         btn_cancel = QPushButton("キャンセル")
         btn_cancel.clicked.connect(self.reject)
-        self._btn_import = QPushButton("取り込み実行")
+        self._btn_import = QPushButton(
+            "名簿に追加する" if self._existing_count else "取り込み実行")
         self._btn_import.setStyleSheet(
             "QPushButton { background: #2563EB; color: white; border-radius: 4px;"
             " font-weight: bold; padding: 2px 12px; }"
@@ -236,19 +318,79 @@ class RosterImportDialog(QDialog):
             self._raw_rows, self._current_mapping(),
             has_header=self._header_chk.isChecked())
 
+    def _classify_rows(self) -> list[tuple[dict, bool]]:
+        """(行, 既存または取り込み内で重複しているか) の一覧を返す。"""
+        seen = set(self._existing_keys)
+        result: list[tuple[dict, bool]] = []
+        for row in self._mapped_rows():
+            keys = _dup_keys(row)
+            is_dup = any(k in seen for k in keys)
+            seen.update(keys)
+            result.append((row, is_dup))
+        return result
+
+    def _rows_to_import(self) -> tuple[list[dict], int]:
+        """実際に登録する行と、重複でスキップする件数を返す。"""
+        classified = self._classify_rows()
+        if not self._dup_chk.isChecked():
+            return [row for row, _ in classified], 0
+        rows = [row for row, dup in classified if not dup]
+        return rows, len(classified) - len(rows)
+
     def _refresh_preview(self):
-        rows = self._mapped_rows()
+        classified = self._classify_rows()
+        skip_dup = self._dup_chk.isChecked()
         self._table.setRowCount(0)
-        for row in rows:
+        for row, is_dup in classified:
             r = self._table.rowCount()
             self._table.insertRow(r)
+            if not is_dup:
+                state, color = "追加", None
+            elif skip_dup:
+                state, color = "重複（スキップ）", QColor("#94A3B8")
+            else:
+                state, color = "重複（追加する）", QColor("#B45309")
+            state_item = QTableWidgetItem(state)
+            if color is not None:
+                state_item.setForeground(color)
+            self._table.setItem(r, 0, state_item)
             for c, col in enumerate(ROSTER_COLUMNS):
-                self._table.setItem(r, c, QTableWidgetItem(row.get(col, "")))
-        self._status_label.setText(f"取り込み対象：{len(rows)} 件")
+                item = QTableWidgetItem(row.get(col, ""))
+                if color is not None:
+                    item.setForeground(color)
+                self._table.setItem(r, c + 1, item)
+        rows, skipped = self._rows_to_import()
+        text = f"取り込み対象：{len(rows)} 件"
+        if skipped:
+            text += f"（重複のためスキップ：{skipped} 件）"
+        if self._existing_count:
+            after = self._existing_count + len(rows)
+            text += (f"　／　取り込み後の名簿："
+                     f"{self._existing_count} 件 → {after} 件")
+        self._status_label.setText(text)
         self._btn_import.setEnabled(len(rows) > 0)
 
     def _import(self):
-        rows = self._mapped_rows()
+        rows, skipped = self._rows_to_import()
+        if not rows:
+            QMessageBox.information(
+                self, "取り込み対象なし",
+                "追加できる行がありません。\n"
+                "すべて既存の名簿と重複している可能性があります。")
+            return
+
+        if self._existing_count:
+            confirm = (f"現在の名簿 {self._existing_count} 件に、"
+                       f"{len(rows)} 件を追加します。\n"
+                       "既存の行は削除されません。\n")
+            if skipped:
+                confirm += f"重複する {skipped} 件は取り込みません。\n"
+            confirm += "\nよろしいですか？"
+            if QMessageBox.question(
+                    self, "名簿への追加", confirm
+            ) != QMessageBox.StandardButton.Yes:
+                return
+
         from app.services.project_service import add_roster_entries
         session = get_session()
         try:
@@ -263,5 +405,13 @@ class RosterImportDialog(QDialog):
             return
         finally:
             session.close()
-        QMessageBox.information(self, "インポート完了", f"{len(rows)} 件を追加しました。")
+
+        self.added_count = len(rows)
+        self.skipped_count = skipped
+        msg = f"{len(rows)} 件を名簿に追加しました。\n"
+        msg += (f"名簿の件数：{self._existing_count} 件 → "
+                f"{self._existing_count + len(rows)} 件")
+        if skipped:
+            msg += f"\n\n重複のため取り込まなかった行：{skipped} 件"
+        QMessageBox.information(self, "取り込み完了", msg)
         self.accept()

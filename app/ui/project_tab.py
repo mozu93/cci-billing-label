@@ -178,7 +178,55 @@ class ProjectTab(QWidget):
         self._empty_label.setVisible(False)
         if project_type == "list":
             panel = ProjectMemberPanel(project_id)
+            panel.roster_changed.connect(
+                lambda pid=project_id: self._refresh_project_row(pid))
             self._member_panel_layout.addWidget(panel)
+
+    def _refresh_project_row(self, project_id: int):
+        """名簿の増減を、一覧の該当行（件数・金額）だけに反映する。
+
+        _load() だと選択が外れて名簿パネルが作り直されるため、行だけ更新する。
+        """
+        from app.database.models import Issuance
+        session = get_session()
+        try:
+            p = get_project_progress(session, project_id)
+            issuances = (session.query(Issuance)
+                         .filter_by(project_id=project_id).all())
+            total_amount = sum(int(i.amount) for i in issuances)
+            paid_amount = sum(int(i.amount) for i in issuances
+                              if i.status == "支払済み")
+        finally:
+            session.close()
+
+        values = {
+            2: str(p["total"]), 3: str(p["invoice_issued"]),
+            4: str(p["receipt_issued"]), 5: str(p["pending"]),
+            6: f"¥{total_amount:,}", 7: f"¥{paid_amount:,}",
+        }
+        for row in range(self._table.rowCount()):
+            head = self._table.item(row, 0)
+            if not head or head.data(Qt.ItemDataRole.UserRole) != project_id:
+                continue
+            for col, val in values.items():
+                cell = self._table.item(row, col)
+                if cell is None:
+                    continue
+                cell.setText(val)
+                if col == 5:
+                    cell.setData(
+                        Qt.ItemDataRole.ForegroundRole,
+                        QColor("#DC2626") if p["pending"] > 0 else None)
+            if row < len(self._export_rows):
+                self._export_rows[row].update({
+                    "全件": p["total"],
+                    "請求書発行済": p["invoice_issued"],
+                    "領収書発行済": p["receipt_issued"],
+                    "未発行": p["pending"],
+                    "総額": total_amount,
+                    "入金額": paid_amount,
+                })
+            break
 
     def _clear_member_panel(self):
         for i in reversed(range(self._member_panel_layout.count())):
