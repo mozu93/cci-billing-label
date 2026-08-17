@@ -14,9 +14,9 @@ from typing import Optional
 
 from packaging.version import Version
 
-GITHUB_API_URL = "https://api.github.com/repos/mozu93/cci-billing-label/releases/latest"
+GITHUB_API_URL = "https://api.github.com/repos/mozu93/cci-billing-label-releases/releases/latest"
 _TIMEOUT = 8
-_RELEASE_PATH_PREFIX = "/mozu93/cci-billing-label/releases/download/"
+_RELEASE_PATH_PREFIX = "/mozu93/cci-billing-label-releases/releases/download/"
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 

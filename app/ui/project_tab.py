@@ -81,9 +81,9 @@ class ProjectTab(QWidget):
 
         splitter = QSplitter(Qt.Orientation.Vertical)
 
-        self._table = QTableWidget(0, 8)
+        self._table = QTableWidget(0, 9)
         self._table.setHorizontalHeaderLabels(
-            ["業務名", "件名", "全件", "請求書発行済", "領収書発行済", "未発行", "総額", "入金額"])
+            ["業務名", "件名", "全件", "請求書発行済", "領収書発行済", "未発行", "総額", "入金件数", "入金額"])
         self._table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -109,7 +109,7 @@ class ProjectTab(QWidget):
         status = self._status_combo.currentData()
         session = get_session()
         try:
-            from app.database.models import Category, Issuance
+            from app.database.models import Category, Issuance, Payment
             cat_name = {c.id: c.name for c in session.query(Category).all()}
             projects = get_projects(session, fiscal_year=year, status=status)
             self._table.setRowCount(0)
@@ -120,17 +120,18 @@ class ProjectTab(QWidget):
                 total_amount = sum(
                     int(iss.amount) for iss in
                     session.query(Issuance).filter_by(project_id=proj.id).all())
-                paid_amount = sum(
-                    int(iss.amount) for iss in
-                    session.query(Issuance).filter_by(
-                        project_id=proj.id, status="支払済み").all())
+                payments = (session.query(Payment).join(
+                        Issuance, Payment.issuance_id == Issuance.id
+                    ).filter(Issuance.project_id == proj.id).all())
+                paid_count = len(payments)
+                paid_amount = sum(int(payment.amount) for payment in payments)
                 row = self._table.rowCount()
                 self._table.insertRow(row)
                 for col, val in enumerate([
                     cat_name.get(proj.category_id, ""), proj.name,
                     str(p["total"]), str(p["invoice_issued"]),
                     str(p["receipt_issued"]), str(pending),
-                    f"¥{total_amount:,}", f"¥{paid_amount:,}",
+                    f"¥{total_amount:,}", str(paid_count), f"¥{paid_amount:,}",
                 ]):
                     item = QTableWidgetItem(val)
                     item.setData(Qt.ItemDataRole.UserRole, proj.id)
@@ -145,6 +146,7 @@ class ProjectTab(QWidget):
                     "領収書発行済": p["receipt_issued"],
                     "未発行": pending,
                     "総額": total_amount,
+                    "入金件数": paid_count,
                     "入金額": paid_amount,
                 })
             self._clear_member_panel()
@@ -187,22 +189,25 @@ class ProjectTab(QWidget):
 
         _load() だと選択が外れて名簿パネルが作り直されるため、行だけ更新する。
         """
-        from app.database.models import Issuance
+        from app.database.models import Issuance, Payment
         session = get_session()
         try:
             p = get_project_progress(session, project_id)
             issuances = (session.query(Issuance)
                          .filter_by(project_id=project_id).all())
             total_amount = sum(int(i.amount) for i in issuances)
-            paid_amount = sum(int(i.amount) for i in issuances
-                              if i.status == "支払済み")
+            payments = (session.query(Payment).join(
+                    Issuance, Payment.issuance_id == Issuance.id
+                ).filter(Issuance.project_id == project_id).all())
+            paid_count = len(payments)
+            paid_amount = sum(int(payment.amount) for payment in payments)
         finally:
             session.close()
 
         values = {
             2: str(p["total"]), 3: str(p["invoice_issued"]),
             4: str(p["receipt_issued"]), 5: str(p["pending"]),
-            6: f"¥{total_amount:,}", 7: f"¥{paid_amount:,}",
+            6: f"¥{total_amount:,}", 7: str(paid_count), 8: f"¥{paid_amount:,}",
         }
         for row in range(self._table.rowCount()):
             head = self._table.item(row, 0)
@@ -224,6 +229,7 @@ class ProjectTab(QWidget):
                     "領収書発行済": p["receipt_issued"],
                     "未発行": p["pending"],
                     "総額": total_amount,
+                    "入金件数": paid_count,
                     "入金額": paid_amount,
                 })
             break

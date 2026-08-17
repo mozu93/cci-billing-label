@@ -184,6 +184,12 @@ class PaymentManagementWidget(QWidget):
             for iss in issuances:
                 if invoice_only and iss.doc_type != "invoice":
                     continue
+                # 名簿側で参加キャンセルになった人は、発行済み請求書を
+                # 履歴として残しつつ入金管理の対象から外す。
+                if iss.project_member_id:
+                    pm = session.get(ProjectMember, iss.project_member_id)
+                    if pm and pm.is_cancelled:
+                        continue
                 row = self._table.rowCount()
                 self._table.insertRow(row)
 

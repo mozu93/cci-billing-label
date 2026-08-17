@@ -181,6 +181,7 @@ class ProjectMember(Base):
     phone = Column(String(50), default="")
     email = Column(String(200), default="")
     notes = Column(Text, default="")
+    is_cancelled = Column(Boolean, default=False, nullable=False)
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.now)
 

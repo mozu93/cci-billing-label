@@ -22,3 +22,4 @@ def test_project_tab_column_headers_include_progress(qtbot, memory_db):
     assert "請求書発行済" in headers
     assert "領収書発行済" in headers
     assert "未発行" in headers
+    assert "入金件数" in headers

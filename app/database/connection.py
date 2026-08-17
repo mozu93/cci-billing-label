@@ -132,6 +132,10 @@ def _migrate(engine):
             conn.execute(text(
                 "ALTER TABLE project_members ADD COLUMN address2 VARCHAR(300) DEFAULT ''"))
             conn.commit()
+        if "is_cancelled" not in pm_cols:
+            conn.execute(text(
+                "ALTER TABLE project_members ADD COLUMN is_cancelled BOOLEAN DEFAULT FALSE"))
+            conn.commit()
 
         pt_cols = _table_columns(conn, dialect, "project_templates")
         if "default_quantity" not in pt_cols:

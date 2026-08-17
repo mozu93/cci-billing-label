@@ -175,6 +175,11 @@ def test_generate_and_open_default_path_when_save_path_none(db_session, tmp_path
         "app.utils.pdf_helpers.get_pdf_output_dir",
         lambda: str(tmp_path),
     )
+    # ファイル名設定は利用者ごとの永続設定なので、テストでは既定値を明示する。
+    monkeypatch.setattr(
+        "app.utils.app_config.get_config",
+        lambda: {"pdf_filename_fields": ["doc_number"]},
+    )
 
     iss = Issuance(
         doc_number="R2026-002", doc_type="receipt",

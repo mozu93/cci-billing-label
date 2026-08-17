@@ -53,7 +53,7 @@ class DashboardWidget(QWidget):
 
 
     def _load(self):
-        from app.database.models import Issuance
+        from app.database.models import Issuance, Payment
         year = self._year_combo.currentData()
         session = get_session()
         try:
@@ -65,8 +65,14 @@ class DashboardWidget(QWidget):
                 issuances = session.query(Issuance).filter_by(project_id=proj.id).all()
                 total_amount = sum(int(i.amount) for i in issuances
                                    if i.doc_type == "invoice")
-                paid_amount  = sum(int(i.amount) for i in issuances
-                                   if i.doc_type == "invoice" and i.status == "支払済み")
+                paid_amount = sum(
+                    int(payment.amount) for payment in
+                    session.query(Payment).join(
+                        Issuance, Payment.issuance_id == Issuance.id
+                    ).filter(
+                        Issuance.project_id == proj.id,
+                        Issuance.doc_type == "invoice",
+                    ).all())
                 unpaid_amount = total_amount - paid_amount
 
                 row = self._table.rowCount()

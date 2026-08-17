@@ -6,6 +6,8 @@ on:
       - 'v*.*.*'
 
 permissions:
+  # v2.3.0 の移行Releaseを旧配布先へ作成するために必要。
+  # 以後は公開配布専用リポジトリへのPATだけを使用する。
   contents: write
 
 jobs:
@@ -32,12 +34,24 @@ jobs:
           python -m compileall -q app main.py
           python -m pip check
 
-      - name: Get version
+      - name: Get version from tag
         id: ver
         shell: pwsh
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if ($env:REF_NAME -notmatch '^v\d+\.\d+\.\d+$') { throw "Bad tag: $env:REF_NAME" }
+          "VERSION=$($env:REF_NAME.TrimStart('v'))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Verify app version matches the tag
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.ver.outputs.VERSION }}
         run: |
           $v = python -c "from app.version import __version__; print(__version__)"
-          "VERSION=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if ($v -ne $env:APP_VERSION) {
+            throw "app/version.py ($v) does not match the pushed tag ($env:APP_VERSION)."
+          }
 
       - name: Build with PyInstaller
         run: pyinstaller cci_billing.spec --noconfirm
@@ -56,11 +70,38 @@ jobs:
         shell: pwsh
         run: iscc "/DAppVersion=${{ steps.ver.outputs.VERSION }}" installer\setup.iss
 
-      - name: Create GitHub Release
+      - name: Generate checksum
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem "installer_output\CCIBillingLabel_Setup_*.exe" | Select-Object -First 1
+          $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash  $($file.Name)" | Out-File -FilePath "installer_output\checksums.txt" -Encoding ascii
+
+      # 既存版は mozu93/cci-billing-label のReleaseを更新確認先としている。
+      # この移行版だけ旧配布先にも公開し、更新後は公開配布専用リポジトリを参照させる。
+      - name: Create legacy migration release
+        if: github.ref_name == 'v2.3.0'
         uses: softprops/action-gh-release@v2
         with:
           name: "CCI請求書・ラベル発行システム v${{ steps.ver.outputs.VERSION }}"
           body_path: RELEASE_NOTES.md
-          files: installer_output/CCIBillingLabel_Setup_${{ steps.ver.outputs.VERSION }}.exe
+          files: |
+            installer_output/CCIBillingLabel_Setup_${{ steps.ver.outputs.VERSION }}.exe
+            installer_output/checksums.txt
           draft: false
           prerelease: false
+
+      - name: Create public distribution release
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: mozu93/cci-billing-label-releases
+          tag_name: ${{ github.ref_name }}
+          name: "CCI請求書・ラベル発行システム v${{ steps.ver.outputs.VERSION }}"
+          body_path: RELEASE_NOTES.md
+          files: |
+            installer_output/CCIBillingLabel_Setup_${{ steps.ver.outputs.VERSION }}.exe
+            installer_output/checksums.txt
+          draft: false
+          prerelease: false
+          # 公開配布リポジトリへの書き込み権限だけを持つFine-grained PAT。
+          token: ${{ secrets.RELEASES_REPO_TOKEN }}

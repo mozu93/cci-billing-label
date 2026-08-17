@@ -10,7 +10,7 @@ from app.database.connection import get_session
 from app.database.models import ProjectMember
 from app.services.project_service import (
     get_project_members, add_roster_entries, remove_member_from_project,
-    copy_roster_from_project, get_projects
+    copy_roster_from_project, get_projects, set_project_members_cancelled
 )
 
 COL_CHK = 0  # チェックボックス列
@@ -56,6 +56,7 @@ _COL_FIELDS = [
     "roster_no", "member_number", "organization_name", "organization_kana",
     "representative_name", "representative_kana", "department",
     "postal_code", "address", "address2", "phone", "email",
+    None,            # キャンセル
     None,            # 登録日
 ]
 
@@ -73,6 +74,7 @@ COLS = [
     ("住所２",        140),
     ("電話",          110),
     ("メール",        180),
+    ("キャンセル",      85),
     ("登録日",         90),
 ]
 
@@ -209,7 +211,12 @@ class ProjectMemberPanel(QWidget):
         btn_import.clicked.connect(self._open_import)
         self._btn_del = QPushButton("選択削除")
         self._btn_del.clicked.connect(self._remove_checked)
-        for b in [btn_add, btn_edit, btn_copy, btn_import, self._btn_del]:
+        btn_cancel = QPushButton("参加キャンセル")
+        btn_cancel.clicked.connect(lambda: self._set_cancelled_checked(True))
+        btn_restore = QPushButton("キャンセルを戻す")
+        btn_restore.clicked.connect(lambda: self._set_cancelled_checked(False))
+        for b in [btn_add, btn_edit, btn_copy, btn_import, btn_cancel, btn_restore,
+                  self._btn_del]:
             btn_row.addWidget(b)
         btn_row.addStretch()
         layout.addLayout(btn_row)
@@ -292,6 +299,7 @@ class ProjectMemberPanel(QWidget):
                 pm.address2 or "",
                 pm.phone or "",
                 pm.email or "",
+                "キャンセル" if pm.is_cancelled else "",
                 reg,
             ]
 
@@ -308,6 +316,8 @@ class ProjectMemberPanel(QWidget):
                 data_col = col + 1  # COL_CHK の分シフト
                 if _COL_FIELDS[data_col] is None:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if pm.is_cancelled:
+                    item.setForeground(Qt.GlobalColor.gray)
                 self._table.setItem(row, data_col, item)
 
         self._table.setSortingEnabled(True)
@@ -430,6 +440,28 @@ class ProjectMemberPanel(QWidget):
         try:
             for pm_id in ids:
                 remove_member_from_project(session, pm_id)
+        finally:
+            session.close()
+        self._load()
+        self.roster_changed.emit()
+
+    def _set_cancelled_checked(self, cancelled: bool):
+        ids = self._checked_pm_ids()
+        if not ids:
+            QMessageBox.information(self, "未選択",
+                                    "対象の行をチェックしてください。")
+            return
+        action = "参加キャンセル" if cancelled else "キャンセルを戻す"
+        detail = ("発行済みの請求書・領収書は履歴として残ります。\n"
+                  "入金管理と今後の発行対象からは除外されます。"
+                  if cancelled else "入金管理と発行対象に再び表示されます。")
+        if QMessageBox.question(
+                self, action, f"チェックした {len(ids)} 件を{action}しますか？\n\n{detail}"
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        session = get_session()
+        try:
+            set_project_members_cancelled(session, ids, cancelled)
         finally:
             session.close()
         self._load()

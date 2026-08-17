@@ -75,9 +75,11 @@ def get_project_summary(session: Session,
         p = get_project_progress(session, proj.id)
         total_amount = sum(int(iss.amount) for iss in
                            session.query(Issuance).filter_by(project_id=proj.id).all())
-        paid_amount  = sum(int(iss.amount) for iss in
-                           session.query(Issuance).filter_by(
-                               project_id=proj.id, status="支払済み").all())
+        paid_amount = sum(
+            int(payment.amount) for payment in
+            session.query(Payment).join(
+                Issuance, Payment.issuance_id == Issuance.id
+            ).filter(Issuance.project_id == proj.id).all())
         rows.append({
             "fiscal_year":    proj.fiscal_year,
             "project_name":   proj.name,

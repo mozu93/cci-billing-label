@@ -479,6 +479,8 @@ class IssuanceFromProjectWidget(QWidget):
             issued_count = 0
             for pid in project_ids:
                 for pm in get_project_members(session, pid):
+                    if pm.is_cancelled:
+                        continue
                     inv = (session.query(Issuance)
                            .filter_by(project_member_id=pm.id, doc_type="invoice")
                            .order_by(Issuance.created_at.desc())

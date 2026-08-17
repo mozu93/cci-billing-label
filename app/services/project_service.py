@@ -153,8 +153,23 @@ def remove_member_from_project(session: Session, project_member_id: int) -> None
         session.commit()
 
 
+def set_project_members_cancelled(session: Session, project_member_ids: list[int],
+                                  cancelled: bool) -> None:
+    """名簿参加者をキャンセル／復帰にする。
+
+    発行済み書類は証憑として残し、名簿側の状態だけを変更する。
+    """
+    if not project_member_ids:
+        return
+    (session.query(ProjectMember)
+     .filter(ProjectMember.id.in_(project_member_ids))
+     .update({ProjectMember.is_cancelled: cancelled}, synchronize_session=False))
+    session.commit()
+
+
 def get_project_progress(session: Session, project_id: int) -> dict:
-    members = get_project_members(session, project_id)
+    members = [m for m in get_project_members(session, project_id)
+               if not m.is_cancelled]
     total = len(members)
     pm_ids = [pm.id for pm in members]
     if not pm_ids:

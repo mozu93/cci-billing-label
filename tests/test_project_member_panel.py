@@ -53,8 +53,34 @@ def test_member_panel_has_registration_date_column(qtbot, memory_db):
     headers = [panel._table.horizontalHeaderItem(i).text()
                for i in range(panel._table.columnCount())]
     assert "登録日" in headers
+    assert "キャンセル" in headers
     assert "NO." in headers
     assert panel._table.isSortingEnabled()
+
+
+def test_cancelled_member_is_displayed_and_excluded_from_progress(qtbot, memory_db):
+    from app.database.connection import get_session
+    from app.services.project_service import (
+        get_project_progress, set_project_members_cancelled,
+    )
+    from app.ui.project_member_panel import ProjectMemberPanel
+
+    pid = _project_with_roster([{"organization_name": "○○商事"}])
+    session = get_session()
+    try:
+        from app.services.project_service import get_project_members
+        pm = get_project_members(session, pid)[0]
+        set_project_members_cancelled(session, [pm.id], True)
+        assert get_project_progress(session, pid)["total"] == 0
+    finally:
+        session.close()
+
+    panel = ProjectMemberPanel(pid)
+    qtbot.addWidget(panel)
+    headers = [panel._table.horizontalHeaderItem(i).text()
+               for i in range(panel._table.columnCount())]
+    cancel_col = headers.index("キャンセル")
+    assert panel._table.item(0, cancel_col).text() == "キャンセル"
 
 
 # ── 追加取り込み ────────────────────────────────────────────────────────────

@@ -50,14 +50,14 @@ def test_latest_version_selects_exact_installer_and_digest(monkeypatch):
             {
                 "name": "source.exe",
                 "browser_download_url": (
-                    "https://github.com/mozu93/cci-billing-label/"
+                    "https://github.com/mozu93/cci-billing-label-releases/"
                     "releases/download/v2.2.2/source.exe"),
                 "digest": f"sha256:{'b' * 64}",
             },
             {
                 "name": "CCIBillingLabel_Setup_2.2.2.exe",
                 "browser_download_url": (
-                    "https://github.com/mozu93/cci-billing-label/"
+                    "https://github.com/mozu93/cci-billing-label-releases/"
                     "releases/download/v2.2.2/"
                     "CCIBillingLabel_Setup_2.2.2.exe"),
                 "digest": f"sha256:{digest}",
@@ -84,7 +84,7 @@ def test_latest_version_rejects_release_without_digest(monkeypatch):
         "assets": [{
             "name": "CCIBillingLabel_Setup_2.2.2.exe",
             "browser_download_url": (
-                "https://github.com/mozu93/cci-billing-label/"
+                "https://github.com/mozu93/cci-billing-label-releases/"
                 "releases/download/v2.2.2/"
                 "CCIBillingLabel_Setup_2.2.2.exe"),
         }],
@@ -107,7 +107,7 @@ def test_download_installer_verifies_sha256(monkeypatch):
             content, {"Content-Length": str(len(content))}),
     )
     url = (
-        "https://github.com/mozu93/cci-billing-label/"
+        "https://github.com/mozu93/cci-billing-label-releases/"
         "releases/download/v2.2.2/CCIBillingLabel_Setup_2.2.2.exe")
 
     path = download_new_exe(url, digest)
@@ -127,7 +127,7 @@ def test_download_installer_removes_hash_mismatch(monkeypatch):
             content, {"Content-Length": str(len(content))}),
     )
     url = (
-        "https://github.com/mozu93/cci-billing-label/"
+        "https://github.com/mozu93/cci-billing-label-releases/"
         "releases/download/v2.2.2/CCIBillingLabel_Setup_2.2.2.exe")
 
     assert download_new_exe(url, "0" * 64) is None

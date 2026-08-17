@@ -328,6 +328,34 @@ def test_unissued_filter_hides_voided_invoice(qtbot, memory_db):
     assert "××物産" in orgs       # 純粋な未発行は出る
 
 
+def test_cancelled_member_is_not_an_issuance_target(qtbot, memory_db):
+    from app.database.connection import get_session
+    from app.services.category_service import create_category
+    from app.services.item_template_service import create_item_template
+    from app.services.project_service import (
+        create_project, add_template_to_project, add_roster_entries,
+        get_project_members, set_project_members_cancelled,
+    )
+    from app.ui.issuance_from_project import IssuanceFromProjectWidget
+
+    session = get_session()
+    category = create_category(session, "青年部")
+    template = create_item_template(session, category.id, "参加費", 5000, "人", 10,
+                                    "invoice", "")
+    project = create_project(session, "2026 参加費", category.id, 2026, "list")
+    add_template_to_project(session, project.id, template.id)
+    add_roster_entries(session, project.id, [{"organization_name": "○○商事"}])
+    member = get_project_members(session, project.id)[0]
+    set_project_members_cancelled(session, [member.id], True)
+    project_id = project.id
+    session.close()
+
+    widget = IssuanceFromProjectWidget("invoice")
+    qtbot.addWidget(widget)
+    _select_project(widget, project_id)
+    assert widget._table.rowCount() == 0
+
+
 def test_issue_checked_skips_voided_invoice(qtbot, memory_db, monkeypatch):
     import app.utils.app_config as app_config
     monkeypatch.setattr(app_config, "save_config", lambda _cfg: None)
