@@ -81,7 +81,7 @@ jobs:
       # この移行版だけ旧配布先にも公開し、更新後は公開配布専用リポジトリを参照させる。
       - name: Create legacy migration release
         if: github.ref_name == 'v2.3.0'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: "CCI請求書・ラベル発行システム v${{ steps.ver.outputs.VERSION }}"
           body_path: RELEASE_NOTES.md
@@ -92,7 +92,7 @@ jobs:
           prerelease: false
 
       - name: Create public distribution release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           repository: mozu93/cci-billing-label-releases
           tag_name: ${{ github.ref_name }}
