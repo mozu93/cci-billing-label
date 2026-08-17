@@ -1,5 +1,6 @@
 # tests/test_batch_issuance_tab.py
-from PyQt6.QtWidgets import QTabWidget
+from PyQt6.QtCore import QEvent
+from PyQt6.QtWidgets import QComboBox, QTabWidget
 
 
 def _tab_titles(tabwidget: QTabWidget) -> list[str]:
@@ -25,3 +26,13 @@ def test_batch_issuance_tab_no_legacy_tab(qtbot, memory_db):
     titles = [inner.tabText(i) for i in range(inner.count())]
     assert "登録データから発行" not in titles
     assert "名簿登録" not in titles
+
+
+def test_closed_combo_ignores_mouse_wheel(qtbot, memory_db):
+    from app.ui.batch_issuance_tab import BatchIssuanceTab
+    tab = BatchIssuanceTab()
+    qtbot.addWidget(tab)
+    combo = tab.findChild(QComboBox)
+    assert combo is not None
+    assert tab._combo_wheel_guard.eventFilter(
+        combo, QEvent(QEvent.Type.Wheel)) is True
