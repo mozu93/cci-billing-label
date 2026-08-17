@@ -27,6 +27,7 @@ PAGE_MARGIN         = 16
 GLYPH_MENU     = "\uE700"   # GlobalNavButton
 GLYPH_DOCUMENT = "\uE8A5"   # Document
 GLYPH_LIST     = "\uE8FD"   # BulletedList
+GLYPH_MONEY    = "\uEAFD"   # Money
 GLYPH_PRINT    = "\uE749"   # Print
 GLYPH_EDIT     = "\uE70F"   # Edit
 GLYPH_LIBRARY  = "\uE8F1"   # Library

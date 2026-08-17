@@ -3,7 +3,6 @@ from PyQt6.QtWidgets import QApplication, QWidget, QComboBox, QTabWidget, QVBoxL
 from PyQt6.QtCore import QObject, QEvent
 from app.ui.project_tab import ProjectTab
 from app.ui.issuance_from_project import IssuanceFromProjectWidget
-from app.ui.payment_dialog import PaymentManagementWidget
 
 
 class _BatchComboWheelGuard(QObject):
@@ -30,7 +29,7 @@ class _BatchComboWheelGuard(QObject):
 
 
 class BatchIssuanceTab(QWidget):
-    """まとめて発行：名簿単位の準備・一括発行・入金管理・登録済発行をまとめるタブ。"""
+    """まとめて発行：名簿単位の準備と書類発行をまとめるタブ。"""
 
     def __init__(self):
         super().__init__()
@@ -38,9 +37,15 @@ class BatchIssuanceTab(QWidget):
         self._combo_wheel_guard = _BatchComboWheelGuard(self)
         QApplication.instance().installEventFilter(self._combo_wheel_guard)
         layout = QVBoxLayout(self)
-        inner = QTabWidget()
-        inner.addTab(ProjectTab(), "名簿・請求内容")
-        inner.addTab(IssuanceFromProjectWidget("invoice"), "請求書を発行")
-        inner.addTab(IssuanceFromProjectWidget("receipt"), "領収書を発行")
-        inner.addTab(PaymentManagementWidget(), "入金管理")
-        layout.addWidget(inner)
+        self._tabs = QTabWidget()
+        self._project_tab = ProjectTab()
+        self._tabs.addTab(self._project_tab, "名簿・請求内容")
+        self._tabs.addTab(IssuanceFromProjectWidget("invoice"), "請求書を発行")
+        self._tabs.addTab(IssuanceFromProjectWidget("receipt"), "領収書を発行")
+        self._tabs.currentChanged.connect(self._on_tab_changed)
+        layout.addWidget(self._tabs)
+
+    def _on_tab_changed(self, index: int):
+        """発行画面から戻った時点の集計値を表示する。"""
+        if self._tabs.widget(index) is self._project_tab:
+            self._project_tab._load()

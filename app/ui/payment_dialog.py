@@ -35,6 +35,12 @@ class PaymentManagementWidget(QWidget):
         self._build()
         self._load_projects()
 
+    def showEvent(self, event):
+        """左メニューから開くたびに、最新の入金状態を表示する。"""
+        super().showEvent(event)
+        if hasattr(self, "_proj_combo"):
+            self._load()
+
     def _build(self):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("発行済み書類の支払管理"))

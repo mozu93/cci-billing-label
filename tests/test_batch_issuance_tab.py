@@ -14,7 +14,7 @@ def test_batch_issuance_subtabs(qtbot, memory_db):
     inner = w.findChild(QTabWidget)
     assert inner is not None
     assert _tab_titles(inner) == [
-        "名簿・請求内容", "請求書を発行", "領収書を発行", "入金管理"
+        "名簿・請求内容", "請求書を発行", "領収書を発行"
     ]
 
 
@@ -36,3 +36,16 @@ def test_closed_combo_ignores_mouse_wheel(qtbot, memory_db):
     assert combo is not None
     assert tab._combo_wheel_guard.eventFilter(
         combo, QEvent(QEvent.Type.Wheel)) is True
+
+
+def test_returning_to_project_tab_refreshes_summary(qtbot, memory_db):
+    from app.ui.batch_issuance_tab import BatchIssuanceTab
+    tab = BatchIssuanceTab()
+    qtbot.addWidget(tab)
+    calls = []
+    tab._project_tab._load = lambda: calls.append(True)
+
+    tab._tabs.setCurrentIndex(2)  # 領収書を発行
+    tab._tabs.setCurrentIndex(0)  # 名簿・請求内容
+
+    assert calls == [True]

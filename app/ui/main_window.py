@@ -74,11 +74,12 @@ class MainWindow(QMainWindow):
         """
         from app.ui.nav_shell import (
             NavRail, PageShell, COMPACT_THRESHOLD,
-            GLYPH_DOCUMENT, GLYPH_LIST, GLYPH_PRINT, GLYPH_EDIT,
+            GLYPH_DOCUMENT, GLYPH_LIST, GLYPH_MONEY, GLYPH_PRINT, GLYPH_EDIT,
             GLYPH_LIBRARY, GLYPH_MAIL, GLYPH_SETTINGS,
         )
         from app.ui.counter_issuance_tab import CounterIssuanceTab
         from app.ui.batch_issuance_tab import BatchIssuanceTab
+        from app.ui.payment_dialog import PaymentManagementWidget
         from app.ui.label_issuance_tab import LabelIssuanceTab
         from app.ui.reissue_tab import ReissueWidget
         from app.ui.settings_tab import MasterTab, SettingsTab
@@ -103,6 +104,7 @@ class MainWindow(QMainWindow):
         pages = [
             ("単発発行",           GLYPH_DOCUMENT, CounterIssuanceTab),
             ("まとめて発行",       GLYPH_LIST,     BatchIssuanceTab),
+            ("入金管理",           GLYPH_MONEY,    PaymentManagementWidget),
             ("宛名ラベル発行",     GLYPH_PRINT,    LabelIssuanceTab),
             ("修正・再発行",       GLYPH_EDIT,     ReissueWidget),
             ("登録・マスタ",       GLYPH_LIBRARY,  MasterTab),
