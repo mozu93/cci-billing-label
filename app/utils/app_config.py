@@ -30,7 +30,8 @@ def get_m365_config() -> dict:
 def save_m365_config(client_id: str, tenant_id: str,
                      account_username: str | None = None,
                      sender_address: str | None = None,
-                     test_recipient: str | None = None) -> None:
+                     test_recipient: str | None = None,
+                     trace_client_secret: str | None = None) -> None:
     config = get_config()
     m365 = dict(config.get("m365", {}))
     m365.update({"client_id": client_id, "tenant_id": tenant_id})
@@ -40,6 +41,8 @@ def save_m365_config(client_id: str, tenant_id: str,
         m365["sender_address"] = sender_address
     if test_recipient is not None:
         m365["test_recipient"] = test_recipient
+    if trace_client_secret is not None:
+        m365["trace_client_secret"] = trace_client_secret
     config["m365"] = m365
     save_config(config)
 
@@ -62,6 +65,10 @@ def get_m365_sender_address() -> str:
 
 def get_m365_test_recipient() -> str:
     return get_m365_config().get("test_recipient", "")
+
+
+def get_m365_trace_client_secret() -> str:
+    return get_m365_config().get("trace_client_secret", "")
 
 
 def get_label_print_offset(layout_key: str) -> tuple[float, float]:

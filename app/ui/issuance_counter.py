@@ -1290,6 +1290,13 @@ class IssuanceCounterWidget(QWidget):
                             while thread.isRunning():
                                 QApplication.processEvents()
                             if "ok" in _result:
+                                from datetime import datetime
+                                iss.mail_subject = subject
+                                iss.mail_sent_at = datetime.now()
+                                iss.mail_delivery_status = "pending"
+                                iss.mail_delivery_message = "Microsoft 365の配信結果を確認してください。"
+                                iss.mail_delivery_checked_at = None
+                                session.commit()
                                 add_log(session, "メール送信", "issuance",
                                         iss.id,
                                         f"{iss.doc_number} → "

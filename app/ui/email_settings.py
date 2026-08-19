@@ -37,6 +37,7 @@ from app.utils.app_config import (
     get_m365_client_id,
     get_m365_sender_address,
     get_m365_test_recipient,
+    get_m365_trace_client_secret,
     get_m365_tenant_id,
     save_m365_config,
 )
@@ -341,6 +342,9 @@ class EmailSettingsWidget(QWidget):
         self._m365_tenant_id = QLineEdit()
         self._m365_tenant_id.setPlaceholderText(
             "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+        self._trace_secret = QLineEdit()
+        self._trace_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        self._trace_secret.setPlaceholderText("配信状況確認用（Entraのシークレット値）")
         self._m365_account = QComboBox()
         self._m365_account.setMinimumWidth(240)
         self._m365_sender = QLineEdit()
@@ -378,6 +382,7 @@ class EmailSettingsWidget(QWidget):
         form.addRow("アプリケーション (クライアント) ID",
                     self._m365_client_id)
         form.addRow("ディレクトリ (テナント) ID", self._m365_tenant_id)
+        form.addRow("追跡用クライアントシークレット", self._trace_secret)
         form.addRow("送信アカウント", account_row)
         form.addRow("代理送信元", self._m365_sender)
         form.addRow("テスト送信先", test_row)
@@ -395,6 +400,7 @@ class EmailSettingsWidget(QWidget):
     def _load(self):
         self._m365_client_id.setText(get_m365_client_id())
         self._m365_tenant_id.setText(get_m365_tenant_id())
+        self._trace_secret.setText(get_m365_trace_client_secret())
         self._refresh_accounts(get_m365_account_username())
         self._m365_sender.setText(get_m365_sender_address())
         self._test_recipient.setText(get_m365_test_recipient())
@@ -466,6 +472,7 @@ class EmailSettingsWidget(QWidget):
             self._m365_account.currentText().strip(),
             self._m365_sender.text().strip(),
             self._test_recipient.text().strip(),
+            self._trace_secret.text().strip(),
         )
 
     def _send_test_mail(self):

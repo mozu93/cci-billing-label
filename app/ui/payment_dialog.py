@@ -569,6 +569,14 @@ class _ReminderDialog(QDialog):
                 r = self._row_for_iss_id(iss_id)
                 result = result_by_issuance.get(iss_id)
                 if result and result["success"]:
+                    from datetime import datetime
+                    iss = session2.get(Issuance, iss_id)
+                    if iss:
+                        iss.mail_subject = item["subject"]
+                        iss.mail_sent_at = datetime.now()
+                        iss.mail_delivery_status = "pending"
+                        iss.mail_delivery_message = "Microsoft 365の配信結果を確認してください。"
+                        iss.mail_delivery_checked_at = None
                     add_log(session2, "督促メール送信", "issuance", iss_id,
                             f"{item['doc_number']} → {item['to']}")
                     if r is not None:
