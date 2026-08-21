@@ -79,7 +79,11 @@ class ProjectTab(QWidget):
         export_row.addStretch()
         layout.addLayout(export_row)
 
+        # 名簿の確認・編集が主作業になるため、下側を広く確保する。
+        # 境界は利用者がドラッグして、案件一覧と名簿の高さを調整できる。
         splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setChildrenCollapsible(False)
+        self._splitter = splitter
 
         self._table = QTableWidget(0, 9)
         self._table.setHorizontalHeaderLabels(
@@ -87,12 +91,14 @@ class ProjectTab(QWidget):
         self._table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setMinimumHeight(140)
         self._table.currentCellChanged.connect(self._on_select)
         splitter.addWidget(self._table)
 
         self._member_panel_container = QWidget()
         from PyQt6.QtWidgets import QVBoxLayout as VL
         self._member_panel_layout = VL(self._member_panel_container)
+        self._member_panel_container.setMinimumHeight(300)
         self._empty_label = QLabel(
             "受付中のデータはありません。\n"
             "「＋ 名簿・請求内容を作成」から、件名と請求内容を登録してください。")
@@ -101,7 +107,9 @@ class ProjectTab(QWidget):
             "color: #64748B; font-size: 13px; padding: 24px;")
         self._member_panel_layout.addWidget(self._empty_label)
         splitter.addWidget(self._member_panel_container)
-        splitter.setSizes([300, 300])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([180, 520])
         layout.addWidget(splitter)
 
     def _load(self):

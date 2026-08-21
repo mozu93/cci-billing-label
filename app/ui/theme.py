@@ -55,6 +55,7 @@ QMainWindow, #pageShell, #pageBody {{ background: {SURFACE}; }}
 /* アイコンフォントの指定はここで行う。QWidget の font-family 指定が
    setFont() より優先されるため、コード側で設定しても上書きされてしまう。 */
 #navIcon, #navToggle {{ font-family: {ICON_FONT}; font-size: 16px; }}
+#navIcon[textGlyph="true"] {{ font-family: {FONT_STACK}; font-weight: 600; }}
 #navToggle {{
     background: transparent; border: none; border-radius: 4px;
     color: {TEXT_SECONDARY};

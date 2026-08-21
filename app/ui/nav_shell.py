@@ -27,7 +27,7 @@ PAGE_MARGIN         = 16
 GLYPH_MENU     = "\uE700"   # GlobalNavButton
 GLYPH_DOCUMENT = "\uE8A5"   # Document
 GLYPH_LIST     = "\uE8FD"   # BulletedList
-GLYPH_MONEY    = "\uEAFD"   # Money
+GLYPH_MONEY    = "\uFFE5"   # Fullwidth Yen Sign
 GLYPH_PRINT    = "\uE749"   # Print
 GLYPH_EDIT     = "\uE70F"   # Edit
 GLYPH_LIBRARY  = "\uE8F1"   # Library
@@ -63,6 +63,8 @@ class NavItem(QPushButton):
         # スタイルシートは setFont() より優先されるため、ここで setFont してはいけない。
         self._icon = QLabel(glyph)
         self._icon.setObjectName("navIcon")
+        # ￥はアイコンフォントではなく通常のUIフォントで描画する。
+        self._icon.setProperty("textGlyph", glyph == GLYPH_MONEY)
         self._icon.setFixedWidth(PANE_WIDTH_COMPACT - 7)
         self._icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         row.addWidget(self._icon)

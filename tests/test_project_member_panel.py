@@ -58,6 +58,27 @@ def test_member_panel_has_registration_date_column(qtbot, memory_db):
     assert panel._table.isSortingEnabled()
 
 
+def test_member_panel_filters_by_recipient_fields(qtbot, memory_db):
+    """名簿検索は指定された4つの宛名項目を対象にする。"""
+    from app.ui.project_member_panel import ProjectMemberPanel
+
+    pid = _project_with_roster([
+        {"organization_name": "青空商事", "organization_kana": "アオゾラショウジ",
+         "representative_name": "田中 太郎", "representative_kana": "タナカタロウ"},
+        {"organization_name": "緑産業", "representative_name": "佐藤 花子"},
+    ])
+    panel = ProjectMemberPanel(pid)
+    qtbot.addWidget(panel)
+
+    for query in ("青空", "アオゾラ", "太郎", "タナカ"):
+        panel._search.setText(query)
+        assert panel._table.rowCount() == 1
+        assert "1 件を表示（全 2 件）" == panel._count_label.text()
+
+    panel._search.clear()
+    assert panel._table.rowCount() == 2
+
+
 def test_cancelled_member_is_displayed_and_excluded_from_progress(qtbot, memory_db):
     from app.database.connection import get_session
     from app.services.project_service import (
