@@ -190,12 +190,23 @@ class ProjectMemberPanel(QWidget):
     def __init__(self, project_id: int):
         super().__init__()
         self._project_id = project_id
+        self._members: list[ProjectMember] = []
         self._build()
         self._load()
 
     def _build(self):
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("名簿"))
+        heading_row = QHBoxLayout()
+        heading_row.addWidget(QLabel("名簿"))
+        heading_row.addStretch()
+        heading_row.addWidget(QLabel("検索："))
+        self._search = QLineEdit()
+        self._search.setClearButtonEnabled(True)
+        self._search.setPlaceholderText("事業所名・フリガナ・氏名・氏名フリガナで絞り込み")
+        self._search.setMinimumWidth(320)
+        self._search.textChanged.connect(self._apply_filter)
+        heading_row.addWidget(self._search)
+        layout.addLayout(heading_row)
 
         btn_row = QHBoxLayout()
         btn_add = QPushButton("行を追加")
@@ -271,9 +282,30 @@ class ProjectMemberPanel(QWidget):
     def _load(self):
         session = get_session()
         try:
-            pms = get_project_members(session, self._project_id, newest_first=True)
+            self._members = get_project_members(
+                session, self._project_id, newest_first=True)
         finally:
             session.close()
+        self._apply_filter()
+
+    def _apply_filter(self, text: str = ""):
+        """指定された宛名項目だけを対象に、名簿をリアルタイムで絞り込む。"""
+        query = text.strip().casefold()
+        if query:
+            fields = (
+                "organization_name", "organization_kana",
+                "representative_name", "representative_kana",
+            )
+            pms = [
+                pm for pm in self._members
+                if any(query in (getattr(pm, field) or "").casefold()
+                       for field in fields)
+            ]
+        else:
+            pms = self._members
+        self._populate_table(pms)
+
+    def _populate_table(self, pms: list[ProjectMember]):
         self._table.blockSignals(True)
         self._table.setSortingEnabled(False)
         self._table.setRowCount(0)
@@ -322,7 +354,11 @@ class ProjectMemberPanel(QWidget):
 
         self._table.setSortingEnabled(True)
         self._table.blockSignals(False)
-        self._count_label.setText(f"{len(pms)} 件")
+        if self._search.text().strip():
+            self._count_label.setText(
+                f"{len(pms)} 件を表示（全 {len(self._members)} 件）")
+        else:
+            self._count_label.setText(f"{len(pms)} 件")
 
     def _checked_pm_ids(self) -> list[int]:
         ids = []

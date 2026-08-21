@@ -2,7 +2,8 @@
 from PyQt6.QtWidgets import QStackedWidget
 
 from app.ui.nav_shell import (
-    NavRail, PageShell, PANE_WIDTH_COMPACT, PANE_WIDTH_EXPANDED,
+    GLYPH_MONEY, NavItem, NavRail, PageShell,
+    PANE_WIDTH_COMPACT, PANE_WIDTH_EXPANDED,
 )
 
 _EXPECTED = [
@@ -88,3 +89,10 @@ def test_compact_pane_keeps_labels_as_tooltips(qtbot, memory_db):
 
     nav.set_compact(False)
     assert all(item.toolTip() == "" for item in nav._items)
+
+
+def test_payment_nav_uses_yen_glyph(qtbot):
+    item = NavItem("入金管理", GLYPH_MONEY)
+    qtbot.addWidget(item)
+    assert GLYPH_MONEY == "￥"
+    assert item._icon.property("textGlyph") is True
