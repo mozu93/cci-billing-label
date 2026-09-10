@@ -70,7 +70,8 @@ def _build_lines_from_project(session: Session, project_id: int,
             price = int(pt.unit_price_override
                         if pt.unit_price_override is not None
                         else tmpl.unit_price)
-        fallback_qty = default_quantity if default_quantity is not None else (pt.default_quantity or 1)
+        fallback_qty = default_quantity if default_quantity is not None else (
+            pt.default_quantity if pt.default_quantity is not None else 1)
         qty = (quantities or {}).get(tmpl.id, fallback_qty)
         if qty <= 0:
             continue  # 数量0の項目は明細に含めない

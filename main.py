@@ -1,8 +1,26 @@
 # main.py
 import sys
 import traceback
+
+if sys.platform == "win32":
+    # pythonw.exe/python.exe にはDPI対応マニフェストが無く既定でDPI非対応となるため、
+    # QApplication生成前にプロセスのDPI対応をPer-Monitor V2へ明示的に引き上げる。
+    # 未対応のままだと拡大率の異なるモニタでウィンドウがビットマップ拡大され、
+    # 実際より大きく表示されてタイトルバーのドラッグ判定がずれる。
+    import ctypes
+    try:
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+
 from PyQt6.QtWidgets import QApplication, QMessageBox
-from PyQt6.QtGui import QFont, QFontInfo
+from PyQt6.QtGui import QFont, QFontInfo, QIcon
 from app.ui.theme import STYLESHEET
 
 
@@ -19,6 +37,10 @@ def main():
     sys.excepthook = _excepthook
     app = QApplication(sys.argv)
     app.setApplicationName("商工会議所請求書・領収書発行システム")
+    # EXE・デスクトップショートカットと同じ高解像度ICOを、実行中のタスクバーにも使う。
+    from pathlib import Path
+    base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+    app.setWindowIcon(QIcon(str(base_dir / "assets" / "app_icon.ico")))
     app.setStyle("Fusion")
     app.setStyleSheet(STYLESHEET)
     # Windows 11 の日本語 UI 標準フォント。無い環境では Meiryo UI にフォールバックする。

@@ -144,11 +144,12 @@ def main():
 
     # ICO（全サイズ込み）
     ico_path = os.path.join(OUTPUT_DIR, "E_purple_invoice.ico")
-    images[0].save(
+    # Pillow は先頭画像を元に各サイズを収録するため、最大サイズを渡す。
+    # 16px画像を渡すと、sizes を指定しても16px版しか生成されない。
+    images[-1].save(
         ico_path,
         format="ICO",
         sizes=[(img.width, img.height) for img in images],
-        append_images=images[1:],
     )
     print(f"ICO:     {ico_path}")
     print("完了")

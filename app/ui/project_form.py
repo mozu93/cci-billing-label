@@ -45,7 +45,7 @@ class _ItemRow(QFrame):
         self.price_spin.setGroupSeparatorShown(True)
 
         self.qty_spin = QSpinBox()
-        self.qty_spin.setRange(1, 9999)
+        self.qty_spin.setRange(0, 9999)
         self.qty_spin.setValue(1)
         self.qty_spin.setFixedWidth(64)
 
@@ -521,7 +521,7 @@ class ProjectFormDialog(QDialog):
                 (pt.item_template.id, int(pt.unit_price_override or pt.item_template.unit_price),
                  pt.item_template.unit,
                  pt.tax_rate_override if pt.tax_rate_override is not None else pt.item_template.tax_rate,
-                 int(pt.default_quantity) if pt.default_quantity else 1)
+                 int(pt.default_quantity) if pt.default_quantity is not None else 1)
                 for pt in pts
             ]
             company_settings_id = proj.company_settings_id

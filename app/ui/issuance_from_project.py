@@ -433,7 +433,7 @@ class IssuanceFromProjectWidget(QWidget):
                         "id": pt.item_template.id,
                         "name": pt.item_template.name,
                         "unit_price": int(pt.unit_price_override or pt.item_template.unit_price or 0),
-                        "default_qty": int(pt.default_quantity or 1),
+                        "default_qty": int(pt.default_quantity) if pt.default_quantity is not None else 1,
                     }
                     for pt in pts
                 ]
