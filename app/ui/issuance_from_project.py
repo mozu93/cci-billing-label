@@ -1205,6 +1205,13 @@ class IssuanceFromProjectWidget(QWidget):
                 QApplication.processEvents()
 
             if "ok" in _result:
+                from datetime import datetime
+                iss.mail_subject = subject
+                iss.mail_sent_at = datetime.now()
+                iss.mail_delivery_status = "pending"
+                iss.mail_delivery_message = "Microsoft 365の配信結果を確認してください。"
+                iss.mail_delivery_checked_at = None
+                sess.commit()
                 sent += 1
                 add_log(sess, "メール送信", "issuance", iss.id,
                         f"{label} {iss.doc_number} → {to_addr}")

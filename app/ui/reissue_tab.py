@@ -22,6 +22,7 @@ COL_AMT  = 5
 COL_TYPE = 6
 COL_STAT = 7
 COL_MAIL = 8
+COL_DELIVERY = 9
 
 _TYPE_LABEL = {"invoice": "請求書", "receipt": "領収書"}
 
@@ -113,12 +114,16 @@ class ReissueWidget(QWidget):
         self._btn_reissue.setStyleSheet(_blue_ss)
         self._btn_reissue.clicked.connect(self._reissue)
         search_row.addWidget(self._btn_reissue)
+        self._btn_trace = QPushButton("配信状況を更新")
+        self._btn_trace.setFixedHeight(36)
+        self._btn_trace.clicked.connect(self._refresh_delivery_status)
+        search_row.addWidget(self._btn_trace)
         layout.addLayout(search_row)
 
         # ── テーブル ─────────────────────────────────────────────────
-        self._table = QTableWidget(0, 9)
+        self._table = QTableWidget(0, 10)
         self._table.setHorizontalHeaderLabels(
-            ["", "発行番号", "発行日", "件名", "宛先", "金額", "種別", "状態", "メール"])
+            ["", "発行番号", "発行日", "件名", "宛先", "金額", "種別", "状態", "メール", "配信"])
         hdr = self._table.horizontalHeader()
         hdr.setSortIndicatorShown(True)
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -132,6 +137,7 @@ class ReissueWidget(QWidget):
         self._table.setColumnWidth(COL_TYPE, 60)
         self._table.setColumnWidth(COL_STAT, 70)
         self._table.setColumnWidth(COL_MAIL, 180)
+        self._table.setColumnWidth(COL_DELIVERY, 110)
         hdr.setStretchLastSection(False)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -263,8 +269,11 @@ class ReissueWidget(QWidget):
                 (COL_TYPE, _TYPE_LABEL.get(iss.doc_type, iss.doc_type)),
                 (COL_STAT, iss.status),
                 (COL_MAIL, mail_addr),
+                (COL_DELIVERY, self._delivery_label(getattr(iss, "mail_delivery_status", ""))),
             ]:
                 item = QTableWidgetItem(val)
+                if col == COL_DELIVERY and getattr(iss, "mail_delivery_message", ""):
+                    item.setToolTip(iss.mail_delivery_message)
                 item.setData(Qt.ItemDataRole.UserRole,     iss.id)
                 item.setData(Qt.ItemDataRole.UserRole + 1, proj.project_type)
                 item.setData(Qt.ItemDataRole.UserRole + 2, iss.status)
@@ -295,6 +304,50 @@ class ReissueWidget(QWidget):
             if not hidden:
                 total += 1
         self._count_lbl.setText(f"{total} 件")
+
+    @staticmethod
+    def _delivery_label(status: str) -> str:
+        return {
+            "delivered": "配信済み", "pending": "確認待ち", "failed": "配信失敗",
+            "quarantined": "隔離", "filteredasspam": "スパム処理",
+        }.get(status or "", "未確認")
+
+    def _refresh_delivery_status(self):
+        row = self._table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "情報", "配信状況を確認する発行データを選択してください。")
+            return
+        item = self._table.item(row, COL_CHK)
+        iss_id = item.data(Qt.ItemDataRole.UserRole) if item else None
+        session = get_session()
+        try:
+            iss = session.get(Issuance, iss_id) if iss_id else None
+            if not iss or not iss.mail_sent_at or not iss.mail_subject:
+                QMessageBox.information(self, "情報", "この発行データには確認可能なメール送信履歴がありません。")
+                return
+            from app.services.m365_mail_service import get_delivery_trace
+            from app.utils.app_config import (
+                get_m365_client_id, get_m365_tenant_id,
+                get_m365_trace_client_secret, get_m365_sender_address,
+                get_m365_account_username,
+            )
+            sender = get_m365_sender_address() or get_m365_account_username()
+            result = get_delivery_trace(
+                get_m365_client_id(), get_m365_tenant_id(),
+                get_m365_trace_client_secret(), sender,
+                iss.recipient_email, iss.mail_subject, iss.mail_sent_at)
+            iss.mail_delivery_status = result["status"]
+            iss.mail_delivery_message = result.get("message", "")
+            from datetime import datetime
+            iss.mail_delivery_checked_at = datetime.now()
+            session.commit()
+        except Exception as exc:
+            QMessageBox.critical(self, "配信状況の確認エラー", str(exc))
+            return
+        self._load()
+        QMessageBox.information(
+            self, "配信状況を更新しました",
+            f"{self._delivery_label(result['status'])}\n\n{result.get('message', '')}")
 
     def _on_selection_changed(self):
         row = self._table.currentRow()
@@ -539,6 +592,13 @@ class ReissueWidget(QWidget):
             QApplication.processEvents()
 
         if "ok" in _result:
+            from datetime import datetime
+            iss.mail_subject = subject
+            iss.mail_sent_at = datetime.now()
+            iss.mail_delivery_status = "pending"
+            iss.mail_delivery_message = "Microsoft 365の配信結果を確認してください。"
+            iss.mail_delivery_checked_at = None
+            session.commit()
             add_log(session, "メール送信", "issuance", iss.id,
                     f"{_lbl} {iss.doc_number} 再発行 → "
                     f"{', '.join(to_recipients)}")

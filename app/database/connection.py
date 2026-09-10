@@ -160,6 +160,11 @@ def _migrate(engine):
             ("bank_account_id",       "INTEGER REFERENCES bank_accounts(id)"),
             ("seal_image_id",          "INTEGER REFERENCES seal_images(id)"),
             ("show_recipient_person", "BOOLEAN DEFAULT TRUE"),
+            ("mail_subject", "VARCHAR(500) DEFAULT ''"),
+            ("mail_sent_at", "TIMESTAMP"),
+            ("mail_delivery_status", "VARCHAR(30) DEFAULT ''"),
+            ("mail_delivery_message", "TEXT DEFAULT ''"),
+            ("mail_delivery_checked_at", "TIMESTAMP"),
         ]:
             if col not in iss_cols:
                 conn.execute(text(f"ALTER TABLE issuances ADD COLUMN {col} {ddl}"))

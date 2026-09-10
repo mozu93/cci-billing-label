@@ -1,14 +1,74 @@
 # app/services/m365_mail_service.py
 import base64
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import requests
+import msal
 from app.utils.mail_validator import validate_email_address, validate_mail
 
 _GRAPH_SEND_MAIL_URL = "https://graph.microsoft.com/v1.0/me/sendMail"
 _TIMEOUT = 30
 _MAX_ATTEMPTS = 4
+_TRACE_SCOPE = ["https://graph.microsoft.com/.default"]
+
+
+def get_delivery_trace(client_id: str, tenant_id: str, client_secret: str,
+                       sender_address: str, recipient_address: str,
+                       subject: str, sent_at: datetime | None) -> dict:
+    """Exchange Onlineメッセージ追跡APIから配信状態を取得する。"""
+    if not client_secret.strip():
+        raise ValueError("配信状況確認用のクライアントシークレットを設定してください。")
+    if not sent_at:
+        return {"status": "unknown", "message": "送信日時がありません。"}
+    app = msal.ConfidentialClientApplication(
+        client_id, client_credential=client_secret,
+        authority=f"https://login.microsoftonline.com/{tenant_id}")
+    token_result = app.acquire_token_for_client(scopes=_TRACE_SCOPE)
+    if not token_result or "access_token" not in token_result:
+        detail = token_result.get("error_description", str(token_result)) if token_result else "不明なエラー"
+        raise RuntimeError(f"配信状況確認の認証に失敗しました: {detail}")
+    sent_utc = sent_at.replace(tzinfo=ZoneInfo("Asia/Tokyo")).astimezone(timezone.utc)
+    esc = lambda value: value.replace("'", "''")
+    query = (
+        f"recipientAddress eq '{esc(recipient_address)}' and senderAddress eq '{esc(sender_address)}' "
+        f"and receivedDateTime ge {(sent_utc - timedelta(hours=2)).isoformat().replace('+00:00', 'Z')} "
+        f"and receivedDateTime le {(sent_utc + timedelta(days=3)).isoformat().replace('+00:00', 'Z')}"
+    )
+    headers = {"Authorization": f"Bearer {token_result['access_token']}"}
+    response = requests.get(
+        "https://graph.microsoft.com/v1.0/admin/exchange/tracing/messageTraces",
+        headers=headers, params={"$filter": query, "$top": "50"}, timeout=30)
+    if response.status_code != 200:
+        raise RuntimeError(f"メッセージ追跡APIに失敗しました（HTTP {response.status_code}）。")
+    values = response.json().get("value", [])
+    matches = [item for item in values if item.get("subject") == subject]
+    candidates = matches or values
+    if not candidates:
+        return {"status": "pending", "message": "追跡情報がまだ反映されていません。"}
+    trace = sorted(candidates, key=lambda item: item.get("receivedDateTime", ""), reverse=True)[0]
+    status = str(trace.get("status", "unknown")).lower()
+    message = {
+        "delivered": "Microsoft 365で配信済みです。",
+        "failed": "Microsoft 365で配信に失敗しました。",
+        "pending": "Microsoft 365で処理中です。",
+        "quarantined": "隔離されています。",
+        "filteredasspam": "スパムとして処理されました。",
+    }.get(status, f"Microsoft 365の状態: {status}")
+    if status == "failed" and trace.get("id"):
+        detail_url = (
+            "https://graph.microsoft.com/v1.0/admin/exchange/tracing/"
+            f"messageTraces/{quote(str(trace['id']), safe='')}"
+            f"/getDetailsByRecipient(recipientAddress='{quote(recipient_address, safe='@._-')}')")
+        detail_response = requests.get(detail_url, headers=headers, timeout=30)
+        if detail_response.status_code == 200:
+            descriptions = [item.get("description", "") for item in detail_response.json().get("value", [])]
+            if descriptions:
+                message += "\n" + descriptions[-1]
+    return {"status": status, "message": message}
 
 
 class M365MailService:
