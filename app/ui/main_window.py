@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QDialog, QMainWindow, QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QMessageBox, QApplication,
 )
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QGuiApplication
 from PyQt6.QtCore import QTimer
 
 
@@ -18,10 +18,51 @@ class MainWindow(QMainWindow):
         self.resize(min(1120, _avail_w), min(760, _avail_h))
         self.setMinimumSize(900, 600)
         self._manual_pane_override = False
+        self._placement_checked = False
         self._setup_menu()
         self._build_nav()
         self._setup_statusbar()
         QTimer.singleShot(0, self._run_auto_backup)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Windows can restore a stale placement from a disconnected monitor.
+        # Run after the native frame is created so frameGeometry() is accurate.
+        if not self._placement_checked:
+            self._placement_checked = True
+            QTimer.singleShot(0, self._ensure_visible)
+
+    def _ensure_visible(self):
+        """Keep the startup window inside a currently available screen."""
+        if not self.isVisible():
+            return
+
+        screens = QGuiApplication.screens()
+        if not screens:
+            return
+
+        frame = self.frameGeometry()
+        screen = QGuiApplication.screenAt(frame.center())
+        if screen is None:
+            # The saved center may be on a disconnected display.
+            screen = QGuiApplication.primaryScreen() or screens[0]
+        available = screen.availableGeometry()
+
+        # A saved size can also be too large after a DPI/display change.
+        width = min(frame.width(), available.width())
+        height = min(frame.height(), available.height())
+        min_width = min(self.minimumWidth(), available.width())
+        min_height = min(self.minimumHeight(), available.height())
+        if self.minimumWidth() != min_width or self.minimumHeight() != min_height:
+            self.setMinimumSize(min_width, min_height)
+        if width != frame.width() or height != frame.height():
+            self.resize(max(width, min_width), max(height, min_height))
+            frame = self.frameGeometry()
+
+        x = max(available.left(), min(frame.left(), available.right() - frame.width() + 1))
+        y = max(available.top(), min(frame.top(), available.bottom() - frame.height() + 1))
+        if frame.left() != x or frame.top() != y:
+            self.move(x, y)
 
     def _setup_menu(self):
         from app.version import __version__
