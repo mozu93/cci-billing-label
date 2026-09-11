@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QDate
 from app.database.connection import get_session
 from app.services.project_service import (
-    get_projects, get_project_members, get_project_templates
+    get_projects, get_project_members, get_project_templates,
+    get_member_item_settings, save_member_item_setting,
 )
 from app.services.category_service import get_active_categories
 from app.services.issuance_service import (
@@ -94,6 +95,7 @@ class IssuanceFromProjectWidget(QWidget):
         self._sort_asc: bool = True
         self._qty_cache: dict[int, dict[int, int]] = {}    # {pm_id: {tmpl_id: qty}}
         self._price_cache: dict[int, dict[int, int]] = {}  # {pm_id: {tmpl_id: unit_price}}
+        self._loading_members = False
         self._all_projects: list = []
         self._build()
         self._restore_from_project_settings()
@@ -146,6 +148,24 @@ class IssuanceFromProjectWidget(QWidget):
         self._delivery_combo.addItems(["印刷", "メール送付"])
         action_row.addWidget(QLabel("発行方法："))
         action_row.addWidget(self._delivery_combo)
+
+        # 発行画面で案件の既定値を上書きする発行元設定
+        self._issuer_combo = QComboBox()
+        self._bank_combo = QComboBox()
+        self._seal_combo = QComboBox()
+        self._issuer_combo.setMinimumWidth(150)
+        self._bank_combo.setMinimumWidth(150)
+        self._seal_combo.setMinimumWidth(120)
+        self._issuer_combo.currentIndexChanged.connect(self._on_issuer_changed)
+        self._bank_combo.currentIndexChanged.connect(self._on_issuer_detail_changed)
+        self._seal_combo.currentIndexChanged.connect(self._on_issuer_detail_changed)
+        action_row.addSpacing(12)
+        action_row.addWidget(QLabel("発行元："))
+        action_row.addWidget(self._issuer_combo)
+        action_row.addWidget(QLabel("口座："))
+        action_row.addWidget(self._bank_combo)
+        action_row.addWidget(QLabel("印鑑："))
+        action_row.addWidget(self._seal_combo)
 
         if self._doc_type == "invoice":
             today = date.today()
@@ -207,6 +227,7 @@ class IssuanceFromProjectWidget(QWidget):
         btn_filename.clicked.connect(self._open_filename_settings)
         action_row.addWidget(btn_filename)
         layout.addLayout(action_row)
+        self._reload_issuers()
 
         if self._doc_type == "invoice":
             option_row = QHBoxLayout()
@@ -443,8 +464,88 @@ class IssuanceFromProjectWidget(QWidget):
             btn.setEnabled(not is_all)
         self._btn_issue.setToolTip("件名を選択すると発行できます" if is_all else "")
         self._setup_table_columns()
+        self._select_project_issuer(project_id)
         self._load_members()
 
+    def _reload_issuers(self, company_id=None, bank_id=None, seal_id=None):
+        from app.database.models import CompanySettings
+        session = get_session()
+        try:
+            issuers = session.query(CompanySettings).order_by(CompanySettings.id).all()
+        finally:
+            session.close()
+        self._issuer_combo.blockSignals(True)
+        self._issuer_combo.clear()
+        default_idx = 0
+        for i, issuer in enumerate(issuers):
+            self._issuer_combo.addItem(f"{'★ ' if issuer.is_default else ''}{issuer.name}", issuer.id)
+            if issuer.is_default: default_idx = i
+        idx = next((i for i in range(self._issuer_combo.count()) if self._issuer_combo.itemData(i) == company_id), default_idx)
+        if self._issuer_combo.count(): self._issuer_combo.setCurrentIndex(idx)
+        self._issuer_combo.blockSignals(False)
+        self._reload_bank_seal(bank_id, seal_id)
+
+    def _reload_bank_seal(self, bank_id=None, seal_id=None):
+        from app.database.models import BankAccount, SealImage
+        company_id = self._issuer_combo.currentData()
+        session = get_session()
+        try:
+            banks = session.query(BankAccount).filter_by(company_id=company_id).all() if company_id else []
+            seals = session.query(SealImage).filter_by(company_id=company_id).all() if company_id else []
+        finally:
+            session.close()
+        for combo, items, selected in ((self._bank_combo, banks, bank_id), (self._seal_combo, seals, seal_id)):
+            combo.blockSignals(True); combo.clear(); combo.addItem("（既定）", None)
+            for item in items: combo.addItem(f"{'★ ' if item.is_default else ''}{item.label}", item.id)
+            if selected is not None:
+                pos = combo.findData(selected)
+                if pos >= 0: combo.setCurrentIndex(pos)
+            combo.blockSignals(False)
+
+    def _on_issuer_changed(self, _index):
+        self._reload_bank_seal()
+        try:
+            self._save_project_issuer_settings()
+        except Exception as error:
+            self._show_shared_save_error(error)
+
+    def _on_issuer_detail_changed(self, _index):
+        try:
+            self._save_project_issuer_settings()
+        except Exception as error:
+            self._show_shared_save_error(error)
+
+    def _show_shared_save_error(self, error):
+        self._status_label.setText(f"共有DBへの保存に失敗しました：{error}")
+
+    def _save_project_issuer_settings(self):
+        project_id = self._proj_combo.currentData()
+        if project_id is None or not hasattr(self, "_issuer_combo"):
+            return
+        from app.database.models import Project
+        session = get_session()
+        try:
+            project = session.get(Project, project_id)
+            if project:
+                project.company_settings_id = self._issuer_combo.currentData()
+                project.bank_account_id = self._bank_combo.currentData()
+                project.seal_image_id = self._seal_combo.currentData()
+                session.commit()
+        finally:
+            session.close()
+
+    def _select_project_issuer(self, project_id):
+        from app.database.models import Project
+        company_id = bank_id = seal_id = None
+        if project_id is not None:
+            session = get_session()
+            try:
+                project = session.get(Project, project_id)
+                if project:
+                    company_id, bank_id, seal_id = project.company_settings_id, project.bank_account_id, project.seal_image_id
+            finally:
+                session.close()
+        self._reload_issuers(company_id, bank_id, seal_id)
     # ── メンバー一覧読み込み ──────────────────────────────────────
 
     _STATUS_SHORT = {"発行済み": "発行済", "支払済み": "支払済", "準備中": "準備中"}
@@ -513,6 +614,8 @@ class IssuanceFromProjectWidget(QWidget):
                         inv.id if inv else None, rcp.id if rcp else None,
                         proj_name_map.get(pid, ""),
                     ))
+            member_settings = get_member_item_settings(
+                session, [item[0] for item in pm_data])
         finally:
             session.close()
 
@@ -540,6 +643,7 @@ class IssuanceFromProjectWidget(QWidget):
         self._header_chk.setChecked(False)
         self._header_chk.blockSignals(False)
 
+        self._loading_members = True
         self._table.setRowCount(0)
         for pm_id, pm, inv_text, rcp_text, inv_id, rcp_id, proj_name in pm_data:
             row = self._table.rowCount()
@@ -574,7 +678,10 @@ class IssuanceFromProjectWidget(QWidget):
                 default_price = tmpl["unit_price"]
                 price_spin = _QtySpinBox(self._table, row, price_col)
                 price_spin.setRange(0, 9999999)
-                cached_price = self._price_cache.get(pm_id, {}).get(tmpl["id"], default_price)
+                saved = member_settings.get((pm_id, tmpl["id"]))
+                saved_price = int(saved.unit_price) if saved and saved.unit_price is not None else default_price
+                saved_qty = int(saved.quantity) if saved and saved.quantity is not None else tmpl["default_qty"]
+                cached_price = self._price_cache.get(pm_id, {}).get(tmpl["id"], saved_price)
                 price_spin.setValue(cached_price)
                 price_spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 price_spin.setStyleSheet(_mod if cached_price != default_price else _base)
@@ -582,12 +689,20 @@ class IssuanceFromProjectWidget(QWidget):
                 def _on_price(v, pid=pm_id, tid=tmpl["id"], dp=default_price,
                               sp=price_spin, b=_base, m=_mod):
                     self._price_cache.setdefault(pid, {})[tid] = v
+                    if not self._loading_members:
+                        session = get_session()
+                        try:
+                            save_member_item_setting(session, pid, tid, unit_price=v)
+                        except Exception as error:
+                            self._show_shared_save_error(error)
+                        finally:
+                            session.close()
                     sp.setStyleSheet(m if v != dp else b)
 
                 price_spin.valueChanged.connect(_on_price)
                 self._table.setCellWidget(row, price_col, price_spin)
 
-                default_qty = tmpl["default_qty"]
+                default_qty = saved_qty
                 spin = _QtySpinBox(self._table, row, qty_col)
                 spin.setRange(0, 9999)
                 cached_qty = self._qty_cache.get(pm_id, {}).get(tmpl["id"], default_qty)
@@ -598,10 +713,20 @@ class IssuanceFromProjectWidget(QWidget):
                 def _on_qty(v, pid=pm_id, tid=tmpl["id"], dq=default_qty,
                             sp=spin, b=_base, m=_mod):
                     self._qty_cache.setdefault(pid, {})[tid] = v
+                    if not self._loading_members:
+                        session = get_session()
+                        try:
+                            save_member_item_setting(session, pid, tid, quantity=v)
+                        except Exception as error:
+                            self._show_shared_save_error(error)
+                        finally:
+                            session.close()
                     sp.setStyleSheet(m if v != dq else b)
 
                 spin.valueChanged.connect(_on_qty)
                 self._table.setCellWidget(row, qty_col, spin)
+
+        self._loading_members = False
 
         hdr = self._table.horizontalHeader()
         if self._sort_col >= 0:
@@ -1026,6 +1151,11 @@ class IssuanceFromProjectWidget(QWidget):
                     iss = session.get(Issuance, issuance_id)
                     if iss is None:
                         continue
+                    iss.company_settings_id = self._issuer_combo.currentData()
+                    iss.bank_account_id = self._bank_combo.currentData()
+                    iss.seal_image_id = self._seal_combo.currentData()
+                    if doc_type == "invoice":
+                        iss.show_recipient_person = show_recipient_person
                     # 旧データを再出力する場合も、現在の名簿NO.をファイル名に利用する。
                     if (iss.roster_no or "") != (pm.roster_no or ""):
                         iss.roster_no = pm.roster_no or ""

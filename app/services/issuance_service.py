@@ -100,7 +100,10 @@ def create_issuance_for_member(session: Session, project_id: int,
                                 unit_prices: dict[int, int] | None = None,
                                 recipient_department: str = "",
                                 show_recipient_person: bool = True,
-                                roster_no: str = "") -> Issuance:
+                                roster_no: str = "",
+                                company_settings_id: int | None = None,
+                                bank_account_id: int | None = None,
+                                seal_image_id: int | None = None) -> Issuance:
     doc_number = get_next_doc_number(session, doc_type, fiscal_year, month)
     lines, total = _build_lines_from_project(
         session, project_id, quantities=quantities, unit_prices=unit_prices)
@@ -117,6 +120,9 @@ def create_issuance_for_member(session: Session, project_id: int,
         status="準備中",
         amount=total,
         show_recipient_person=show_recipient_person,
+        company_settings_id=company_settings_id,
+        bank_account_id=bank_account_id,
+        seal_image_id=seal_image_id,
     )
     session.add(issuance)
     session.flush()

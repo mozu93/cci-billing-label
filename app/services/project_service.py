@@ -1,6 +1,68 @@
 # app/services/project_service.py
 from sqlalchemy.orm import Session
-from app.database.models import Project, ProjectTemplate, ProjectMember, Issuance
+from app.database.models import (
+    Project, ProjectTemplate, ProjectMember, ProjectMemberItemSetting, Issuance,
+)
+
+
+def get_member_item_settings(session: Session, project_member_ids: list[int]) -> dict[tuple[int, int], ProjectMemberItemSetting]:
+    if not project_member_ids:
+        return {}
+    rows = (session.query(ProjectMemberItemSetting)
+            .filter(ProjectMemberItemSetting.project_member_id.in_(project_member_ids))
+            .all())
+    return {(row.project_member_id, row.item_template_id): row for row in rows}
+
+
+def save_member_item_setting(session: Session, project_member_id: int,
+                             item_template_id: int, *, quantity=None,
+                             unit_price=None) -> ProjectMemberItemSetting:
+    """名簿行設定を同時更新に安全なUPSERTで保存する。"""
+    values = {
+        "project_member_id": project_member_id,
+        "item_template_id": item_template_id,
+        "quantity": quantity,
+        "unit_price": unit_price,
+    }
+    dialect = session.bind.dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    else:
+        insert = None
+    try:
+        if insert is not None:
+            stmt = insert(ProjectMemberItemSetting).values(**values)
+            excluded = stmt.excluded
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["project_member_id", "item_template_id"],
+                set_={
+                    "quantity": (excluded.quantity if quantity is not None
+                                 else ProjectMemberItemSetting.quantity),
+                    "unit_price": (excluded.unit_price if unit_price is not None
+                                   else ProjectMemberItemSetting.unit_price),
+                },
+            )
+            session.execute(stmt)
+        else:
+            row = (session.query(ProjectMemberItemSetting)
+                   .filter_by(project_member_id=project_member_id,
+                             item_template_id=item_template_id).first())
+            if row is None:
+                session.add(ProjectMemberItemSetting(**values))
+            else:
+                if quantity is not None:
+                    row.quantity = quantity
+                if unit_price is not None:
+                    row.unit_price = unit_price
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return (session.query(ProjectMemberItemSetting)
+            .filter_by(project_member_id=project_member_id,
+                      item_template_id=item_template_id).one())
 
 
 def create_project(session: Session, name: str, category_id: int,
@@ -149,6 +211,9 @@ def get_project_members(session: Session, project_id: int,
 def remove_member_from_project(session: Session, project_member_id: int) -> None:
     pm = session.get(ProjectMember, project_member_id)
     if pm:
+        session.query(ProjectMemberItemSetting).filter_by(
+            project_member_id=project_member_id).delete(
+                synchronize_session=False)
         session.delete(pm)
         session.commit()
 

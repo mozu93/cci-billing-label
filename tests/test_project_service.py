@@ -6,6 +6,7 @@ from app.services.project_service import (
     add_template_to_project, add_roster_entries,
     get_project_members, get_project_progress, remove_member_from_project,
     copy_roster_from_project, get_project_by_id,
+    save_member_item_setting, get_member_item_settings,
 )
 
 
@@ -171,3 +172,31 @@ def test_create_project_with_issuer(db_session):
     assert proj.company_settings_id == cs.id
     assert proj.bank_account_id == bank.id
     assert proj.seal_image_id is None
+
+
+def test_member_item_setting_upsert_preserves_other_value(db_session):
+    proj = _mk_project(db_session)
+    add_roster_entries(db_session, proj.id, [{"organization_name": "○○商事"}])
+    pm = get_project_members(db_session, proj.id)[0]
+    cat = create_category(db_session, "青年部")
+    tmpl = create_item_template(db_session, cat.id, "会費", 5000, "式", 0, "invoice", "")
+
+    save_member_item_setting(db_session, pm.id, tmpl.id, quantity=3)
+    save_member_item_setting(db_session, pm.id, tmpl.id, unit_price=2500)
+
+    saved = get_member_item_settings(db_session, [pm.id])[(pm.id, tmpl.id)]
+    assert int(saved.quantity) == 3
+    assert int(saved.unit_price) == 2500
+
+
+def test_remove_member_removes_member_item_settings(db_session):
+    proj = _mk_project(db_session)
+    add_roster_entries(db_session, proj.id, [{"organization_name": "○○商事"}])
+    pm = get_project_members(db_session, proj.id)[0]
+    cat = create_category(db_session, "青年部")
+    tmpl = create_item_template(db_session, cat.id, "会費", 5000, "式", 0, "invoice", "")
+    save_member_item_setting(db_session, pm.id, tmpl.id, quantity=2)
+
+    remove_member_from_project(db_session, pm.id)
+
+    assert get_member_item_settings(db_session, [pm.id]) == {}

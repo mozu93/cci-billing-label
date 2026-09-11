@@ -186,6 +186,20 @@ class ProjectMember(Base):
     created_at = Column(DateTime, default=datetime.now)
 
 
+class ProjectMemberItemSetting(Base):
+    """名簿行ごとの請求項目の数量・単価上書き。"""
+    __tablename__ = "project_member_item_settings"
+    __table_args__ = (
+        Index("uq_project_member_item_setting", "project_member_id", "item_template_id", unique=True),
+    )
+    id = Column(Integer, primary_key=True)
+    project_member_id = Column(Integer, ForeignKey("project_members.id", ondelete="CASCADE"), nullable=False)
+    item_template_id = Column(Integer, ForeignKey("item_templates.id"), nullable=False)
+    quantity = Column(Numeric(10, 2), nullable=True)
+    unit_price = Column(Numeric(15, 0), nullable=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
 class DocumentSequence(Base):
     """請求書・領収書番号をDBトランザクション内で安全に採番する。"""
     __tablename__ = "document_sequences"
