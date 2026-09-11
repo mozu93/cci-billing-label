@@ -153,6 +153,23 @@ def test_issuer_block_moves_left_and_reserves_seal_space(monkeypatch):
     assert all(p.style.fontSize == 10 for p in info[1:])
 
 
+def test_issuer_block_shrinks_long_lines_to_prevent_wrapping():
+    from app.services.pdf.invoice_pdf import _build_company_block
+    from app.database.models import CompanySettings, Issuance
+
+    company = CompanySettings(
+        name="とても長い発行元名称株式会社テストサンプル",
+        address="三重県四日市市とても長い住所町字名123番地456号建物名789号室",
+        phone="059-352-8191-1234567890",
+    )
+    issuance = Issuance(doc_number="INV-1", doc_type="invoice")
+    parts = _build_company_block(
+        issuance, company, "2026年7月30日", seal_image=None, col_w=180)
+    info = [p for p in parts if hasattr(p, "text")][2:]
+
+    assert any(p.style.fontSize < 10 for p in info)
+
+
 def test_build_client_block_hides_person_when_disabled():
     from app.services.pdf.invoice_pdf import _build_client_block
     from app.database.models import Issuance

@@ -12,6 +12,7 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from app.services.pdf.fonts import register_fonts, FONT_NORMAL, FONT_BOLD
 from app.services.pdf.seal_image import seal_image_reader
 
@@ -345,27 +346,41 @@ def _build_company_block(issuance, company, issue_str: str,
         if has_seal else 0
     )
     r_style  = _s("co_r",    size=10, align=TA_RIGHT)
-    nm_style = _s(
-        "co_name", size=11, bold=True,
-        leftIndent=left_indent, rightIndent=right_indent)
-    i_style  = _s(
-        "co_info", size=10,
-        leftIndent=left_indent, rightIndent=right_indent)
+    issuer_width = max((col_w or 0) - left_indent - right_indent, 1)
+
+    def _issuer_style(style_name, text, size, bold=False):
+        """発行元情報が折り返さないよう、必要な行だけ文字を縮小する。"""
+        register_fonts()
+        font_name = FONT_BOLD if bold else FONT_NORMAL
+        fitted = float(size)
+        while (stringWidth(str(text), font_name, fitted) > issuer_width
+               and fitted > 7):
+            fitted -= 0.5
+        return _s(
+            style_name, size=fitted, bold=bold,
+            leftIndent=left_indent, rightIndent=right_indent,
+        )
+
+    nm_text = (company.name if company else None) or "（自社名未設定）"
+    nm_style = _issuer_style("co_name", nm_text, 11, bold=True)
 
     co_parts = []
     if company:
-        co_parts.append(Paragraph(company.name or "（自社名未設定）", nm_style))
+        co_parts.append(Paragraph(nm_text, nm_style))
         if company.postal_code:
-            co_parts.append(Paragraph(f"〒{company.postal_code}", i_style))
+            text = f"〒{company.postal_code}"
+            co_parts.append(Paragraph(text, _issuer_style("co_postal", text, 10)))
         if company.address:
-            co_parts.append(Paragraph(company.address, i_style))
+            co_parts.append(Paragraph(company.address, _issuer_style("co_addr", company.address, 10)))
         if company.phone:
-            co_parts.append(Paragraph(f"TEL：{company.phone}", i_style))
+            text = f"TEL：{company.phone}"
+            co_parts.append(Paragraph(text, _issuer_style("co_phone", text, 10)))
         if company.fax:
-            co_parts.append(Paragraph(f"FAX：{company.fax}", i_style))
+            text = f"FAX：{company.fax}"
+            co_parts.append(Paragraph(text, _issuer_style("co_fax", text, 10)))
         if company.invoice_reg_number:
-            co_parts.append(Paragraph(
-                f"登録番号：{company.invoice_reg_number}", i_style))
+            text = f"登録番号：{company.invoice_reg_number}"
+            co_parts.append(Paragraph(text, _issuer_style("co_reg", text, 10)))
         co_parts.append(Spacer(1, 11*mm))
 
     if has_seal:
