@@ -140,7 +140,12 @@ class _ItemRow(QFrame):
         return self.name_combo.currentText().strip()
 
     def template_id(self) -> int | None:
-        return self.name_combo.currentData()
+        index = self.name_combo.currentIndex()
+        if index <= 0:
+            return None
+        if self.name_combo.currentText() != self.name_combo.itemText(index):
+            return None
+        return self.name_combo.itemData(index)
 
 
 class ProjectFormDialog(QDialog):

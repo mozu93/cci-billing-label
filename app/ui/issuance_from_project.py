@@ -1244,6 +1244,14 @@ class IssuanceFromProjectWidget(QWidget):
                     iss = session.get(Issuance, issuance_id)
                     if iss is None:
                         continue
+                    iss.member_number = pm.member_number or ""
+                    iss.recipient_organization = pm.organization_name or ""
+                    iss.recipient_kana = pm.organization_kana or ""
+                    iss.recipient_department = pm.department or ""
+                    iss.recipient_name = pm.representative_name or ""
+                    iss.recipient_name_kana = pm.representative_kana or ""
+                    iss.recipient_phone = pm.phone or ""
+                    iss.recipient_email = pm.email or ""
                     iss.company_settings_id = self._issuer_combo.currentData()
                     iss.bank_account_id = self._bank_combo.currentData()
                     iss.seal_image_id = self._seal_combo.currentData()
