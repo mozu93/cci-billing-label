@@ -149,23 +149,16 @@ class IssuanceFromProjectWidget(QWidget):
         action_row.addWidget(QLabel("発行方法："))
         action_row.addWidget(self._delivery_combo)
 
-        # 発行画面で案件の既定値を上書きする発行元設定
+        # 発行元設定は下の専用行に配置し、画面幅が狭くても切れないようにする。
         self._issuer_combo = QComboBox()
         self._bank_combo = QComboBox()
         self._seal_combo = QComboBox()
-        self._issuer_combo.setMinimumWidth(150)
-        self._bank_combo.setMinimumWidth(150)
-        self._seal_combo.setMinimumWidth(120)
+        self._issuer_combo.setMinimumWidth(180)
+        self._bank_combo.setMinimumWidth(180)
+        self._seal_combo.setMinimumWidth(150)
         self._issuer_combo.currentIndexChanged.connect(self._on_issuer_changed)
         self._bank_combo.currentIndexChanged.connect(self._on_issuer_detail_changed)
         self._seal_combo.currentIndexChanged.connect(self._on_issuer_detail_changed)
-        action_row.addSpacing(12)
-        action_row.addWidget(QLabel("発行元："))
-        action_row.addWidget(self._issuer_combo)
-        action_row.addWidget(QLabel("口座："))
-        action_row.addWidget(self._bank_combo)
-        action_row.addWidget(QLabel("印鑑："))
-        action_row.addWidget(self._seal_combo)
 
         if self._doc_type == "invoice":
             today = date.today()
@@ -227,6 +220,18 @@ class IssuanceFromProjectWidget(QWidget):
         btn_filename.clicked.connect(self._open_filename_settings)
         action_row.addWidget(btn_filename)
         layout.addLayout(action_row)
+
+        issuer_row = QHBoxLayout()
+        issuer_row.addWidget(QLabel("発行元："))
+        issuer_row.addWidget(self._issuer_combo)
+        issuer_row.addSpacing(12)
+        issuer_row.addWidget(QLabel("口座："))
+        issuer_row.addWidget(self._bank_combo)
+        issuer_row.addSpacing(12)
+        issuer_row.addWidget(QLabel("印鑑："))
+        issuer_row.addWidget(self._seal_combo)
+        issuer_row.addStretch()
+        layout.addLayout(issuer_row)
         self._reload_issuers()
 
         if self._doc_type == "invoice":
@@ -266,6 +271,10 @@ class IssuanceFromProjectWidget(QWidget):
             " background: #2563EB; color: white; border-radius: 6px;")
         self._btn_issue.clicked.connect(self._issue_checked)
         layout.addWidget(self._btn_issue)
+        self._btn_preview = QPushButton(f"選択した{label}をプレビュー")
+        self._btn_preview.setFixedHeight(36)
+        self._btn_preview.clicked.connect(self._preview_checked)
+        layout.addWidget(self._btn_preview)
 
     def _setup_table_columns(self):
         hdr = self._table.horizontalHeader()
@@ -453,14 +462,18 @@ class IssuanceFromProjectWidget(QWidget):
                     {
                         "id": pt.item_template.id,
                         "name": pt.item_template.name,
+                        "unit": pt.item_template.unit or "式",
                         "unit_price": int(pt.unit_price_override or pt.item_template.unit_price or 0),
+                        "tax_rate": (pt.tax_rate_override if pt.tax_rate_override is not None
+                                      else pt.item_template.tax_rate),
                         "default_qty": int(pt.default_quantity) if pt.default_quantity is not None else 1,
                     }
                     for pt in pts
                 ]
             finally:
                 session.close()
-        for btn in (self._btn_issue, self._btn_export_xlsx, self._btn_import_xlsx):
+        for btn in (self._btn_issue, self._btn_preview,
+                    self._btn_export_xlsx, self._btn_import_xlsx):
             btn.setEnabled(not is_all)
         self._btn_issue.setToolTip("件名を選択すると発行できます" if is_all else "")
         self._setup_table_columns()
@@ -1044,6 +1057,86 @@ class IssuanceFromProjectWidget(QWidget):
             self._pdf_output_combo.setCurrentIndex(output_idx)
 
     # ── 発行処理 ──────────────────────────────────────────────────
+
+    def _preview_checked(self):
+        """選択行の現在値でPDFを生成する（IssuanceはDBへ保存しない）。"""
+        rows = self._checked_rows()
+        if len(rows) != 1:
+            QMessageBox.information(
+                self, "プレビュー対象",
+                "プレビューする行を1行だけ選択してください。")
+            return
+        row_idx, (pm_id, _invoice_id, _receipt_id) = rows[0]
+        if not self._templates:
+            QMessageBox.information(self, "項目なし", "発行項目が設定されていません。")
+            return
+
+        session = get_session()
+        try:
+            from app.database.models import Project, ProjectMember
+            from app.utils.pdf_helpers import (
+                build_preview_issuance, generate_and_open, get_pdf_output_dir,
+            )
+            project_id = self._proj_combo.currentData()
+            project = session.get(Project, project_id)
+            member = session.get(ProjectMember, pm_id)
+            if not project or not member:
+                QMessageBox.warning(self, "プレビュー不可", "案件または名簿が見つかりません。")
+                return
+
+            quantities = self._get_row_quantities(row_idx)
+            prices = self._get_row_prices(row_idx)
+            lines = []
+            for tmpl in self._templates:
+                qty = quantities.get(tmpl["id"], tmpl["default_qty"])
+                if qty <= 0:
+                    continue
+                price = prices.get(tmpl["id"], tmpl["unit_price"])
+                lines.append({
+                    "item_template_id": tmpl["id"],
+                    "item_name": tmpl["name"],
+                    "quantity": qty,
+                    "unit": tmpl.get("unit", "式"),
+                    "unit_price": price,
+                    "tax_rate": tmpl.get("tax_rate", 10),
+                })
+            if not lines:
+                QMessageBox.information(self, "プレビュー不可", "数量がすべて0です。")
+                return
+
+            issuance = build_preview_issuance(lines, self._doc_type)
+            issuance.project_id = project.id
+            issuance.project_member_id = member.id
+            issuance.recipient_organization = member.organization_name or ""
+            issuance.recipient_name = member.representative_name or ""
+            issuance.recipient_department = member.department or ""
+            issuance.roster_no = member.roster_no or ""
+            issuance.company_settings_id = self._issuer_combo.currentData()
+            issuance.bank_account_id = self._bank_combo.currentData()
+            issuance.seal_image_id = self._seal_combo.currentData()
+            if self._doc_type == "invoice":
+                issuance.show_recipient_person = self._show_person_chk.isChecked()
+                qd = self._due_date.date()
+                due_date = date(qd.year(), qd.month(), qd.day())
+                window_envelope = self._window_envelope_chk.isChecked()
+            else:
+                due_date = None
+                window_envelope = False
+            safe_name = "".join(c for c in (member.organization_name or member.representative_name or "preview")
+                                if c not in '\\/:*?"<>|')
+            path = os.path.join(get_pdf_output_dir(), f"_preview_{safe_name}.pdf")
+            result = generate_and_open(
+                issuance, session, due_date=due_date, open_file=True,
+                save_path=path, window_envelope=window_envelope,
+                project=project, commit=False,
+            )
+            if not result:
+                QMessageBox.warning(self, "プレビュー不可", "発行元情報が設定されていません。")
+        except Exception as error:
+            QMessageBox.critical(self, "プレビューエラー", str(error))
+        finally:
+            session.rollback()
+            session.close()
 
     def _do_issue_rows(self, rows: list[tuple[int, tuple]]) -> list[str]:
         """rows = [(row_idx, (pm_id, inv_id, rcp_id)), ...] を発行して PDF 生成。
