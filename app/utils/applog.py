@@ -16,6 +16,41 @@ LOG_FILE = CONFIG_DIR / "app.log"
 _ROOT_NAME = "cci"
 _configured = False
 
+# 短すぎる値を伏せ字にすると無関係な文字列まで壊すため、下限を設ける。
+_MIN_SECRET_LEN = 6
+_MASK = "***"
+
+
+def _secret_values() -> list[str]:
+    """設定に保存されている秘密情報。ログに出さないための照合用。"""
+    # 循環importを避けるため、関数内で読む。
+    from app.utils.app_config import get_config
+    try:
+        config = get_config()
+    except Exception:
+        return []
+    values = [config.get("password", "")]
+    m365 = config.get("m365", {})
+    if isinstance(m365, dict):
+        values.append(m365.get("trace_client_secret", ""))
+    return [v for v in values
+            if isinstance(v, str) and len(v) >= _MIN_SECRET_LEN]
+
+
+class RedactingFormatter(logging.Formatter):
+    """例外メッセージに秘密情報が混ざっても、ファイルには残さない。
+
+    ライブラリ側の例外(MSAL等)が何を含むか制御できないため、
+    書き出す直前に既知の秘密情報を伏せ字にする。
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        text = super().format(record)
+        for value in _secret_values():
+            if value in text:
+                text = text.replace(value, _MASK)
+        return text
+
 
 def _configure() -> None:
     logger = logging.getLogger(_ROOT_NAME)
@@ -32,7 +67,7 @@ def _configure() -> None:
     except OSError:
         # ログファイルを作れない環境でもアプリは動かす。
         handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(logging.Formatter(
+    handler.setFormatter(RedactingFormatter(
         "%(asctime)s %(levelname)s %(name)s: %(message)s"))
     logger.addHandler(handler)
 
