@@ -1,5 +1,6 @@
 # app/database/connection.py
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker, Session
 from app.utils.app_config import get_db_url
 
@@ -9,13 +10,13 @@ _SessionFactory = None
 def get_engine(url: str | None = None):
     target = url or get_db_url()
     if target.startswith("postgresql"):
-        from urllib.parse import urlparse, unquote
-        p = urlparse(target)
-        host = p.hostname or "localhost"
-        port = p.port or 5432
-        dbname = p.path.lstrip("/")
-        user = unquote(p.username or "")
-        password = unquote(p.password or "")
+        # urlparse+unquote では '%' を含むパスワードが壊れるため make_url を使う。
+        u = make_url(target)
+        host = u.host or "localhost"
+        port = u.port or 5432
+        dbname = u.database or ""
+        user = u.username or ""
+        password = u.password or ""
 
         def _pg_connect():
             import pg8000.dbapi as pg

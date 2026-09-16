@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 
+from sqlalchemy.engine import URL
+
 CONFIG_DIR = Path.home() / ".cci-billing"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
@@ -92,7 +94,12 @@ def get_db_url() -> str:
         database = config["database"]
         user = config["user"]
         password = config["password"]
-        return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+        # 記号(% / # ? など)を含むパスワードでもURLが壊れないようSQLAlchemyに組み立てさせる。
+        return URL.create(
+            "postgresql",
+            username=user, password=password,
+            host=host, port=int(port), database=database,
+        ).render_as_string(hide_password=False)
     db_path = CONFIG_DIR / "cci_billing.db"
     CONFIG_DIR.mkdir(exist_ok=True)
     return f"sqlite:///{db_path}"
