@@ -5,7 +5,7 @@ import unicodedata
 from datetime import date as _date
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
-from reportlab.lib.colors import HexColor, black, white
+from reportlab.lib.colors import HexColor, white
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable,
     Flowable,
@@ -85,7 +85,8 @@ class _FitOnePage(SimpleDocTemplate):
         super().__init__(*args, **kwargs)
 
     def build(self, flowables, **kw):
-        import io, copy
+        import io
+        import copy
         try:
             tall_h = A4[1] * 5
             buf = io.BytesIO()
@@ -562,8 +563,9 @@ def _build_tax_rows(issuance, suffix: str, total: int, tax_W: float = 120*mm):
     tax8_incl  = sum(int(l.line_total) for l in lines if int(l.tax_rate) == 8)
     exempt     = sum(int(l.line_total) for l in lines if int(l.tax_rate) == 0)
     non_tax    = sum(int(l.line_total) for l in lines if int(l.tax_rate) == -1)
-    tax10_amt  = int(tax10_incl * 10 / 110)
-    tax8_amt   = int(tax8_incl  *  8 / 108)
+    # 浮動小数点を挟まず整数除算で切り捨てる（金額計算のため）。
+    tax10_amt  = tax10_incl * 10 // 110
+    tax8_amt   = tax8_incl  *  8 // 108
 
     rows: list[tuple[str, str]] = []
     if tax10_incl:
