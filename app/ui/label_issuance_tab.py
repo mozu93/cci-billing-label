@@ -162,7 +162,7 @@ class LabelIssuanceTab(QWidget):
         # ── アクション行（モード / 用紙 / フォント / 生成ボタン） ─────────
         action_row = QHBoxLayout()
         from app.services.pdf.label_pdf import (
-            LABEL_LAYOUTS, FONT_OPTIONS, DEFAULT_FONT_KEY
+            FONT_OPTIONS, DEFAULT_FONT_KEY
         )
 
         action_row.addWidget(QLabel("モード："))

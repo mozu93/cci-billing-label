@@ -1344,7 +1344,7 @@ class IssuanceFromProjectWidget(QWidget):
     def _send_issue_emails(self, issued_issuances: list, errors: list[str]):
         """発行方法「メール送付」で発行した分のPDFを1件ずつ確認してM365で送信する。"""
         from PyQt6.QtCore import QThread
-        from PyQt6.QtWidgets import QApplication, QProgressDialog, QDialog
+        from PyQt6.QtWidgets import QApplication, QDialog
         from app.database.models import ProjectMember
         from app.services.email_service import (
             get_issuance_email_context,

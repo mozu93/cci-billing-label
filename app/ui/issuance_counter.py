@@ -148,7 +148,8 @@ class _PostalWorker(QThread):
 
     def run(self):
         try:
-            import urllib.request, json
+            import urllib.request
+            import json
             url = (f"https://zipcloud.ibsnet.co.jp/api/search"
                    f"?zipcode={self._zipcode}")
             with urllib.request.urlopen(url, timeout=5) as resp:

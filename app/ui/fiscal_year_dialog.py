@@ -9,7 +9,6 @@ from app.database.connection import get_session
 from app.services.fiscal_year_service import (
     get_rollover_candidates, rollover_fiscal_year
 )
-from app.services.project_service import get_project_members
 
 
 class FiscalYearDialog(QDialog):

@@ -9,7 +9,7 @@ from app.services.project_service import (
 from app.services.issuance_service import (
     get_next_doc_number, create_issuance_for_member,
     create_counter_issuance, mark_as_issued, record_payment,
-    get_pending_issuances_for_project_member, get_project_issuances
+    get_pending_issuances_for_project_member
 )
 
 
@@ -402,7 +402,7 @@ def test_issue_receipt_for_invoice(db_session):
     from app.services.issuance_service import (
         create_issuance_for_member, mark_as_issued, issue_receipt_for_invoice,
     )
-    from app.database.models import Payment, Issuance
+    from app.database.models import Payment
     from datetime import date
     proj, tmpl, pm = _setup(db_session)
     invoice = create_issuance_for_member(

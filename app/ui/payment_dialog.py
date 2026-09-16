@@ -517,7 +517,7 @@ class _ReminderDialog(QDialog):
             session.close()
 
         # 事前エラー行を結果列に反映
-        for iss_id, msg in pre_errors:
+        for iss_id, _msg in pre_errors:
             r = self._row_for_iss_id(iss_id)
             if r is not None:
                 self._set_row_result(r, "失敗", success=False)

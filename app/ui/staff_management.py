@@ -10,7 +10,7 @@ from app.database.connection import get_session
 from app.services.staff_service import (
     create_staff, get_all_staff, deactivate_staff, reactivate_staff,
     set_admin, has_any_admin, update_staff,
-    set_department_head, update_staff_email, get_department_heads,
+    get_department_heads,
     import_staff_from_csv,
 )
 from app.utils import current_user

@@ -48,7 +48,7 @@ def test_create_project_is_active(db_session):
 
 
 def test_reopen_project(db_session):
-    from app.services.project_service import create_project, close_project, reopen_project, get_project_by_id
+    from app.services.project_service import create_project, reopen_project
     p = create_project(db_session, name="x", category_id=None, fiscal_year=2026, project_type="list")
     close_project(db_session, p.id)
     assert get_project_by_id(db_session, p.id).status == "closed"

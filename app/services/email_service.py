@@ -311,7 +311,7 @@ def prepare_issuance_email(session, issuance,
     try:
         to_addr = validate_email_addr(to_addr)
     except ValueError as e:
-        raise ValueError(f"{label}：{e}")
+        raise ValueError(f"{label}：{e}") from e
     if not issuance.pdf_path or not os.path.exists(issuance.pdf_path):
         raise ValueError(f"{label}：添付するPDFファイルが見つかりません。")
     context = get_issuance_email_context(session, issuance)
@@ -347,7 +347,7 @@ def prepare_reminder_email(session, issuance, due_date=None,
     try:
         to_addr = validate_email_addr(to_addr)
     except ValueError as e:
-        raise ValueError(f"{label}：{e}")
+        raise ValueError(f"{label}：{e}") from e
     proj = (
         session.get(Project, issuance.project_id)
         if issuance.project_id else None

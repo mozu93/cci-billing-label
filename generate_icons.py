@@ -5,7 +5,7 @@ CCI請求書システム アイコン生成スクリプト
 """
 import os
 import math
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 
 OUTPUT_DIR = "assets/icons"
 SIZES = [16, 32, 48, 64, 128, 256]

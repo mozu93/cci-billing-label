@@ -1,5 +1,6 @@
 # tests/test_invoice_pdf.py
-import os, tempfile
+import os
+import tempfile
 from pypdf import PdfReader
 from app.services.category_service import create_category
 from app.services.item_template_service import create_item_template

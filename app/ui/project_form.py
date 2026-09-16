@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QFrame,
     QScrollArea, QGroupBox, QSizePolicy
 )
-from PyQt6.QtCore import Qt
 from app.database.connection import get_session
 from app.services.category_service import get_active_categories, create_category
 from app.services.item_template_service import (

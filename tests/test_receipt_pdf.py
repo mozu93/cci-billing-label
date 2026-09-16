@@ -1,5 +1,6 @@
 # tests/test_receipt_pdf.py
-import os, tempfile
+import os
+import tempfile
 import pytest
 from pypdf import PdfReader
 from app.services.category_service import create_category

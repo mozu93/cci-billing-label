@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QLabel, QComboBox, QPushButton, QHeaderView, QDateEdit, QFileDialog,
     QMessageBox, QLineEdit
 )
-from PyQt6.QtCore import Qt, QDate
+from PyQt6.QtCore import QDate
 from app.database.connection import get_session
 from app.database.models import OperationLog
 

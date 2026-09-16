@@ -1,4 +1,3 @@
-from unittest.mock import MagicMock
 
 
 def test_display_text_newline_replaced():

@@ -4,7 +4,6 @@ from datetime import date
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QComboBox, QLabel, QHeaderView, QMessageBox, QLineEdit,
-    QCheckBox,
 )
 from PyQt6.QtCore import Qt, QTimer
 from app.database.connection import get_session

@@ -3,7 +3,7 @@ import calendar
 from datetime import date
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QHBoxLayout,
-    QDateEdit, QPushButton, QLabel, QCheckBox
+    QDateEdit, QPushButton, QCheckBox
 )
 from PyQt6.QtCore import QDate
 

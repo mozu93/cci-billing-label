@@ -101,7 +101,8 @@ def import_staff_from_csv(session: Session, file_path: str) -> tuple[int, int]:
 
     Returns: (追加件数, スキップ件数)
     """
-    import csv, pathlib
+    import csv
+    import pathlib
 
     suffix = pathlib.Path(file_path).suffix.lower()
     rows: list[dict] = []
@@ -111,7 +112,7 @@ def import_staff_from_csv(session: Session, file_path: str) -> tuple[int, int]:
         ws = wb.active
         headers = [str(c.value or "").strip() for c in next(ws.iter_rows(max_row=1))]
         for excel_row in ws.iter_rows(min_row=2, values_only=True):
-            rows.append({h: (str(v).strip() if v is not None else "") for h, v in zip(headers, excel_row)})
+            rows.append({h: (str(v).strip() if v is not None else "") for h, v in zip(headers, excel_row, strict=False)})
         wb.close()
     else:
         with open(file_path, encoding="utf-8-sig", newline="") as f:

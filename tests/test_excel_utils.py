@@ -1,5 +1,5 @@
 # tests/test_excel_utils.py
-from app.utils.excel_utils import parse_tsv_text, MEMBER_COLUMNS
+from app.utils.excel_utils import parse_tsv_text
 
 
 def test_parse_tsv_basic():

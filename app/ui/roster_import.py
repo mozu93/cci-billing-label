@@ -12,6 +12,12 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QMimeData, Qt
 from PyQt6.QtGui import QColor
+from app.database.connection import get_session
+from app.utils.excel_utils import (
+    ROSTER_COLUMNS, FIELD_LABELS, REQUIRED_ANY,
+    parse_tsv_text_raw, parse_excel_file_raw, column_count,
+    build_member_rows,
+)
 
 
 class _TsvPasteEdit(QPlainTextEdit):
@@ -19,13 +25,6 @@ class _TsvPasteEdit(QPlainTextEdit):
     def insertFromMimeData(self, source: QMimeData):
         if source.hasText():
             self.insertPlainText(source.text())
-from app.database.connection import get_session
-from app.utils.excel_utils import (
-    ROSTER_COLUMNS, FIELD_LABELS, REQUIRED_ANY,
-    parse_tsv_text_raw, parse_excel_file_raw, column_count,
-    guess_mapping_from_header, build_member_rows,
-)
-
 HEADERS = [FIELD_LABELS[c] for c in ROSTER_COLUMNS]
 
 _HEADER_ALIASES = {

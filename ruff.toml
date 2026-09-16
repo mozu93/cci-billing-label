@@ -1,0 +1,19 @@
+# CIで機械的に検出する範囲を明示的に固定する。
+# 上位ディレクトリの設定を拾わないよう、プロジェクト直下に置いている。
+target-version = "py311"
+line-length = 120
+exclude = ["build", "dist", "installer_output", "tmp"]
+
+[lint]
+# まずはバグに直結する検査のみを有効にする。
+# import順(I)やスタイル(E7)は既存コードとの差分が大きいため、段階的に追加する。
+select = [
+    "E4",   # import周りの構文
+    "E9",   # 構文エラー・実行不能
+    "F",    # pyflakes: 未定義名・未使用import など
+    "B",    # flake8-bugbear: 実害の出やすい書き方
+]
+
+[lint.per-file-ignores]
+# テストは例外の型を絞らない書き方を許容する。
+"tests/*" = ["B017"]

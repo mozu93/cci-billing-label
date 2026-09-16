@@ -65,7 +65,6 @@ class MainWindow(QMainWindow):
             self.move(x, y)
 
     def _setup_menu(self):
-        from app.version import __version__
         menubar = self.menuBar()
 
         # ファイルメニュー
@@ -94,7 +93,8 @@ class MainWindow(QMainWindow):
         help_menu.addAction(act_about)
 
     def _open_manual(self):
-        import os, sys
+        import os
+        import sys
         from pathlib import Path
         if getattr(sys, "frozen", False):
             base = Path(sys._MEIPASS)

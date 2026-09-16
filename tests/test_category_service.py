@@ -1,6 +1,6 @@
 # tests/test_category_service.py
 from app.services.category_service import (
-    create_category, get_active_categories, update_category, deactivate_category
+    create_category, get_active_categories, deactivate_category
 )
 
 

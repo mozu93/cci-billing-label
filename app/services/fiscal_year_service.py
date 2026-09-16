@@ -2,8 +2,7 @@
 from sqlalchemy.orm import Session
 from app.database.models import Project
 from app.services.project_service import (
-    get_project_by_id, get_project_templates, get_project_members,
-    add_template_to_project, copy_roster_from_project
+    get_project_by_id, get_project_templates, add_template_to_project, copy_roster_from_project
 )
 
 
