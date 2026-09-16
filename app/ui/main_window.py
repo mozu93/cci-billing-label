@@ -5,6 +5,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QAction, QGuiApplication
 from PyQt6.QtCore import QTimer
+from app.utils.applog import get_logger
+
+_log = get_logger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -203,7 +206,8 @@ class MainWindow(QMainWindow):
                     f"自動バックアップ完了: {Path(path).name}", 5000
                 )
         except Exception:
-            pass  # 自動バックアップ失敗はサイレント
+            # 自動バックアップ失敗で起動を止めない。原因はログに残す。
+            _log.warning("自動バックアップに失敗", exc_info=True)
 
     def _change_staff(self):
         from app.database.connection import get_session

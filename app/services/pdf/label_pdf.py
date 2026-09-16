@@ -23,6 +23,9 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 import os
 
 from app.utils.customer_barcode import build_barcode_chars, draw_barcode, barcode_height
+from app.utils.applog import get_logger
+
+_log = get_logger(__name__)
 
 _FONT_FILES = {
     "Meiryo":        ("C:/Windows/Fonts/meiryo.ttc",           0),
@@ -37,7 +40,7 @@ for _name, (_path, _idx) in _FONT_FILES.items():
         pdfmetrics.registerFont(TTFont(_name, _path, subfontIndex=_idx))
         _registered.add(_name)
     except Exception:
-        pass
+        _log.warning("ラベル用フォント登録に失敗: %s (%s)", _name, _path, exc_info=True)
 
 _ALL_FONT_OPTIONS: dict[str, str] = {
     "MSPゴシック":   "MSPGothic",
@@ -353,7 +356,7 @@ def _draw_normal(c, x0, y0, w, h,
             chars = build_barcode_chars(re.sub(r'\D', '', postal), barcode_addr)
             draw_barcode(c, x0 + P, y0 + _BC_MARGIN, chars)
         except Exception:
-            pass
+            _log.warning("カスタマーバーコードの描画に失敗: %s", postal, exc_info=True)
 
 
 def _draw_no_person(c, x0, y0, w, h, company, postal, addr1, addr2,
@@ -444,7 +447,7 @@ def _draw_no_person(c, x0, y0, w, h, company, postal, addr1, addr2,
             chars = build_barcode_chars(re.sub(r'\D', '', postal), barcode_addr)
             draw_barcode(c, x0 + P, y0 + _BC_MARGIN, chars)
         except Exception:
-            pass
+            _log.warning("カスタマーバーコードの描画に失敗: %s", postal, exc_info=True)
 
 
 def _draw_nametag(c, x0, y0, w, h, company, title, person, font: str = "MSPGothic"):

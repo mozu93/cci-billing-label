@@ -16,6 +16,9 @@ from app.services.category_service import get_active_categories
 from app.services.item_template_service import get_all_active_templates
 from app.services.issuance_service import create_direct_issuance, update_direct_issuance
 from app.utils import current_user
+from app.utils.applog import get_logger
+
+_log = get_logger(__name__)
 
 # 列幅・行高（px）
 W_CAT   = 150
@@ -160,7 +163,7 @@ class _PostalWorker(QThread):
                 addr = r.get("address1", "") + r.get("address2", "") + r.get("address3", "")
                 self.found.emit(addr)
         except Exception:
-            pass
+            _log.info("郵便番号検索に失敗: %s", self._zipcode, exc_info=True)
 
 
 class IssuanceCounterWidget(QWidget):

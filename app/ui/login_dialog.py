@@ -14,6 +14,9 @@ from app.services.staff_service import (
 )
 from app.utils import current_user
 from app.utils.app_config import get_config, save_config
+from app.utils.applog import get_logger
+
+_log = get_logger(__name__)
 
 
 class _SetPasswordDialog(QDialog):
@@ -224,7 +227,7 @@ class LoginDialog(QDialog):
                 config.pop("auto_login_staff_id", None)
                 save_config(config)
         except Exception:
-            pass
+            _log.warning("自動ログインの処理に失敗", exc_info=True)
         finally:
             session.close()
 

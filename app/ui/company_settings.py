@@ -8,6 +8,9 @@ from PyQt6.QtWidgets import (
 
 from app.database.connection import get_session
 from app.database.models import CompanySettings, BankAccount, SealImage
+from app.utils.applog import get_logger
+
+_log = get_logger(__name__)
 
 
 def _ask_label(parent, title: str, prompt: str, default: str = "") -> tuple[str, bool]:
@@ -232,7 +235,8 @@ class CompanySettingsWidget(QWidget):
                             session.commit()
                             self._seal_table.item(r, 1).setText("DB保存済")
                         except Exception:
-                            pass
+                            _log.warning(
+                                "印影画像のBLOB移行に失敗: %s", s.path, exc_info=True)
         finally:
             session.close()
 

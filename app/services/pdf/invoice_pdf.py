@@ -15,6 +15,9 @@ from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from app.services.pdf.fonts import register_fonts, FONT_NORMAL, FONT_BOLD
 from app.services.pdf.seal_image import seal_image_reader
+from app.utils.applog import get_logger
+
+_log = get_logger(__name__)
 
 # ── 白黒カラー ──────────────────────────────────────────────
 C_BLACK  = HexColor("#1A1A1A")
@@ -102,7 +105,7 @@ class _FitOnePage(SimpleDocTemplate):
                 if content_h > avail_h:
                     self._fit_scale = (avail_h / content_h) * 0.99
         except Exception:
-            pass
+            _log.warning("1ページ収めの縮尺計算に失敗", exc_info=True)
         super().build(flowables, **kw)
 
     def _calc(self):
@@ -434,7 +437,7 @@ class _IssuerSealOverlay(Flowable):
                 preserveAspectRatio=True,
             )
         except Exception:
-            pass
+            _log.warning("請求書の印影描画に失敗", exc_info=True)
         # 文字を印鑑より後に描き、重なった箇所でも文字を手前に表示する。
         self._content.drawOn(self.canv, 0, self.height - content_h)
 

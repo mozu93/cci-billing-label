@@ -13,6 +13,9 @@ from reportlab.pdfgen.canvas import Canvas
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from app.services.pdf.fonts import register_fonts, FONT_NORMAL, FONT_BOLD
 from app.services.pdf.seal_image import seal_image_reader
+from app.utils.applog import get_logger
+
+_log = get_logger(__name__)
 
 C_GRAY_BOX   = HexColor("#D8D8D8")
 C_BORDER     = HexColor("#555555")
@@ -412,7 +415,7 @@ def _draw_company_info(c, company, seal_image, x0, y0, w, top):
                             x0 + w - sz - P - 2 * mm, seal_y - 2 * mm,
                             sz, sz, mask="auto", preserveAspectRatio=True)
             except Exception:
-                pass
+                _log.warning("領収書の印影描画に失敗", exc_info=True)
 
 
 # ── ユーティリティ ────────────────────────────────────────

@@ -41,6 +41,9 @@ from app.utils.app_config import (
     get_m365_tenant_id,
     save_m365_config,
 )
+from app.utils.applog import get_logger
+
+_log = get_logger(__name__)
 
 
 class EmailTemplateWidget(QWidget):
@@ -420,7 +423,7 @@ class EmailSettingsWidget(QWidget):
                 self._m365_account.addItems(
                     M365AuthService(client_id, tenant_id).get_cached_accounts())
             except Exception:
-                pass
+                _log.warning("M365のキャッシュ済みアカウント取得に失敗", exc_info=True)
         if preferred and self._m365_account.findText(preferred) < 0:
             self._m365_account.addItem(preferred)
         if preferred:

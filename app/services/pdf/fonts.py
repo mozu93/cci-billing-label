@@ -1,6 +1,9 @@
 # app/services/pdf/fonts.py
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from app.utils.applog import get_logger
+
+_log = get_logger(__name__)
 
 FONT_NORMAL = "Meiryo"
 FONT_BOLD   = "Meiryo-Bold"
@@ -20,5 +23,5 @@ def register_fonts() -> None:
         try:
             pdfmetrics.registerFont(TTFont(name, path, subfontIndex=idx))
         except Exception:
-            pass
+            _log.warning("フォント登録に失敗: %s (%s)", name, path, exc_info=True)
     _registered = True
