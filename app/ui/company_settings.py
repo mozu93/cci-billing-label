@@ -7,10 +7,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.database.connection import get_session
-from app.database.models import CompanySettings, BankAccount, SealImage
-from app.utils.applog import get_logger
-
-_log = get_logger(__name__)
+from app.services import company_service as cs_svc
 
 
 def _ask_label(parent, title: str, prompt: str, default: str = "") -> tuple[str, bool]:
@@ -153,7 +150,7 @@ class CompanySettingsWidget(QWidget):
     def _load_issuers(self, select_id: int | None = None):
         session = get_session()
         try:
-            issuers = session.query(CompanySettings).order_by(CompanySettings.id).all()
+            issuers = cs_svc.list_issuers(session)
             self._issuer_table.setRowCount(0)
             for cs in issuers:
                 row = self._issuer_table.rowCount()
@@ -190,7 +187,7 @@ class CompanySettingsWidget(QWidget):
             return
         session = get_session()
         try:
-            cs = session.get(CompanySettings, self._selected_company_id)
+            cs = cs_svc.get_issuer(session, self._selected_company_id)
             if not cs:
                 return
             self._print_seal_chk.blockSignals(True)
@@ -199,7 +196,7 @@ class CompanySettingsWidget(QWidget):
             self._print_seal_chk.blockSignals(False)
 
             self._bank_table.setRowCount(0)
-            for b in cs.bank_accounts:
+            for b in cs_svc.list_bank_accounts(session, self._selected_company_id):
                 r = self._bank_table.rowCount()
                 self._bank_table.insertRow(r)
                 default_mark = "★ デフォルト" if b.is_default else ""
@@ -212,7 +209,7 @@ class CompanySettingsWidget(QWidget):
                     self._bank_table.setItem(r, col, item)
 
             self._seal_table.setRowCount(0)
-            for s in cs.seal_images:
+            for s in cs_svc.list_seals(session, self._selected_company_id):
                 r = self._seal_table.rowCount()
                 self._seal_table.insertRow(r)
                 default_mark = "★ デフォルト" if s.is_default else ""
@@ -227,16 +224,8 @@ class CompanySettingsWidget(QWidget):
                     item.setData(0x0100, s.id)
                     self._seal_table.setItem(r, col, item)
                 # 既存のファイルパスデータをBLOBに自動マイグレーション
-                if not s.image_data and s.path:
-                    import os as _os
-                    if _os.path.exists(s.path):
-                        try:
-                            s.image_data = open(s.path, "rb").read()
-                            session.commit()
-                            self._seal_table.item(r, 1).setText("DB保存済")
-                        except Exception:
-                            _log.warning(
-                                "印影画像のBLOB移行に失敗: %s", s.path, exc_info=True)
+                if cs_svc.migrate_seal_to_blob(session, s):
+                    self._seal_table.item(r, 1).setText("DB保存済")
         finally:
             session.close()
 
@@ -246,16 +235,12 @@ class CompanySettingsWidget(QWidget):
         dlg = IssuerEditDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             new_id = getattr(dlg, '_saved_id', None)
-            session = get_session()
-            try:
-                count = session.query(CompanySettings).count()
-                if count == 1 and new_id:
-                    cs = session.get(CompanySettings, new_id)
-                    if cs:
-                        cs.is_default = True
-                        session.commit()
-            finally:
-                session.close()
+            if new_id:
+                session = get_session()
+                try:
+                    cs_svc.promote_only_issuer_to_default(session, new_id)
+                finally:
+                    session.close()
             self._load_issuers(select_id=new_id)
 
     def _edit_issuer(self):
@@ -272,9 +257,7 @@ class CompanySettingsWidget(QWidget):
             return
         session = get_session()
         try:
-            for cs in session.query(CompanySettings).all():
-                cs.is_default = (cs.id == self._selected_company_id)
-            session.commit()
+            cs_svc.set_default_issuer(session, self._selected_company_id)
         finally:
             session.close()
         self._load_issuers(select_id=self._selected_company_id)
@@ -284,26 +267,26 @@ class CompanySettingsWidget(QWidget):
             return
         session = get_session()
         try:
-            total = session.query(CompanySettings).count()
-            if total <= 1:
-                QMessageBox.warning(self, "削除不可",
-                                    "発行元が1件しかないため削除できません。")
-                return
-            cs = session.get(CompanySettings, self._selected_company_id)
-            if cs and cs.is_default:
-                QMessageBox.warning(self, "削除不可",
-                                    "デフォルト発行元は削除できません。\n"
-                                    "先に別の発行元をデフォルトに設定してください。")
-                return
+            deletable, reason = cs_svc.check_issuer_deletable(
+                session, self._selected_company_id)
+            cs = cs_svc.get_issuer(session, self._selected_company_id)
             name = cs.name if cs else ""
-            if QMessageBox.question(
-                    self, "削除の確認",
-                    f"発行元「{name}」を削除します。\nよろしいですか？"
-            ) != QMessageBox.StandardButton.Yes:
-                return
-            if cs:
-                session.delete(cs)
-                session.commit()
+        finally:
+            session.close()
+
+        if not deletable:
+            QMessageBox.warning(self, "削除不可", reason)
+            return
+        # 確認ダイアログの表示中はセッションを開いたままにしない。
+        if QMessageBox.question(
+                self, "削除の確認",
+                f"発行元「{name}」を削除します。\nよろしいですか？"
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
+        session = get_session()
+        try:
+            cs_svc.delete_issuer(session, self._selected_company_id)
         finally:
             session.close()
         self._selected_company_id = None
@@ -338,10 +321,8 @@ class CompanySettingsWidget(QWidget):
         bank_id = self._bank_table.item(row, 0).data(0x0100)
         session = get_session()
         try:
-            for bank in session.query(BankAccount).filter_by(
-                    company_id=self._selected_company_id).all():
-                bank.is_default = (bank.id == bank_id)
-            session.commit()
+            cs_svc.set_default_bank_account(
+                session, self._selected_company_id, bank_id)
         finally:
             session.close()
         self._load_bank_seal()
@@ -359,10 +340,7 @@ class CompanySettingsWidget(QWidget):
             return
         session = get_session()
         try:
-            b = session.get(BankAccount, bank_id)
-            if b:
-                session.delete(b)
-                session.commit()
+            cs_svc.delete_bank_account(session, bank_id)
         finally:
             session.close()
         self._load_bank_seal()
@@ -374,10 +352,8 @@ class CompanySettingsWidget(QWidget):
             return
         session = get_session()
         try:
-            cs = session.get(CompanySettings, self._selected_company_id)
-            if cs:
-                cs.print_seal = self._print_seal_chk.isChecked()
-                session.commit()
+            cs_svc.set_print_seal(session, self._selected_company_id,
+                                  self._print_seal_chk.isChecked())
         finally:
             session.close()
 
@@ -401,17 +377,8 @@ class CompanySettingsWidget(QWidget):
             return
         session = get_session()
         try:
-            is_first = session.query(SealImage).filter_by(
-                company_id=self._selected_company_id).count() == 0
-            seal = SealImage(
-                company_id=self._selected_company_id,
-                label=label,
-                path="",
-                image_data=image_bytes,
-                is_default=is_first,
-            )
-            session.add(seal)
-            session.commit()
+            cs_svc.add_seal(session, self._selected_company_id,
+                            label, image_bytes)
         finally:
             session.close()
         self._load_bank_seal()
@@ -424,10 +391,8 @@ class CompanySettingsWidget(QWidget):
         seal_id = self._seal_table.item(row, 0).data(0x0100)
         session = get_session()
         try:
-            for s in session.query(SealImage).filter_by(
-                    company_id=self._selected_company_id).all():
-                s.is_default = (s.id == seal_id)
-            session.commit()
+            cs_svc.set_default_seal(
+                session, self._selected_company_id, seal_id)
         finally:
             session.close()
         self._load_bank_seal()
@@ -445,10 +410,7 @@ class CompanySettingsWidget(QWidget):
             return
         session = get_session()
         try:
-            s = session.get(SealImage, seal_id)
-            if s:
-                session.delete(s)
-                session.commit()
+            cs_svc.delete_seal(session, seal_id)
         finally:
             session.close()
         self._load_bank_seal()
@@ -509,7 +471,7 @@ class IssuerEditDialog(QDialog):
     def _load(self, company_id: int):
         session = get_session()
         try:
-            cs = session.get(CompanySettings, company_id)
+            cs = cs_svc.get_issuer(session, company_id)
             if cs:
                 self._name.setText(cs.name)
                 self._postal.setText(cs.postal_code)
@@ -529,21 +491,17 @@ class IssuerEditDialog(QDialog):
             return
         session = get_session()
         try:
-            if self._company_id:
-                cs = session.get(CompanySettings, self._company_id)
-            else:
-                cs = CompanySettings()
-                session.add(cs)
-            cs.name               = self._name.text().strip()
-            cs.postal_code        = self._postal.text().strip()
-            cs.address            = self._address.text().strip()
-            cs.phone              = self._phone.text().strip()
-            cs.fax                = self._fax.text().strip()
-            cs.email              = self._email.text().strip()
-            cs.invoice_reg_number = self._t_number.text().strip()
-            cs.print_seal         = self._print_seal.isChecked()
-            session.commit()
-            self._saved_id = cs.id
+            self._saved_id = cs_svc.save_issuer(
+                session, self._company_id,
+                name=self._name.text().strip(),
+                postal_code=self._postal.text().strip(),
+                address=self._address.text().strip(),
+                phone=self._phone.text().strip(),
+                fax=self._fax.text().strip(),
+                email=self._email.text().strip(),
+                invoice_reg_number=self._t_number.text().strip(),
+                print_seal=self._print_seal.isChecked(),
+            )
         finally:
             session.close()
         self.accept()
@@ -599,7 +557,7 @@ class BankAccountDialog(QDialog):
     def _load(self, bank_id: int):
         session = get_session()
         try:
-            b = session.get(BankAccount, bank_id)
+            b = cs_svc.get_bank_account(session, bank_id)
             if not b:
                 return
             self._label.setText(b.label or "")
@@ -621,26 +579,19 @@ class BankAccountDialog(QDialog):
             return
         session = get_session()
         try:
-            is_first = (
-                self._bank_id is None
-                and session.query(BankAccount).filter_by(
-                    company_id=self._company_id).count() == 0
+            cs_svc.save_bank_account(
+                session, self._company_id, self._bank_id,
+                label=self._label.text().strip(),
+                bank_name=self._bank_name.text().strip(),
+                bank_branch=self._branch.text().strip(),
+                bank_account_type=self._account_type.text().strip(),
+                bank_account_name=self._account_name.text().strip(),
+                bank_account_name_kana=self._account_name_kana.text().strip(),
+                bank_account_number=self._account_number.text().strip(),
             )
-            b = session.get(BankAccount, self._bank_id) if self._bank_id else BankAccount(
-                company_id=self._company_id, is_default=is_first)
-            if b is None:
-                QMessageBox.warning(self, "保存エラー", "銀行口座が見つかりません。")
-                return
-            if self._bank_id is None:
-                session.add(b)
-            b.label = self._label.text().strip()
-            b.bank_name = self._bank_name.text().strip()
-            b.bank_branch = self._branch.text().strip()
-            b.bank_account_type = self._account_type.text().strip()
-            b.bank_account_name = self._account_name.text().strip()
-            b.bank_account_name_kana = self._account_name_kana.text().strip()
-            b.bank_account_number = self._account_number.text().strip()
-            session.commit()
+        except ValueError as e:
+            QMessageBox.warning(self, "保存エラー", str(e))
+            return
         finally:
             session.close()
         self.accept()
