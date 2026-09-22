@@ -16,6 +16,18 @@ def create_item_template(session: Session, category_id: int, name: str,
     return tmpl
 
 
+def get_template_detached(session: Session,
+                          template_id: int) -> ItemTemplate | None:
+    """セッションを閉じた後も読めるテンプレートを返す。
+
+    編集ダイアログへ渡すため、セッションから切り離して返す。
+    """
+    tmpl = session.get(ItemTemplate, template_id)
+    if tmpl is not None:
+        session.expunge(tmpl)
+    return tmpl
+
+
 def get_templates_by_category(session: Session, category_id: int) -> list[ItemTemplate]:
     return (session.query(ItemTemplate)
             .filter_by(category_id=category_id, is_active=True)

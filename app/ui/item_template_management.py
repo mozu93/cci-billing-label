@@ -10,7 +10,7 @@ from app.database.models import ItemTemplate
 from app.services.category_service import get_active_categories
 from app.services.item_template_service import (
     create_item_template, get_all_active_templates,
-    deactivate_item_template, update_item_template
+    deactivate_item_template, update_item_template, get_template_detached
 )
 
 TAX_RATE_OPTIONS = [("消費税10%", 10), ("消費税8%", 8), ("非課税", 0), ("不課税", -1)]
@@ -89,9 +89,7 @@ class ItemTemplateManagementWidget(QWidget):
         tmpl_id = item.data(Qt.ItemDataRole.UserRole)
         session = get_session()
         try:
-            tmpl = session.get(ItemTemplate, tmpl_id)
-            if tmpl:
-                session.expunge(tmpl)
+            tmpl = get_template_detached(session, tmpl_id)
         finally:
             session.close()
         if tmpl is None:

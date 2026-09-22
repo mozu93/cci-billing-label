@@ -10,7 +10,8 @@ from app.database.connection import get_session
 from app.database.models import ProjectMember
 from app.services.project_service import (
     get_project_members, add_roster_entries, remove_member_from_project,
-    copy_roster_from_project, get_projects, set_project_members_cancelled
+    copy_roster_from_project, get_projects, set_project_members_cancelled,
+    get_project_member, update_project_member_fields, EDITABLE_MEMBER_FIELDS
 )
 
 COL_CHK = 0  # チェックボックス列
@@ -380,10 +381,8 @@ class ProjectMemberPanel(QWidget):
             return
         session = get_session()
         try:
-            pm = session.get(ProjectMember, pm_id)
-            if pm:
-                setattr(pm, field, item.text().strip())
-                session.commit()
+            update_project_member_fields(
+                session, pm_id, {field: item.text().strip()})
         finally:
             session.close()
 
@@ -412,29 +411,21 @@ class ProjectMemberPanel(QWidget):
             return
         session = get_session()
         try:
-            pm = session.get(ProjectMember, pm_id)
+            pm = get_project_member(session, pm_id)
             if pm is None:
                 return
-            initial = {
-                "roster_no": pm.roster_no,
-                "member_number": pm.member_number,
-                "organization_name": pm.organization_name,
-                "organization_kana": pm.organization_kana,
-                "representative_name": pm.representative_name,
-                "representative_kana": pm.representative_kana,
-                "department": pm.department,
-                "postal_code": pm.postal_code,
-                "address": pm.address,
-                "address2": pm.address2,
-                "phone": pm.phone,
-                "email": pm.email,
-            }
-            dlg = RosterEntryDialog(self, initial=initial)
-            if dlg.exec() == QDialog.DialogCode.Accepted:
-                vals = dlg.values()
-                for key, value in vals.items():
-                    setattr(pm, key, value)
-                session.commit()
+            initial = {field: getattr(pm, field)
+                       for field in EDITABLE_MEMBER_FIELDS}
+        finally:
+            session.close()
+
+        # 入力ダイアログの表示中はセッションを開いたままにしない。
+        dlg = RosterEntryDialog(self, initial=initial)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        session = get_session()
+        try:
+            update_project_member_fields(session, pm_id, dlg.values())
         finally:
             session.close()
         self._load()

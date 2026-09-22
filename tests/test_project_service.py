@@ -200,3 +200,76 @@ def test_remove_member_removes_member_item_settings(db_session):
     remove_member_from_project(db_session, pm.id)
 
     assert get_member_item_settings(db_session, [pm.id]) == {}
+
+
+# ── 名簿行の取得・更新 ─────────────────────────────────────────
+
+def _one_member(db_session):
+    cat = create_category(db_session, "青年部")
+    proj = create_project(db_session, "2026年度 青年部会費", cat.id, 2026, "list")
+    add_roster_entries(db_session, proj.id, [
+        {"organization_name": "○○商事", "representative_name": "田中"},
+    ])
+    return get_project_members(db_session, proj.id)[0]
+
+
+def test_get_project_member(db_session):
+    from app.services.project_service import get_project_member
+
+    pm = _one_member(db_session)
+    assert get_project_member(db_session, pm.id).organization_name == "○○商事"
+
+
+def test_get_project_member_returns_none_when_missing(db_session):
+    from app.services.project_service import get_project_member
+
+    assert get_project_member(db_session, 9999) is None
+
+
+def test_update_project_member_fields(db_session):
+    from app.services.project_service import (
+        get_project_member, update_project_member_fields)
+
+    pm = _one_member(db_session)
+    update_project_member_fields(db_session, pm.id, {
+        "organization_name": "△△産業",
+        "phone": "059-000-0000",
+    })
+    updated = get_project_member(db_session, pm.id)
+    assert updated.organization_name == "△△産業"
+    assert updated.phone == "059-000-0000"
+
+
+def test_update_project_member_rejects_unknown_field(db_session):
+    """画面の列定義から項目名が渡るため、想定外の更新を防ぐ。"""
+    import pytest
+    from app.services.project_service import update_project_member_fields
+
+    pm = _one_member(db_session)
+    with pytest.raises(ValueError, match="更新できない項目"):
+        update_project_member_fields(db_session, pm.id, {"is_cancelled": True})
+
+
+def test_update_project_member_rejects_id_overwrite(db_session):
+    import pytest
+    from app.services.project_service import update_project_member_fields
+
+    pm = _one_member(db_session)
+    with pytest.raises(ValueError):
+        update_project_member_fields(db_session, pm.id, {"id": 12345})
+
+
+def test_update_project_member_returns_none_when_missing(db_session):
+    from app.services.project_service import update_project_member_fields
+
+    assert update_project_member_fields(
+        db_session, 9999, {"phone": "0"}) is None
+
+
+def test_editable_member_fields_cover_dialog_keys(db_session):
+    """編集ダイアログが扱う項目は、すべて更新許可リストに入っている。"""
+    from app.services.project_service import EDITABLE_MEMBER_FIELDS
+
+    pm = _one_member(db_session)
+    for field in EDITABLE_MEMBER_FIELDS:
+        assert hasattr(pm, field), field

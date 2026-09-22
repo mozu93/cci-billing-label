@@ -5,6 +5,26 @@ from app.database.models import Issuance, ProjectMember, Project, Payment
 from app.services.project_service import get_project_progress
 
 
+def get_project_amount_summary(session: Session, project_id: int) -> dict:
+    """名簿1件の請求総額・入金済み・未回収を返す。
+
+    請求書のみを対象とする（領収書は二重計上になるため）。
+    """
+    total = sum(
+        int(i.amount) for i in
+        session.query(Issuance).filter_by(
+            project_id=project_id, doc_type="invoice").all())
+    paid = sum(
+        int(p.amount) for p in
+        session.query(Payment).join(
+            Issuance, Payment.issuance_id == Issuance.id
+        ).filter(
+            Issuance.project_id == project_id,
+            Issuance.doc_type == "invoice",
+        ).all())
+    return {"total": total, "paid": paid, "unpaid": total - paid}
+
+
 def get_unpaid_report(session: Session,
                       fiscal_year: int | None = None,
                       project_id: int | None = None) -> list[dict]:

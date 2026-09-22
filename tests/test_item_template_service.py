@@ -31,3 +31,25 @@ def test_deactivate_template(db_session):
     tmpl = create_item_template(db_session, cat.id, "青年部会費", 10000, "式", 0, "invoice", "")
     deactivate_item_template(db_session, tmpl.id)
     assert get_all_active_templates(db_session) == []
+
+
+def test_get_template_detached_is_usable_after_close(db_session):
+    """編集ダイアログへ渡すため、セッションから切り離して返す。"""
+    from sqlalchemy import inspect
+    from app.services.item_template_service import get_template_detached
+
+    cat = create_category(db_session, "青年部")
+    tmpl = create_item_template(db_session, cat.id, "青年部会費",
+                                10000, "式", 0, "invoice", "")
+    detached = get_template_detached(db_session, tmpl.id)
+    assert detached is not None
+    assert inspect(detached).detached is True
+    # 切り離した後も、読み込み済みの値は参照できる。
+    assert detached.name == "青年部会費"
+    assert detached.unit_price == 10000
+
+
+def test_get_template_detached_returns_none_when_missing(db_session):
+    from app.services.item_template_service import get_template_detached
+
+    assert get_template_detached(db_session, 9999) is None

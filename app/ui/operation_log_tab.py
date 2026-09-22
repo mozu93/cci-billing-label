@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QDate
 from app.database.connection import get_session
-from app.database.models import OperationLog
+from app.services.operation_log_service import search_logs
 
 
 _ACTIONS = ["すべて", "発行", "内容修正", "再発行", "入金記録", "メール送信", "メール送信失敗", "督促メール送信"]
@@ -99,12 +99,9 @@ class OperationLogWidget(QWidget):
 
         session = get_session()
         try:
-            q = (session.query(OperationLog)
-                 .filter(OperationLog.created_at >= from_dt)
-                 .filter(OperationLog.created_at <= to_dt))
-            if action != "すべて":
-                q = q.filter(OperationLog.action == action)
-            logs = q.order_by(OperationLog.created_at.desc()).all()
+            logs = search_logs(
+                session, from_dt, to_dt,
+                action=None if action == "すべて" else action)
             self._rows = [
                 {
                     "日時":   l.created_at.strftime("%Y/%m/%d %H:%M:%S"),

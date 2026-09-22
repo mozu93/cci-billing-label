@@ -6,10 +6,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from app.database.connection import get_session
-from app.database.models import Category
 from app.services.category_service import (
     create_category, get_active_categories, deactivate_category,
-    update_category
+    update_category, get_category
 )
 
 
@@ -83,7 +82,7 @@ class CategoryManagementWidget(QWidget):
         cat_id = item.data(Qt.ItemDataRole.UserRole)
         session = get_session()
         try:
-            cat = session.get(Category, cat_id)
+            cat = get_category(session, cat_id)
             if cat is None:
                 return
             name, sort_order = cat.name, cat.sort_order

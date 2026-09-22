@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from app.database.connection import get_session
 from app.services.project_service import get_projects, get_project_progress
+from app.services.report_service import get_project_amount_summary
 
 
 class DashboardWidget(QWidget):
@@ -53,7 +54,6 @@ class DashboardWidget(QWidget):
 
 
     def _load(self):
-        from app.database.models import Issuance, Payment
         year = self._year_combo.currentData()
         session = get_session()
         try:
@@ -62,18 +62,10 @@ class DashboardWidget(QWidget):
             self._table.setRowCount(0)
             for proj in active:
                 p = get_project_progress(session, proj.id)
-                issuances = session.query(Issuance).filter_by(project_id=proj.id).all()
-                total_amount = sum(int(i.amount) for i in issuances
-                                   if i.doc_type == "invoice")
-                paid_amount = sum(
-                    int(payment.amount) for payment in
-                    session.query(Payment).join(
-                        Issuance, Payment.issuance_id == Issuance.id
-                    ).filter(
-                        Issuance.project_id == proj.id,
-                        Issuance.doc_type == "invoice",
-                    ).all())
-                unpaid_amount = total_amount - paid_amount
+                amounts = get_project_amount_summary(session, proj.id)
+                total_amount = amounts["total"]
+                paid_amount = amounts["paid"]
+                unpaid_amount = amounts["unpaid"]
 
                 row = self._table.rowCount()
                 self._table.insertRow(row)

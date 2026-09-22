@@ -208,6 +208,39 @@ def get_project_members(session: Session, project_id: int,
     return q.order_by(ProjectMember.sort_order).all()
 
 
+# 画面から編集できる名簿行の項目。ここに無いカラムは更新させない。
+EDITABLE_MEMBER_FIELDS = frozenset({
+    "roster_no", "member_number",
+    "organization_name", "organization_kana",
+    "representative_name", "representative_kana",
+    "department", "postal_code", "address", "address2",
+    "phone", "email",
+})
+
+
+def get_project_member(session: Session,
+                       project_member_id: int) -> ProjectMember | None:
+    return session.get(ProjectMember, project_member_id)
+
+
+def update_project_member_fields(session: Session, project_member_id: int,
+                                 values: dict) -> ProjectMember | None:
+    """名簿行の項目を更新する。
+
+    画面の列定義から渡されるため、更新してよい項目かを必ず確認する。
+    """
+    unknown = set(values) - EDITABLE_MEMBER_FIELDS
+    if unknown:
+        raise ValueError(f"更新できない項目です: {sorted(unknown)}")
+    pm = session.get(ProjectMember, project_member_id)
+    if pm is None:
+        return None
+    for key, value in values.items():
+        setattr(pm, key, value)
+    session.commit()
+    return pm
+
+
 def remove_member_from_project(session: Session, project_member_id: int) -> None:
     pm = session.get(ProjectMember, project_member_id)
     if pm:

@@ -11,6 +11,10 @@ def create_category(session: Session, name: str, sort_order: int = 0) -> Categor
     return cat
 
 
+def get_category(session: Session, category_id: int) -> Category | None:
+    return session.get(Category, category_id)
+
+
 def get_active_categories(session: Session) -> list[Category]:
     return (session.query(Category)
             .filter_by(is_active=True)
