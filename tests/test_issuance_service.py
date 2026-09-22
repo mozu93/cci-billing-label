@@ -558,3 +558,79 @@ def test_update_direct_issuance_updates_issuer_and_display_settings(db_session):
     assert updated.company_settings_id == cs2.id
     assert updated.show_recipient_person is False
     assert updated.recipient_email == "updated@example.com"
+
+
+# ── 再発行タブ ─────────────────────────────────────────────────
+
+def _mk_reissue_data(db_session):
+    """再発行タブの一覧に出る／出ないデータを一通り作る。"""
+    from app.services.issuance_service import create_issuance_for_member
+    proj, tmpl, pm = _setup(db_session)
+    issued = create_issuance_for_member(
+        db_session, proj.id, pm.id, recipient_organization="○○商事",
+        recipient_name="田中太郎", doc_type="invoice",
+        fiscal_year=2026, month=5)
+    mark_as_issued(db_session, issued.id, None, "田中", "窓口手渡し")
+    pending = create_issuance_for_member(
+        db_session, proj.id, pm.id, recipient_organization="○○商事",
+        recipient_name="田中太郎", doc_type="invoice",
+        fiscal_year=2026, month=5)
+    receipt = create_issuance_for_member(
+        db_session, proj.id, pm.id, recipient_organization="○○商事",
+        recipient_name="田中太郎", doc_type="receipt",
+        fiscal_year=2026, month=5)
+    return proj, pm, issued, pending, receipt
+
+
+def test_search_reissuable_excludes_pending_invoice(db_session):
+    """再発行できるのは発行済みの請求書と、領収書（準備中でも控えを出す）。"""
+    from app.services.issuance_service import search_reissuable_issuances
+
+    proj, pm, issued, pending, receipt = _mk_reissue_data(db_session)
+    rows = search_reissuable_issuances(db_session)
+    ids = {iss.id for iss, _ in rows}
+    assert issued.id in ids
+    assert receipt.id in ids
+    assert pending.id not in ids
+
+
+def test_search_reissuable_returns_project(db_session):
+    """一覧に名簿名・種別を出すため、Issuance と Project を組で返す。"""
+    from app.services.issuance_service import search_reissuable_issuances
+
+    proj, pm, issued, pending, receipt = _mk_reissue_data(db_session)
+    rows = search_reissuable_issuances(db_session, project_id=proj.id)
+    assert rows
+    for _iss, project in rows:
+        assert project.id == proj.id
+        assert project.name == "2026年度 青年部会費"
+
+
+def test_search_reissuable_filters(db_session):
+    from app.services.issuance_service import search_reissuable_issuances
+
+    proj, pm, issued, pending, receipt = _mk_reissue_data(db_session)
+    assert search_reissuable_issuances(db_session, fiscal_year=2025) == []
+    assert len(search_reissuable_issuances(db_session, fiscal_year=2026)) == 2
+    only_receipt = search_reissuable_issuances(db_session, doc_type="receipt")
+    assert [iss.id for iss, _ in only_receipt] == [receipt.id]
+
+
+def test_get_issuance(db_session):
+    from app.services.issuance_service import get_issuance
+
+    proj, pm, issued, pending, receipt = _mk_reissue_data(db_session)
+    assert get_issuance(db_session, issued.id).id == issued.id
+    assert get_issuance(db_session, 9999) is None
+
+
+def test_get_issuance_with_lines(db_session):
+    """PDF生成のため明細を読み込んだ状態で返す。"""
+    from app.services.issuance_service import get_issuance_with_lines
+
+    proj, pm, issued, pending, receipt = _mk_reissue_data(db_session)
+    found = get_issuance_with_lines(db_session, issued.id)
+    assert found is not None
+    assert len(found.lines) == 1
+    assert found.lines[0].item_name == "青年部会費"
+    assert get_issuance_with_lines(db_session, 9999) is None

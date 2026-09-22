@@ -142,6 +142,24 @@ def remove_template_from_project(session: Session, project_id: int,
         session.commit()
 
 
+def get_member_emails(session: Session,
+                      project_member_ids) -> dict[int, str]:
+    """名簿会員IDごとのメールアドレスを返す。未登録は空文字にする。"""
+    pm_ids = list(project_member_ids)
+    if not pm_ids:
+        return {}
+    pms = (session.query(ProjectMember)
+           .filter(ProjectMember.id.in_(pm_ids))
+           .all())
+    return {pm.id: (pm.email or "").strip() for pm in pms}
+
+
+def clear_project_templates(session: Session, project_id: int) -> None:
+    """名簿に紐づく発行項目をすべて外す。保存時の入れ替えに使う。"""
+    session.query(ProjectTemplate).filter_by(project_id=project_id).delete()
+    session.commit()
+
+
 def get_project_templates(session: Session, project_id: int) -> list[ProjectTemplate]:
     from sqlalchemy.orm import joinedload
     return (session.query(ProjectTemplate)

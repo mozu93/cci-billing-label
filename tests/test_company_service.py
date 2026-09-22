@@ -178,6 +178,15 @@ def test_set_default_seal_is_exclusive(db_session):
     assert db_session.get(SealImage, second).is_default is True
 
 
+def test_get_seal(db_session):
+    a = _make_issuer(db_session, "A")
+    seal_id = cs_svc.add_seal(db_session, a.id, "印鑑", b"PNGDATA")
+    seal = cs_svc.get_seal(db_session, seal_id)
+    assert seal is not None
+    assert seal.label == "印鑑"
+    assert cs_svc.get_seal(db_session, 9999) is None
+
+
 def test_delete_seal(db_session):
     a = _make_issuer(db_session, "A")
     seal_id = cs_svc.add_seal(db_session, a.id, "消す", b"A")

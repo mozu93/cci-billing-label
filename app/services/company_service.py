@@ -145,6 +145,10 @@ def list_seals(session: Session, company_id: int) -> list[SealImage]:
     return session.query(SealImage).filter_by(company_id=company_id).all()
 
 
+def get_seal(session: Session, seal_id: int) -> SealImage | None:
+    return session.get(SealImage, seal_id)
+
+
 def add_seal(session: Session, company_id: int, label: str,
              image_bytes: bytes) -> int:
     """印影画像を登録する。その発行元で最初なら自動でデフォルトにする。"""

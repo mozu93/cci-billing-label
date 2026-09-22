@@ -3,7 +3,7 @@ from datetime import datetime, date
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.database.models import (
-    Issuance, IssuanceLine, Payment, ProjectTemplate, ProjectMember
+    Issuance, IssuanceLine, Payment, ProjectTemplate, ProjectMember, Project
 )
 
 
@@ -436,6 +436,45 @@ def get_pending_issuances_for_project_member(session: Session,
             .filter(Issuance.project_member_id == project_member_id,
                     Issuance.status == "準備中")
             .all())
+
+
+def get_issuance(session: Session, issuance_id: int) -> Issuance | None:
+    return session.get(Issuance, issuance_id)
+
+
+def get_issuance_with_lines(session: Session,
+                            issuance_id: int) -> Issuance | None:
+    """明細を読み込んだ発行データを返す。PDF生成に使う。"""
+    from sqlalchemy.orm import joinedload
+    return (session.query(Issuance)
+            .options(joinedload(Issuance.lines))
+            .filter_by(id=issuance_id)
+            .first())
+
+
+def search_reissuable_issuances(
+        session: Session, fiscal_year: int | None = None,
+        project_id: int | None = None,
+        doc_type: str | None = None) -> list[tuple[Issuance, Project]]:
+    """再発行できる発行データを、名簿とあわせて新しい順に返す。
+
+    対象は発行済みの書類と領収書。領収書は準備中でも控えを出せる。
+    一覧に名簿名と名簿種別を出すため、Project を組にして返す。
+    """
+    from sqlalchemy import or_
+    q = (session.query(Issuance, Project)
+         .join(Project, Issuance.project_id == Project.id)
+         .filter(or_(
+             Issuance.doc_type == "receipt",
+             Issuance.status == "発行済み",
+         )))
+    if fiscal_year:
+        q = q.filter(Project.fiscal_year == fiscal_year)
+    if project_id:
+        q = q.filter(Issuance.project_id == project_id)
+    if doc_type:
+        q = q.filter(Issuance.doc_type == doc_type)
+    return q.order_by(Issuance.issued_at.desc()).all()
 
 
 def get_project_issuances(session: Session, project_id: int,

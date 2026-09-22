@@ -16,6 +16,19 @@ def create_item_template(session: Session, category_id: int, name: str,
     return tmpl
 
 
+def get_item_template(session: Session,
+                      template_id: int) -> ItemTemplate | None:
+    return session.get(ItemTemplate, template_id)
+
+
+def find_active_template_by_name(session: Session,
+                                 name: str) -> ItemTemplate | None:
+    """名前が一致する有効なテンプレートを返す。無効化済みは対象にしない。"""
+    return (session.query(ItemTemplate)
+            .filter_by(name=name, is_active=True)
+            .first())
+
+
 def get_template_detached(session: Session,
                           template_id: int) -> ItemTemplate | None:
     """セッションを閉じた後も読めるテンプレートを返す。

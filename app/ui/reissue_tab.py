@@ -7,10 +7,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer
 from app.database.connection import get_session
-from app.database.models import Issuance, Project
-from app.services.project_service import get_projects
+from app.services.project_service import (
+    get_projects, get_project_by_id, get_member_emails
+)
+from app.services.issuance_service import (
+    get_issuance, get_issuance_with_lines, search_reissuable_issuances
+)
 from app.services.category_service import get_active_categories
-from sqlalchemy.orm import joinedload
 
 COL_CHK  = 0
 COL_NUM  = 1
@@ -209,29 +212,13 @@ class ReissueWidget(QWidget):
 
         session = get_session()
         try:
-            from sqlalchemy import or_
-            from app.database.models import ProjectMember
-            q = (session.query(Issuance, Project)
-                 .join(Project, Issuance.project_id == Project.id)
-                 .filter(or_(
-                     Issuance.doc_type == "receipt",
-                     Issuance.status == "発行済み",
-                 )))
-            if year:
-                q = q.filter(Project.fiscal_year == year)
-            if proj_id:
-                q = q.filter(Issuance.project_id == proj_id)
-            if doc_type:
-                q = q.filter(Issuance.doc_type == doc_type)
-            rows = q.order_by(Issuance.issued_at.desc()).all()
+            rows = search_reissuable_issuances(
+                session, fiscal_year=year, project_id=proj_id,
+                doc_type=doc_type)
 
             # PM→メール有無をまとめて取得
             pm_ids = {iss.project_member_id for iss, _ in rows if iss.project_member_id}
-            pm_email_map: dict[int, str] = {}
-            if pm_ids:
-                pms = session.query(ProjectMember).filter(
-                    ProjectMember.id.in_(pm_ids)).all()
-                pm_email_map = {pm.id: (pm.email or "").strip() for pm in pms}
+            pm_email_map = get_member_emails(session, pm_ids)
         finally:
             session.close()
 
@@ -320,7 +307,7 @@ class ReissueWidget(QWidget):
         iss_id = item.data(Qt.ItemDataRole.UserRole) if item else None
         session = get_session()
         try:
-            iss = session.get(Issuance, iss_id) if iss_id else None
+            iss = get_issuance(session, iss_id) if iss_id else None
             if not iss or not iss.mail_sent_at or not iss.mail_subject:
                 QMessageBox.information(self, "情報", "この発行データには確認可能なメール送信履歴がありません。")
                 return
@@ -420,10 +407,7 @@ class ReissueWidget(QWidget):
         """1件再発行。"ok"/"cancel"/"error" を返す。"""
         session = get_session()
         try:
-            iss = (session.query(Issuance)
-                   .options(joinedload(Issuance.lines))
-                   .filter_by(id=iss_id)
-                   .first())
+            iss = get_issuance_with_lines(session, iss_id)
             if not iss:
                 QMessageBox.critical(self, "エラー", "発行データが見つかりません。")
                 return "error"
@@ -442,12 +426,10 @@ class ReissueWidget(QWidget):
                 due_date = opts.due_date()
             elif iss.doc_type == "invoice":
                 # メール送付時は project.due_date をそのまま使用
-                from app.database.models import Project as _Proj
-                _proj = session.get(_Proj, iss.project_id)
+                _proj = get_project_by_id(session, iss.project_id)
                 due_date = _proj.due_date if _proj else None
 
-            from app.database.models import Project as _Project
-            _proj = session.get(_Project, iss.project_id)
+            _proj = get_project_by_id(session, iss.project_id)
 
             if delivery == "メール送付":
                 # PDF を一時ファイルとして生成してメール送信

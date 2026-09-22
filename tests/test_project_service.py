@@ -76,6 +76,41 @@ def test_add_template_to_project(db_session):
     assert pts[0].item_template_id == tmpl.id
 
 
+def test_get_member_emails(db_session):
+    """名簿会員IDからメールアドレスを引く。未登録・空欄は空文字で返す。"""
+    from app.services.project_service import get_member_emails
+
+    proj = create_project(db_session, "2026 視察研修", None, 2026, "list")
+    add_roster_entries(db_session, proj.id, [
+        {"organization_name": "○○商事", "email": " a@example.com "},
+        {"organization_name": "△△産業"},
+    ])
+    pms = get_project_members(db_session, proj.id)
+    emails = get_member_emails(db_session, [pm.id for pm in pms])
+    assert emails[pms[0].id] == "a@example.com"   # 前後の空白は落とす
+    assert emails[pms[1].id] == ""
+    assert get_member_emails(db_session, []) == {}
+
+
+def test_clear_project_templates(db_session):
+    """名簿の保存時、発行項目を入れ替えるために一括削除する。他の名簿は消さない。"""
+    from app.services.project_service import (
+        clear_project_templates, get_project_templates,
+    )
+    cat = create_category(db_session, "青年部")
+    tmpl = create_item_template(db_session, cat.id, "青年部会費",
+                                10000, "式", 0, "invoice", "")
+    keep = create_project(db_session, "2026年度 検定", cat.id, 2026, "list")
+    target = create_project(db_session, "2026年度 青年部会費", cat.id, 2026, "list")
+    add_template_to_project(db_session, keep.id, tmpl.id)
+    add_template_to_project(db_session, target.id, tmpl.id)
+
+    clear_project_templates(db_session, target.id)
+
+    assert get_project_templates(db_session, target.id) == []
+    assert len(get_project_templates(db_session, keep.id)) == 1
+
+
 def _mk_project(session, name="2026 青年部"):
     return create_project(session, name=name, category_id=None,
                           fiscal_year=2026, project_type="list")

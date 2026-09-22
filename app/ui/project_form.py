@@ -8,11 +8,15 @@ from PyQt6.QtWidgets import (
 )
 from app.database.connection import get_session
 from app.services.category_service import get_active_categories, create_category
+from app.services.company_service import (
+    list_issuers, list_bank_accounts, list_seals, get_bank_account, get_seal
+)
 from app.services.item_template_service import (
-    get_all_active_templates, get_templates_by_category, create_item_template
+    get_all_active_templates, get_templates_by_category, create_item_template,
+    get_item_template, find_active_template_by_name
 )
 from app.services.project_service import (
-    create_project, get_project_by_id,
+    create_project, get_project_by_id, clear_project_templates,
     add_template_to_project, get_project_templates
 )
 
@@ -371,10 +375,9 @@ class ProjectFormDialog(QDialog):
     def _reload_issuers(self, select_company_id: int | None = None,
                         select_bank_id: int | None = None,
                         select_seal_id: int | None = None):
-        from app.database.models import CompanySettings
         session = get_session()
         try:
-            issuers = session.query(CompanySettings).order_by(CompanySettings.id).all()
+            issuers = list_issuers(session)
             self._issuer_combo.blockSignals(True)
             self._issuer_combo.clear()
             default_idx = 0
@@ -399,7 +402,6 @@ class ProjectFormDialog(QDialog):
 
     def _reload_bank_seal(self, select_bank_id: int | None = None,
                           select_seal_id: int | None = None):
-        from app.database.models import BankAccount, SealImage
         company_id = self._issuer_combo.currentData()
         session = get_session()
         try:
@@ -407,8 +409,7 @@ class ProjectFormDialog(QDialog):
             self._bank_combo.clear()
             self._bank_combo.addItem("（なし）", None)
             if company_id:
-                banks = session.query(BankAccount).filter_by(
-                    company_id=company_id).all()
+                banks = list_bank_accounts(session, company_id)
                 for b in banks:
                     label = f"{'★ ' if b.is_default else ''}{b.label} {b.bank_name}"
                     self._bank_combo.addItem(label, b.id)
@@ -418,8 +419,7 @@ class ProjectFormDialog(QDialog):
             self._seal_combo.clear()
             self._seal_combo.addItem("（なし）", None)
             if company_id:
-                seals = session.query(SealImage).filter_by(
-                    company_id=company_id).all()
+                seals = list_seals(session, company_id)
                 for s in seals:
                     label = f"{'★ ' if s.is_default else ''}{s.label}"
                     self._seal_combo.addItem(label, s.id)
@@ -433,7 +433,8 @@ class ProjectFormDialog(QDialog):
             else:
                 for i in range(self._bank_combo.count()):
                     if self._bank_combo.itemData(i) is not None:
-                        bank_obj = session.get(BankAccount, self._bank_combo.itemData(i))
+                        bank_obj = get_bank_account(
+                            session, self._bank_combo.itemData(i))
                         if bank_obj and bank_obj.is_default:
                             self._bank_combo.setCurrentIndex(i)
                             break
@@ -446,7 +447,8 @@ class ProjectFormDialog(QDialog):
             else:
                 for i in range(self._seal_combo.count()):
                     if self._seal_combo.itemData(i) is not None:
-                        seal_obj = session.get(SealImage, self._seal_combo.itemData(i))
+                        seal_obj = get_seal(
+                            session, self._seal_combo.itemData(i))
                         if seal_obj and seal_obj.is_default:
                             self._seal_combo.setCurrentIndex(i)
                             break
@@ -568,8 +570,7 @@ class ProjectFormDialog(QDialog):
                     continue
                 tmpl_id = row.template_id()
                 if tmpl_id is not None:
-                    from app.database.models import ItemTemplate
-                    t = session.get(ItemTemplate, tmpl_id)
+                    t = get_item_template(session, tmpl_id)
                     if t:
                         lines_data.append({
                             "item_template_id": t.id,
@@ -647,9 +648,7 @@ class ProjectFormDialog(QDialog):
                     tmpl_qty_list.append((tmpl_id, qty, override_tax))
                 else:
                     # 同名テンプレートを検索、なければ自動作成
-                    from app.database.models import ItemTemplate
-                    existing = session.query(ItemTemplate).filter_by(
-                        name=name, is_active=True).first()
+                    existing = find_active_template_by_name(session, name)
                     if existing:
                         override_tax = selected_tax_rate if selected_tax_rate != existing.tax_rate else None
                         tmpl_qty_list.append((existing.id, qty, override_tax))
@@ -696,10 +695,7 @@ class ProjectFormDialog(QDialog):
                 proj.company_settings_id = self._issuer_combo.currentData()
                 proj.bank_account_id     = self._bank_combo.currentData()
                 proj.seal_image_id       = self._seal_combo.currentData()
-                from app.database.models import ProjectTemplate
-                session.query(ProjectTemplate).filter_by(
-                    project_id=proj.id).delete()
-                session.commit()
+                clear_project_templates(session, proj.id)
                 for i, (tid, qty, tax_ovr) in enumerate(tmpl_qty_list):
                     add_template_to_project(session, proj.id, tid, sort_order=i,
                                             default_quantity=qty,
