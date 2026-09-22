@@ -30,7 +30,8 @@ def create_backup(db_path: str | None = None,
         config = get_config()
         backup_dir = config.get("backup_dir", "")
         if not backup_dir:
-            backup_dir = os.path.join(os.path.expanduser("~"), "cci-billing", "backup")
+            backup_dir = os.path.join(
+                os.path.expanduser("~"), "cci-billing-label", "backup")
 
     os.makedirs(backup_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -67,7 +68,8 @@ def list_backups(backup_dir: str | None = None) -> list[dict]:
         config = get_config()
         backup_dir = config.get("backup_dir", "")
         if not backup_dir:
-            backup_dir = os.path.join(os.path.expanduser("~"), "cci-billing", "backup")
+            backup_dir = os.path.join(
+                os.path.expanduser("~"), "cci-billing-label", "backup")
 
     if not os.path.exists(backup_dir):
         return []
@@ -109,7 +111,8 @@ def prune_backups(backup_dir: str | None = None) -> int:
         config = get_config()
         backup_dir = config.get("backup_dir", "")
         if not backup_dir:
-            backup_dir = os.path.join(os.path.expanduser("~"), "cci-billing", "backup")
+            backup_dir = os.path.join(
+                os.path.expanduser("~"), "cci-billing-label", "backup")
 
     if not os.path.exists(backup_dir):
         return 0
@@ -174,7 +177,8 @@ def auto_backup_if_needed(backup_dir: str | None = None) -> str | None:
         config = get_config()
         backup_dir = config.get("backup_dir", "")
         if not backup_dir:
-            backup_dir = os.path.join(os.path.expanduser("~"), "cci-billing", "backup")
+            backup_dir = os.path.join(
+                os.path.expanduser("~"), "cci-billing-label", "backup")
 
     today_prefix = f"cci_billing_{datetime.now().strftime('%Y%m%d')}"
     if os.path.exists(backup_dir):

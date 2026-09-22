@@ -50,6 +50,10 @@ def main():
         _ui_font = QFont("Meiryo UI", 10)
     app.setFont(_ui_font)
 
+    # 派生元の cci-billing とデータを共有していたため、設定を読む前に引き継ぐ。
+    from app.utils.app_config import migrate_legacy_data
+    migrate_legacy_data()
+
     from app.utils.app_config import is_first_run
     if is_first_run():
         from app.ui.first_run_wizard import FirstRunWizard

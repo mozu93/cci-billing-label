@@ -1,11 +1,45 @@
 # app/utils/app_config.py
 import json
+import shutil
 from pathlib import Path
 
 from sqlalchemy.engine import URL
 
-CONFIG_DIR = Path.home() / ".cci-billing"
+CONFIG_DIR = Path.home() / ".cci-billing-label"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+
+# 派生元の cci-billing とデータを共有していたため、初回だけ引き継ぐ。
+LEGACY_CONFIG_DIR = Path.home() / ".cci-billing"
+
+
+def migrate_legacy_data(new_dir: Path = CONFIG_DIR,
+                        legacy_dir: Path = LEGACY_CONFIG_DIR) -> bool:
+    """旧アプリのデータディレクトリから一度だけ引き継ぐ。
+
+    引き継いだら True を返す。旧ディレクトリは、問題があったときに
+    戻せるよう削除しない。
+
+    移行済みかどうかは config.json の有無で判定する。ディレクトリの
+    存在では判定できない。applog がトップレベルの get_logger() から
+    CONFIG_DIR.mkdir() するため、設定を読む前に空のディレクトリが
+    できていることがある。
+    """
+    if (new_dir / "config.json").exists():
+        return False
+    if not (legacy_dir / "config.json").exists():
+        return False
+
+    new_dir.mkdir(parents=True, exist_ok=True)
+    for src in legacy_dir.iterdir():
+        dest = new_dir / src.name
+        if dest.exists():
+            # 新しい側で既に動き出しているものは壊さない。
+            continue
+        if src.is_dir():
+            shutil.copytree(src, dest)
+        else:
+            shutil.copy2(src, dest)
+    return True
 
 
 def get_config() -> dict:

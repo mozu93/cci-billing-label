@@ -72,7 +72,7 @@ def get_pdf_output_dir() -> str:
     config = get_config()
     base = config.get("pdf_output_dir", "")
     if not base:
-        base = os.path.join(os.path.expanduser("~"), "cci-billing", "pdf")
+        base = os.path.join(os.path.expanduser("~"), "cci-billing-label", "pdf")
     os.makedirs(base, exist_ok=True)
     return base
 

@@ -1,13 +1,14 @@
 # app/services/m365_auth_service.py
 import msal
-from pathlib import Path
 from msal_extensions import PersistedTokenCache, build_encrypted_persistence
+
+from app.utils.app_config import CONFIG_DIR
 
 # Graph API への委任スコープ
 _MAIL_SEND_SCOPE = "https://graph.microsoft.com/Mail.Send"
 _MAIL_SEND_SHARED_SCOPE = "https://graph.microsoft.com/Mail.Send.Shared"
 
-_CACHE_FILE = Path.home() / ".cci-billing" / "m365_token_cache.bin"
+_CACHE_FILE = CONFIG_DIR / "m365_token_cache.bin"
 
 
 class M365AuthService:
