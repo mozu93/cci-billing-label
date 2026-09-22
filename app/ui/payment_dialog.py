@@ -40,10 +40,15 @@ class PaymentManagementWidget(QWidget):
         self._load_projects()
 
     def showEvent(self, event):
-        """左メニューから開くたびに、最新の入金状態を表示する。"""
+        """左メニューから開くたびに、名簿の候補と入金状態を読み直す。
+
+        一覧だけを読み直していたため、起動後に名簿を受付中へ戻しても
+        名簿コンボが起動時のままで選べなかった。_load_projects() は
+        最後に _load() を呼ぶので、一覧も更新される。
+        """
         super().showEvent(event)
         if hasattr(self, "_proj_combo"):
-            self._load()
+            self._load_projects()
 
     def _build(self):
         layout = QVBoxLayout(self)
