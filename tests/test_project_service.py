@@ -273,3 +273,39 @@ def test_editable_member_fields_cover_dialog_keys(db_session):
     pm = _one_member(db_session)
     for field in EDITABLE_MEMBER_FIELDS:
         assert hasattr(pm, field), field
+
+
+def test_invoice_issued_counts_members_with_receipt_too(db_session):
+    """請求書発行済は、同じ会員に領収書も出ていても数える。
+
+    以前は「請求書のみ（領収書未発行）」の人数を返していたため、
+    請求書と領収書の両方を発行すると 0 件と表示されていた。
+    """
+    from app.services.category_service import create_category
+    from app.services.item_template_service import create_item_template
+    from app.services.project_service import add_template_to_project
+    from app.services.issuance_service import (
+        create_issuance_for_member, mark_as_issued,
+    )
+    cat = create_category(db_session, "不動産部会")
+    tmpl = create_item_template(db_session, cat.id, "視察参加費",
+                                10000, "式", 0, "invoice", "")
+    proj = create_project(db_session, "2026 視察研修", cat.id, 2026, "list")
+    add_template_to_project(db_session, proj.id, tmpl.id)
+    add_roster_entries(db_session, proj.id, [
+        {"organization_name": "○○商事", "representative_name": "田中"},
+    ])
+    pm = get_project_members(db_session, proj.id)[0]
+    for doc_type in ("invoice", "receipt"):
+        iss = create_issuance_for_member(
+            db_session, proj.id, pm.id,
+            recipient_organization=pm.organization_name,
+            recipient_name=pm.representative_name,
+            doc_type=doc_type, fiscal_year=2026, month=5)
+        mark_as_issued(db_session, iss.id, None, "田中", "窓口手渡し")
+
+    progress = get_project_progress(db_session, proj.id)
+    assert progress["total"] == 1
+    assert progress["invoice_issued"] == 1
+    assert progress["receipt_issued"] == 1
+    assert progress["pending"] == 0

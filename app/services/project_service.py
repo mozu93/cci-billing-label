@@ -310,9 +310,9 @@ def get_project_progress(session: Session, project_id: int) -> dict:
             pm_has_invoice.add(pm_id)
 
     receipt_issued = len(pm_has_receipt)
-    # 請求書のみ（領収書未発行）の会員
-    invoice_only = pm_has_invoice - pm_has_receipt
-    invoice_issued = len(invoice_only)
+    # 領収書も出ている会員を除くと、請求書を出した実数と食い違うため除かない。
+    # 同じ会員が両方に計上されるので、種別ごとの合計は total と一致しない。
+    invoice_issued = len(pm_has_invoice)
     issued = len(pm_has_invoice | pm_has_receipt)
     paid = len(paid_pms)
     return {"total": total, "issued": issued, "paid": paid,
