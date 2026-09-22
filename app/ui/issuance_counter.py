@@ -13,8 +13,14 @@ from PyQt6.QtCore import Qt, pyqtSignal, QDate, QTimer, QThread, QPoint
 from PyQt6.QtGui import QIntValidator
 from app.database.connection import get_session
 from app.services.category_service import get_active_categories
+from app.services.company_service import (
+    list_issuers, list_bank_accounts, list_seals, get_bank_account, get_seal
+)
 from app.services.item_template_service import get_all_active_templates
-from app.services.issuance_service import create_direct_issuance, update_direct_issuance
+from app.services.issuance_service import (
+    create_direct_issuance, update_direct_issuance, get_issuance_with_lines
+)
+from app.services.project_service import get_project_by_id
 from app.utils import current_user
 from app.utils.applog import get_logger
 
@@ -211,10 +217,9 @@ class IssuanceCounterWidget(QWidget):
     def _reload_issuer_combo(self, select_company_id: int | None = None,
                              select_bank_id: int | None = None,
                              select_seal_id: int | None = None):
-        from app.database.models import CompanySettings
         session = get_session()
         try:
-            issuers = session.query(CompanySettings).order_by(CompanySettings.id).all()
+            issuers = list_issuers(session)
             self._issuer_combo.blockSignals(True)
             self._issuer_combo.clear()
             default_idx = 0
@@ -239,7 +244,6 @@ class IssuanceCounterWidget(QWidget):
 
     def _reload_bank_seal_combo(self, select_bank_id: int | None = None,
                                 select_seal_id: int | None = None):
-        from app.database.models import BankAccount, SealImage
         company_id = self._issuer_combo.currentData()
         session = get_session()
         try:
@@ -248,7 +252,7 @@ class IssuanceCounterWidget(QWidget):
                 self._bank_combo.clear()
                 self._bank_combo.addItem("（なし）", None)
                 if company_id:
-                    banks = session.query(BankAccount).filter_by(company_id=company_id).all()
+                    banks = list_bank_accounts(session, company_id)
                     for b in banks:
                         label = f"{'★ ' if b.is_default else ''}{b.label} {b.bank_name}"
                         self._bank_combo.addItem(label, b.id)
@@ -258,7 +262,7 @@ class IssuanceCounterWidget(QWidget):
             self._seal_combo.clear()
             self._seal_combo.addItem("（なし）", None)
             if company_id:
-                seals = session.query(SealImage).filter_by(company_id=company_id).all()
+                seals = list_seals(session, company_id)
                 for s in seals:
                     label = f"{'★ ' if s.is_default else ''}{s.label}"
                     self._seal_combo.addItem(label, s.id)
@@ -275,7 +279,8 @@ class IssuanceCounterWidget(QWidget):
                 if not bank_selected:
                     for i in range(self._bank_combo.count()):
                         if self._bank_combo.itemData(i) is not None:
-                            b = session.get(BankAccount, self._bank_combo.itemData(i))
+                            b = get_bank_account(
+                                session, self._bank_combo.itemData(i))
                             if b and b.is_default:
                                 self._bank_combo.setCurrentIndex(i)
                                 bank_selected = True
@@ -293,7 +298,7 @@ class IssuanceCounterWidget(QWidget):
             else:
                 for i in range(self._seal_combo.count()):
                     if self._seal_combo.itemData(i) is not None:
-                        s = session.get(SealImage, self._seal_combo.itemData(i))
+                        s = get_seal(session, self._seal_combo.itemData(i))
                         if s and s.is_default:
                             self._seal_combo.setCurrentIndex(i)
                             break
@@ -306,14 +311,9 @@ class IssuanceCounterWidget(QWidget):
     def _load_edit_data(self):
         """編集モード：既存の Issuance からフォームを復元する。"""
         from app.database.connection import get_session
-        from app.database.models import Issuance
-        from sqlalchemy.orm import joinedload
         session = get_session()
         try:
-            iss = (session.query(Issuance)
-                   .options(joinedload(Issuance.lines))
-                   .filter_by(id=self._edit_issuance_id)
-                   .first())
+            iss = get_issuance_with_lines(session, self._edit_issuance_id)
             if iss is None:
                 return
             self._member_number_edit.setText(iss.member_number or "")
@@ -1193,8 +1193,7 @@ class IssuanceCounterWidget(QWidget):
                     postal_code = self._postal_code_edit.text().strip()
                     address1    = self._address1_edit.text().strip()
                     address2    = self._address2_edit.text().strip()
-            from app.database.models import Project as _Project
-            _proj = session.get(_Project, iss.project_id)
+            _proj = get_project_by_id(session, iss.project_id)
             if _delivery_text == "メール送付":
                 # メール添付用に生成（ビューアで開かない）
                 generate_and_open(iss, session, due_date=due_date, open_file=False,
