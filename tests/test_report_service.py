@@ -149,3 +149,25 @@ def test_amount_summary_counts_payments(db_session):
 
     proj, issuances = _setup(db_session)
     assert get_project_amount_summary(db_session, proj.id)["paid_count"] == 1
+
+
+def test_get_project_summary_counts_invoices_only(db_session):
+    """集計レポートの金額は請求書のみを対象にする。
+
+    領収書も合算すると、同じ会員の請求書と領収書が重複して計上され、
+    請求総額が実際より大きくなる。
+    """
+    from app.services.issuance_service import create_issuance_for_member
+
+    proj, issuances = _setup(db_session)
+    pms = get_project_members(db_session, proj.id)
+    create_issuance_for_member(
+        db_session, proj.id, pms[0].id,
+        recipient_organization=pms[0].organization_name,
+        recipient_name=pms[0].representative_name,
+        doc_type="receipt", fiscal_year=2026, month=5)
+
+    row = get_project_summary(db_session, fiscal_year=2026)[0]
+    # 請求書2件 × 10,000円。領収書10,000円は加算しない。
+    assert row["total_amount"] == 20000
+    assert row["paid_amount"] == 10000

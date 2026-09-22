@@ -95,13 +95,11 @@ def get_project_summary(session: Session,
     rows = []
     for proj in q.order_by(Project.fiscal_year.desc(), Project.name).all():
         p = get_project_progress(session, proj.id)
-        total_amount = sum(int(iss.amount) for iss in
-                           session.query(Issuance).filter_by(project_id=proj.id).all())
-        paid_amount = sum(
-            int(payment.amount) for payment in
-            session.query(Payment).join(
-                Issuance, Payment.issuance_id == Issuance.id
-            ).filter(Issuance.project_id == proj.id).all())
+        # 名簿一覧と同じ集計を使う。全種別を合算すると、同じ会員の請求書と
+        # 領収書が重複して計上され、請求総額が実際より大きくなる。
+        amounts = get_project_amount_summary(session, proj.id)
+        total_amount = amounts["total"]
+        paid_amount = amounts["paid"]
         rows.append({
             "fiscal_year":    proj.fiscal_year,
             "project_name":   proj.name,
