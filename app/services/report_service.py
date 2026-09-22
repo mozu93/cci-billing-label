@@ -6,23 +6,25 @@ from app.services.project_service import get_project_progress
 
 
 def get_project_amount_summary(session: Session, project_id: int) -> dict:
-    """名簿1件の請求総額・入金済み・未回収を返す。
+    """名簿1件の請求総額・入金額・入金件数・未回収を返す。
 
-    請求書のみを対象とする（領収書は二重計上になるため）。
+    請求書だけを対象にする。全種別を合算すると、同じ会員の請求書と
+    領収書が重複して計上され、総額が実際の請求額より大きくなる。
     """
     total = sum(
         int(i.amount) for i in
         session.query(Issuance).filter_by(
             project_id=project_id, doc_type="invoice").all())
-    paid = sum(
-        int(p.amount) for p in
+    payments = (
         session.query(Payment).join(
             Issuance, Payment.issuance_id == Issuance.id
         ).filter(
             Issuance.project_id == project_id,
             Issuance.doc_type == "invoice",
         ).all())
-    return {"total": total, "paid": paid, "unpaid": total - paid}
+    paid = sum(int(p.amount) for p in payments)
+    return {"total": total, "paid": paid, "unpaid": total - paid,
+            "paid_count": len(payments)}
 
 
 def get_unpaid_report(session: Session,

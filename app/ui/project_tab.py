@@ -12,6 +12,8 @@ from app.services.project_service import (
     get_projects, close_project, reopen_project,
     get_project_progress, get_project_by_id
 )
+from app.services.category_service import get_category_names
+from app.services.report_service import get_project_amount_summary
 from app.ui.project_form import ProjectFormDialog
 from app.ui.project_member_panel import ProjectMemberPanel
 
@@ -117,22 +119,17 @@ class ProjectTab(QWidget):
         status = self._status_combo.currentData()
         session = get_session()
         try:
-            from app.database.models import Category, Issuance, Payment
-            cat_name = {c.id: c.name for c in session.query(Category).all()}
+            cat_name = get_category_names(session)
             projects = get_projects(session, fiscal_year=year, status=status)
             self._table.setRowCount(0)
             self._export_rows = []
             for proj in projects:
                 p = get_project_progress(session, proj.id)
                 pending = p["pending"]
-                total_amount = sum(
-                    int(iss.amount) for iss in
-                    session.query(Issuance).filter_by(project_id=proj.id).all())
-                payments = (session.query(Payment).join(
-                        Issuance, Payment.issuance_id == Issuance.id
-                    ).filter(Issuance.project_id == proj.id).all())
-                paid_count = len(payments)
-                paid_amount = sum(int(payment.amount) for payment in payments)
+                amounts = get_project_amount_summary(session, proj.id)
+                total_amount = amounts["total"]
+                paid_count = amounts["paid_count"]
+                paid_amount = amounts["paid"]
                 row = self._table.rowCount()
                 self._table.insertRow(row)
                 for col, val in enumerate([
@@ -197,18 +194,13 @@ class ProjectTab(QWidget):
 
         _load() だと選択が外れて名簿パネルが作り直されるため、行だけ更新する。
         """
-        from app.database.models import Issuance, Payment
         session = get_session()
         try:
             p = get_project_progress(session, project_id)
-            issuances = (session.query(Issuance)
-                         .filter_by(project_id=project_id).all())
-            total_amount = sum(int(i.amount) for i in issuances)
-            payments = (session.query(Payment).join(
-                    Issuance, Payment.issuance_id == Issuance.id
-                ).filter(Issuance.project_id == project_id).all())
-            paid_count = len(payments)
-            paid_amount = sum(int(payment.amount) for payment in payments)
+            amounts = get_project_amount_summary(session, project_id)
+            total_amount = amounts["total"]
+            paid_count = amounts["paid_count"]
+            paid_amount = amounts["paid"]
         finally:
             session.close()
 

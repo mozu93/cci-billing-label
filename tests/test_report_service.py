@@ -88,7 +88,10 @@ def test_project_amount_summary(db_session):
     proj, issuances = _setup(db_session)
     summary = get_project_amount_summary(db_session, proj.id)
     # 請求書2件 × 10,000円、うち1件が入金済み。
-    assert summary == {"total": 20000, "paid": 10000, "unpaid": 10000}
+    assert summary["total"] == 20000
+    assert summary["paid"] == 10000
+    assert summary["unpaid"] == 10000
+    assert summary["paid_count"] == 1
 
 
 def test_project_amount_summary_excludes_receipts(db_session):
@@ -117,4 +120,32 @@ def test_project_amount_summary_of_empty_project(db_session):
     cat = create_category(db_session, "空カテゴリ")
     proj = create_project(db_session, "空の名簿", cat.id, 2026, "list")
     assert get_project_amount_summary(db_session, proj.id) == {
-        "total": 0, "paid": 0, "unpaid": 0}
+        "total": 0, "paid": 0, "unpaid": 0, "paid_count": 0}
+
+
+def test_amount_summary_does_not_double_count_receipts(db_session):
+    """請求書と領収書の両方がある会員を、二重に計上しない。
+
+    名簿一覧の「総額」が全種別合算で、実際の請求額より大きく出ていた。
+    """
+    from app.services.issuance_service import create_issuance_for_member
+    from app.services.project_service import get_project_members
+    from app.services.report_service import get_project_amount_summary
+
+    proj, issuances = _setup(db_session)
+    pms = get_project_members(db_session, proj.id)
+    create_issuance_for_member(
+        db_session, proj.id, pms[0].id,
+        recipient_organization=pms[0].organization_name,
+        recipient_name=pms[0].representative_name,
+        doc_type="receipt", fiscal_year=2026, month=5,
+    )
+    # 請求書2件 × 10,000円。領収書10,000円は加算しない。
+    assert get_project_amount_summary(db_session, proj.id)["total"] == 20000
+
+
+def test_amount_summary_counts_payments(db_session):
+    from app.services.report_service import get_project_amount_summary
+
+    proj, issuances = _setup(db_session)
+    assert get_project_amount_summary(db_session, proj.id)["paid_count"] == 1

@@ -8,6 +8,9 @@ __pycache__/
 dist/
 build/
 installer_output/
+
+# 作業用の一時出力（pytestログなど）
+.tmp/
 *.spec.bak
 *.csv
 

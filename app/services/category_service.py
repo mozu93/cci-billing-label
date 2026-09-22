@@ -15,6 +15,11 @@ def get_category(session: Session, category_id: int) -> Category | None:
     return session.get(Category, category_id)
 
 
+def get_category_names(session: Session) -> dict[int, str]:
+    """業務名の ID → 名称。無効化済みも含める（過去データの表示用）。"""
+    return {c.id: c.name for c in session.query(Category).all()}
+
+
 def get_active_categories(session: Session) -> list[Category]:
     return (session.query(Category)
             .filter_by(is_active=True)
