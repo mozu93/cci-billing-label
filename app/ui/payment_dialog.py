@@ -8,8 +8,12 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QDate, QTimer
 from app.database.connection import get_session
-from app.services.issuance_service import record_payment, get_project_issuances
-from app.services.project_service import get_projects
+from app.services.issuance_service import (
+    record_payment, get_project_issuances, get_all_issuances, get_issuance
+)
+from app.services.project_service import (
+    get_projects, get_project_by_id, get_project_member
+)
 from app.utils import current_user
 
 
@@ -171,14 +175,9 @@ class PaymentManagementWidget(QWidget):
         session = get_session()
         try:
             if project_id is None:
-                from app.database.models import Issuance as _Iss
-                q = session.query(_Iss)
-                if status:
-                    q = q.filter(_Iss.status == status)
-                issuances = q.order_by(_Iss.created_at.desc()).all()
+                issuances = get_all_issuances(session, status)
             else:
                 issuances = get_project_issuances(session, project_id, status)
-            from app.database.models import ProjectMember, Project as _Proj
             self._table.setSortingEnabled(False)
             self._table.setRowCount(0)
 
@@ -193,7 +192,7 @@ class PaymentManagementWidget(QWidget):
                 # 名簿側で参加キャンセルになった人は、発行済み請求書を
                 # 履歴として残しつつ入金管理の対象から外す。
                 if iss.project_member_id:
-                    pm = session.get(ProjectMember, iss.project_member_id)
+                    pm = get_project_member(session, iss.project_member_id)
                     if pm and pm.is_cancelled:
                         continue
                 row = self._table.rowCount()
@@ -211,12 +210,12 @@ class PaymentManagementWidget(QWidget):
                 org_kana = ""
                 email_addr = ""
                 if iss.project_member_id:
-                    pm = session.get(ProjectMember, iss.project_member_id)
+                    pm = get_project_member(session, iss.project_member_id)
                     if pm:
                         member_number = pm.member_number or ""
                         org_kana = pm.organization_kana or ""
                         email_addr = (pm.email or "").strip()
-                proj = session.get(_Proj, iss.project_id)
+                proj = get_project_by_id(session, iss.project_id)
                 due_str = proj.due_date.strftime("%Y/%m/%d") if (proj and proj.due_date) else ""
                 for col, val in enumerate([
                     iss.doc_number, due_str, iss.status, member_number, recipient,
@@ -255,10 +254,9 @@ class PaymentManagementWidget(QWidget):
         v = dlg.values()
         session = get_session()
         try:
-            from app.database.models import Issuance
             from app.services.operation_log_service import add_log
             for iss_id in ids:
-                iss = session.get(Issuance, iss_id)
+                iss = get_issuance(session, iss_id)
                 if iss and iss.status != "支払済み":
                     record_payment(
                         session,
@@ -283,21 +281,20 @@ class PaymentManagementWidget(QWidget):
         project_id  = self._proj_combo.currentData()
         session = get_session()
         try:
-            from app.database.models import Project, ProjectMember, Issuance
             today = date.today()
             targets = []
 
             if checked_ids:
                 # チェック行を直接対象にする（二度手間なし）
                 for iss_id in checked_ids:
-                    iss = session.get(Issuance, iss_id)
+                    iss = get_issuance(session, iss_id)
                     if iss is None or iss.doc_type != "invoice":
                         continue
-                    proj = session.get(Project, iss.project_id)
+                    proj = get_project_by_id(session, iss.project_id)
                     due  = proj.due_date if proj else None
                     email = ""
                     if iss.project_member_id:
-                        pm = session.get(ProjectMember, iss.project_member_id)
+                        pm = get_project_member(session, iss.project_member_id)
                         email = (pm.email or "").strip() if pm else ""
                     recipient = iss.recipient_organization or iss.recipient_name or ""
                     targets.append((iss.id, iss.doc_number, recipient,
@@ -313,14 +310,15 @@ class PaymentManagementWidget(QWidget):
                             continue
                         email = ""
                         if iss.project_member_id:
-                            pm = session.get(ProjectMember, iss.project_member_id)
+                            pm = get_project_member(
+                                session, iss.project_member_id)
                             email = (pm.email or "").strip() if pm else ""
                         recipient = iss.recipient_organization or iss.recipient_name or ""
                         targets.append((iss.id, iss.doc_number, recipient,
                                         int(iss.amount), email, due))
             else:
                 # チェックなし＋名簿指定 → その名簿の期限超過を全件収集
-                proj = session.get(Project, project_id)
+                proj = get_project_by_id(session, project_id)
                 if proj is None:
                     return
                 due = proj.due_date
@@ -341,7 +339,7 @@ class PaymentManagementWidget(QWidget):
                         continue
                     email = ""
                     if iss.project_member_id:
-                        pm = session.get(ProjectMember, iss.project_member_id)
+                        pm = get_project_member(session, iss.project_member_id)
                         email = (pm.email or "").strip() if pm else ""
                     recipient = iss.recipient_organization or iss.recipient_name or ""
                     targets.append((iss.id, iss.doc_number, recipient,
@@ -474,7 +472,6 @@ class _ReminderDialog(QDialog):
 
         from app.services.email_service import prepare_reminder_email
         from app.services.operation_log_service import add_log
-        from app.database.models import Issuance
         from app.utils.app_config import get_m365_client_id, get_m365_tenant_id
         from app.ui.m365_mail_worker import M365ReminderBatchWorker
         from PyQt6.QtCore import QThread
@@ -495,7 +492,7 @@ class _ReminderDialog(QDialog):
         pre_errors = []  # [(iss_id, message)]
         try:
             for iss_id in ids:
-                iss = session.get(Issuance, iss_id)
+                iss = get_issuance(session, iss_id)
                 if iss is None:
                     continue
                 try:
@@ -570,7 +567,7 @@ class _ReminderDialog(QDialog):
                 result = result_by_issuance.get(iss_id)
                 if result and result["success"]:
                     from datetime import datetime
-                    iss = session2.get(Issuance, iss_id)
+                    iss = get_issuance(session2, iss_id)
                     if iss:
                         iss.mail_subject = item["subject"]
                         iss.mail_sent_at = datetime.now()
@@ -770,8 +767,7 @@ class PaymentDialog(QDialog):
         self._amount.setRange(0, 99999999)
         session = get_session()
         try:
-            from app.database.models import Issuance
-            iss = session.get(Issuance, self._issuance_id)
+            iss = get_issuance(session, self._issuance_id)
             if iss:
                 self._amount.setValue(int(iss.amount))
         finally:
@@ -816,9 +812,8 @@ class PaymentDialog(QDialog):
                 staff_name=current_user.get_name(),
                 notes=v["notes"],
             )
-            from app.database.models import Issuance
             from app.services.operation_log_service import add_log
-            iss = session.get(Issuance, self._issuance_id)
+            iss = get_issuance(session, self._issuance_id)
             add_log(session, "入金記録", "issuance", self._issuance_id,
                     f"{iss.doc_number if iss else ''} ¥{v['amount']:,} {v['payment_method']}")
         finally:

@@ -634,3 +634,55 @@ def test_get_issuance_with_lines(db_session):
     assert len(found.lines) == 1
     assert found.lines[0].item_name == "青年部会費"
     assert get_issuance_with_lines(db_session, 9999) is None
+
+
+# ── 入金管理 ───────────────────────────────────────────────────
+
+def test_get_all_issuances_crosses_projects(db_session):
+    """名簿を絞らないときは、全名簿の発行データを新しい順に返す。"""
+    from app.services.issuance_service import get_all_issuances
+
+    from app.services.issuance_service import create_direct_issuance
+
+    proj, pm, issued, pending, receipt = _mk_reissue_data(db_session)
+    other = create_direct_issuance(
+        db_session, lines_data=[
+            {"item_template_id": None, "item_name": "受験料", "quantity": 1,
+             "unit": "人", "unit_price": 3000, "tax_rate": 0}],
+        recipient_organization="□□商店", recipient_name="",
+        doc_type="invoice", fiscal_year=2026, month=5, project_name="検定")
+
+    rows = get_all_issuances(db_session)
+    project_ids = {iss.project_id for iss in rows}
+    assert proj.id in project_ids
+    assert other.project_id in project_ids
+    assert other.project_id != proj.id
+
+
+def test_get_all_issuances_filters_by_status(db_session):
+    from app.services.issuance_service import get_all_issuances
+
+    proj, pm, issued, pending, receipt = _mk_reissue_data(db_session)
+    rows = get_all_issuances(db_session, status="発行済み")
+    assert {iss.id for iss in rows} == {issued.id}
+    assert get_all_issuances(db_session, status="存在しない状態") == []
+
+
+def test_get_latest_issuance_for_member_by_doc_type(db_session):
+    """会員ごとに、種別の最も新しい発行データを返す。"""
+    from app.services.issuance_service import get_latest_issuance_for_member
+
+    proj, pm, issued, pending, receipt = _mk_reissue_data(db_session)
+
+    # 請求書は issued → pending の順に作ったので、後から作った方が返る。
+    latest_invoice = get_latest_issuance_for_member(db_session, pm.id, "invoice")
+    assert latest_invoice.id == pending.id
+    assert get_latest_issuance_for_member(
+        db_session, pm.id, "receipt").id == receipt.id
+
+
+def test_get_latest_issuance_for_member_returns_none(db_session):
+    from app.services.issuance_service import get_latest_issuance_for_member
+
+    proj, tmpl, pm = _setup(db_session)
+    assert get_latest_issuance_for_member(db_session, pm.id, "invoice") is None

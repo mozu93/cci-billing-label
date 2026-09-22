@@ -12,12 +12,18 @@ from app.database.connection import get_session
 from app.services.project_service import (
     get_projects, get_project_members, get_project_templates,
     get_member_item_settings, save_member_item_setting,
+    get_project_by_id, get_project_member,
 )
 from app.services.category_service import get_active_categories
+from app.services.company_service import (
+    list_issuers, list_bank_accounts, list_seals,
+)
 from app.services.issuance_service import (
     create_issuance_for_member,
     mark_as_issued,
     update_issuance_lines_from_project,
+    get_issuance,
+    get_latest_issuance_for_member,
 )
 from app.utils import current_user
 
@@ -481,10 +487,9 @@ class IssuanceFromProjectWidget(QWidget):
         self._load_members()
 
     def _reload_issuers(self, company_id=None, bank_id=None, seal_id=None):
-        from app.database.models import CompanySettings
         session = get_session()
         try:
-            issuers = session.query(CompanySettings).order_by(CompanySettings.id).all()
+            issuers = list_issuers(session)
         finally:
             session.close()
         self._issuer_combo.blockSignals(True)
@@ -499,12 +504,11 @@ class IssuanceFromProjectWidget(QWidget):
         self._reload_bank_seal(bank_id, seal_id)
 
     def _reload_bank_seal(self, bank_id=None, seal_id=None):
-        from app.database.models import BankAccount, SealImage
         company_id = self._issuer_combo.currentData()
         session = get_session()
         try:
-            banks = session.query(BankAccount).filter_by(company_id=company_id).all() if company_id else []
-            seals = session.query(SealImage).filter_by(company_id=company_id).all() if company_id else []
+            banks = list_bank_accounts(session, company_id) if company_id else []
+            seals = list_seals(session, company_id) if company_id else []
         finally:
             session.close()
         for combo, items, selected in ((self._bank_combo, banks, bank_id), (self._seal_combo, seals, seal_id)):
@@ -535,10 +539,9 @@ class IssuanceFromProjectWidget(QWidget):
         project_id = self._proj_combo.currentData()
         if project_id is None or not hasattr(self, "_issuer_combo"):
             return
-        from app.database.models import Project
         session = get_session()
         try:
-            project = session.get(Project, project_id)
+            project = get_project_by_id(session, project_id)
             if project:
                 project.company_settings_id = self._issuer_combo.currentData()
                 project.bank_account_id = self._bank_combo.currentData()
@@ -548,12 +551,11 @@ class IssuanceFromProjectWidget(QWidget):
             session.close()
 
     def _select_project_issuer(self, project_id):
-        from app.database.models import Project
         company_id = bank_id = seal_id = None
         if project_id is not None:
             session = get_session()
             try:
-                project = session.get(Project, project_id)
+                project = get_project_by_id(session, project_id)
                 if project:
                     company_id, bank_id, seal_id = project.company_settings_id, project.bank_account_id, project.seal_image_id
             finally:
@@ -588,21 +590,16 @@ class IssuanceFromProjectWidget(QWidget):
 
         session = get_session()
         try:
-            from app.database.models import Issuance
             pm_data = []
             issued_count = 0
             for pid in project_ids:
                 for pm in get_project_members(session, pid):
                     if pm.is_cancelled:
                         continue
-                    inv = (session.query(Issuance)
-                           .filter_by(project_member_id=pm.id, doc_type="invoice")
-                           .order_by(Issuance.created_at.desc())
-                           .first())
-                    rcp = (session.query(Issuance)
-                           .filter_by(project_member_id=pm.id, doc_type="receipt")
-                           .order_by(Issuance.created_at.desc())
-                           .first())
+                    inv = get_latest_issuance_for_member(
+                        session, pm.id, "invoice")
+                    rcp = get_latest_issuance_for_member(
+                        session, pm.id, "receipt")
                     voided = inv is None and rcp is not None
                     sel = inv if doc_type == "invoice" else rcp
                     sel_status = sel.status if sel else "未発行"
@@ -1073,13 +1070,12 @@ class IssuanceFromProjectWidget(QWidget):
 
         session = get_session()
         try:
-            from app.database.models import Project, ProjectMember
             from app.utils.pdf_helpers import (
                 build_preview_issuance, generate_and_open, get_pdf_output_dir,
             )
             project_id = self._proj_combo.currentData()
-            project = session.get(Project, project_id)
-            member = session.get(ProjectMember, pm_id)
+            project = get_project_by_id(session, project_id)
+            member = get_project_member(session, pm_id)
             if not project or not member:
                 QMessageBox.warning(self, "プレビュー不可", "案件または名簿が見つかりません。")
                 return
@@ -1209,11 +1205,10 @@ class IssuanceFromProjectWidget(QWidget):
         notify_items = []
         open_each = len(targets) == 1 and delivery != "メール送付"
         try:
-            from app.database.models import ProjectMember, Issuance
             from app.utils.pdf_helpers import generate_and_open, merge_and_open
             for pm_id, issuance_id, quantities, unit_prices in targets:
                 try:
-                    pm = session.get(ProjectMember, pm_id)
+                    pm = get_project_member(session, pm_id)
                     if issuance_id is None:
                         today = date.today()
                         iss = create_issuance_for_member(
@@ -1241,7 +1236,7 @@ class IssuanceFromProjectWidget(QWidget):
                             commit=False,
                         )
 
-                    iss = session.get(Issuance, issuance_id)
+                    iss = get_issuance(session, issuance_id)
                     if iss is None:
                         continue
                     iss.member_number = pm.member_number or ""
@@ -1268,14 +1263,13 @@ class IssuanceFromProjectWidget(QWidget):
                                        delivery_method=delivery,
                                        issued_at=receipt_issued_at,
                                        commit=False)
-                        iss = session.get(Issuance, issuance_id)
+                        iss = get_issuance(session, issuance_id)
                     elif (iss.delivery_method or "") != delivery:
                         # 発行済み行の再実行時も配付方法を実態に合わせる
                         iss.delivery_method = delivery
 
                     try:
-                        from app.database.models import Project as _Project
-                        _proj = session.get(_Project, iss.project_id)
+                        _proj = get_project_by_id(session, iss.project_id)
                         if due_date and _proj and _proj.due_date != due_date:
                             _proj.due_date = due_date
                         if save_dir:
@@ -1345,7 +1339,6 @@ class IssuanceFromProjectWidget(QWidget):
         """発行方法「メール送付」で発行した分のPDFを1件ずつ確認してM365で送信する。"""
         from PyQt6.QtCore import QThread
         from PyQt6.QtWidgets import QApplication, QDialog
-        from app.database.models import ProjectMember
         from app.services.email_service import (
             get_issuance_email_context,
             prepare_issuance_email,
@@ -1369,7 +1362,7 @@ class IssuanceFromProjectWidget(QWidget):
         for iss, sess in issued_issuances:
             email = ""
             if iss.project_member_id:
-                pm = sess.get(ProjectMember, iss.project_member_id)
+                pm = get_project_member(sess, iss.project_member_id)
                 email = (pm.email or "").strip() if pm else ""
 
             try:
@@ -1507,11 +1500,11 @@ class IssuanceFromProjectWidget(QWidget):
             return
         session = get_session()
         try:
-            from app.database.models import Staff
-            staff = session.get(Staff, staff_id)
+            from app.services.staff_service import get_staff
+            staff = get_staff(session, staff_id)
             supervisor_email = ""
             if staff and staff.supervisor_id:
-                sup = session.get(Staff, staff.supervisor_id)
+                sup = get_staff(session, staff.supervisor_id)
                 supervisor_email = (sup.email or "").strip() if sup else ""
         finally:
             session.close()

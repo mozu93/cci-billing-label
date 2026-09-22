@@ -477,6 +477,24 @@ def search_reissuable_issuances(
     return q.order_by(Issuance.issued_at.desc()).all()
 
 
+def get_latest_issuance_for_member(session: Session, project_member_id: int,
+                                   doc_type: str) -> Issuance | None:
+    """名簿会員の、その種別で最も新しい発行データを返す。"""
+    return (session.query(Issuance)
+            .filter_by(project_member_id=project_member_id, doc_type=doc_type)
+            .order_by(Issuance.created_at.desc())
+            .first())
+
+
+def get_all_issuances(session: Session,
+                      status: str | None = None) -> list[Issuance]:
+    """名簿を問わず発行データを新しい順に返す。入金管理の絞り込みなし表示用。"""
+    q = session.query(Issuance)
+    if status:
+        q = q.filter(Issuance.status == status)
+    return q.order_by(Issuance.created_at.desc()).all()
+
+
 def get_project_issuances(session: Session, project_id: int,
                            status: str | None = None) -> list[Issuance]:
     q = session.query(Issuance).filter_by(project_id=project_id)
