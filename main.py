@@ -126,7 +126,13 @@ def main():
     from app.ui.main_window import MainWindow
     window = MainWindow()
     window.show()
-    sys.exit(app.exec())
+    rc = app.exec()
+    # QApplication より先にウィンドウを手放す。sys.exit(app.exec()) のまま
+    # main() を抜けると、ローカル変数の解放順によっては QApplication が先に
+    # 消え、MainWindow の C++ 側デストラクタが解放済みの QApplication に
+    # 触れてアクセス違反で落ちる（終了コード 0xC0000005）。
+    del window
+    sys.exit(rc)
 
 
 if __name__ == "__main__":
