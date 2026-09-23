@@ -112,6 +112,12 @@ def test_excel_round_trip_updates_existing_issuance_lines(
     import app.utils.app_config as app_config
     import app.utils.pdf_helpers as pdf_helpers
 
+    # app_config は実ファイル（~/.cci-billing-label/config.json）を読むため、
+    # 開発機で前回選んだ発行方法がテスト結果を左右してしまう。
+    # （「メール送付」が残っているとメール送信の経路に入り、宛先なしで失敗する）
+    _fake_cfg: dict = {}
+    monkeypatch.setattr(app_config, "get_config", lambda: _fake_cfg)
+
     session = get_session()
     category = create_category(session, "青年部")
     template = create_item_template(
