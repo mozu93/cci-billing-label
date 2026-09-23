@@ -6,6 +6,7 @@ import re
 from PyQt6.QtCore import QEvent, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QComboBox,
@@ -47,8 +48,14 @@ class InvoiceMailConfirmDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("請求書メール送信確認")
-        self.resize(1180, 800)
-        self.setMinimumSize(960, 680)
+        # 1366x768 のノートPCでは有効高さが約728pxしかない。固定で 1180x800 を
+        # 指定していたため下部が画面外に出て、送信ボタンに手が届かなかった。
+        _screen = QApplication.primaryScreen()
+        _avail = _screen.availableGeometry() if _screen else None
+        _avail_w = _avail.width() if _avail else 1180
+        _avail_h = _avail.height() if _avail else 720
+        self.resize(min(1180, _avail_w), min(720, _avail_h))
+        self.setMinimumSize(780, 560)
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         self._template_kind = template_kind
@@ -135,7 +142,9 @@ class InvoiceMailConfirmDialog(QDialog):
         self._body_edit = QTextEdit()
         self._body_edit.setAcceptRichText(False)
         self._body_edit.setPlainText(template_body)
-        self._body_edit.setMinimumHeight(230)
+        # 最小高さの合計がダイアログの最小高さ(560)を押し上げないようにする。
+        # 足りない分はウィンドウを広げれば伸びる。
+        self._body_edit.setMinimumHeight(180)
         self._subject_edit.installEventFilter(self)
         self._body_edit.installEventFilter(self)
         self._last_template_editor = self._body_edit
@@ -152,7 +161,7 @@ class InvoiceMailConfirmDialog(QDialog):
             0, QHeaderView.ResizeMode.ResizeToContents)
         self._tag_table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch)
-        self._tag_table.setMinimumHeight(170)
+        self._tag_table.setMinimumHeight(130)
         self._tag_table.setMaximumHeight(190)
         self._tag_table.setToolTip(
             "タグをダブルクリックすると、件名または本文のカーソル位置へ挿入します")
@@ -189,7 +198,7 @@ class InvoiceMailConfirmDialog(QDialog):
         self._preview_subject = QLineEdit()
         self._preview_subject.setReadOnly(True)
         self._preview_body = QTextBrowser()
-        self._preview_body.setMinimumHeight(420)
+        self._preview_body.setMinimumHeight(300)
         preview_layout.addRow("件名", self._preview_subject)
         preview_layout.addRow("本文", self._preview_body)
 
