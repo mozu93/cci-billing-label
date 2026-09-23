@@ -91,7 +91,8 @@ class _LineRow(QFrame):
         self.qty_spin = QSpinBox()
         self.qty_spin.setFixedWidth(W_QTY)
         self.qty_spin.setFixedHeight(FIELD_H)
-        self.qty_spin.setRange(1, 9999)
+        # 0 も入力できる。数量0の行は発行時に明細から除く（_issue）
+        self.qty_spin.setRange(0, 9999)
         self.qty_spin.setValue(1)
         # 単位（テンプレートの値を初期値にし、ここで直せる）
         self.unit_edit = QLineEdit("式")
@@ -205,6 +206,7 @@ class IssuanceCounterWidget(QWidget):
         self._rows: list[_LineRow] = []
         self._cell_style = QStyleFactory.create("Fusion")
         self._postal_worker: _PostalWorker | None = None
+        self._last_issued_signature: tuple | None = None
         self._members: list = []
         self._member_by_number: dict = {}
         self._build()
@@ -697,6 +699,11 @@ class IssuanceCounterWidget(QWidget):
             bar.addWidget(due_lbl)
             bar.addWidget(self._due_date)
         bar.addStretch()
+        # 直前に発行した番号（入力を残すので、発行済みかどうかをここで示す）
+        self._issued_label = QLabel("")
+        self._issued_label.setStyleSheet("color: #15803D; font-weight: bold;")
+        bar.addWidget(self._issued_label)
+        bar.addSpacing(16)
         self._total_label = QLabel("合計：¥0")
         self._total_label.setStyleSheet(
             "font-size: 18px; font-weight: bold; color: #1D4ED8; padding: 6px 2px;")
@@ -721,7 +728,40 @@ class IssuanceCounterWidget(QWidget):
             "font-size: 14px; font-weight: bold;"
             "background: #1D4ED8; color: white; border-radius: 6px;")
         self._btn_issue.clicked.connect(self._issue)
-        layout.addWidget(self._btn_issue)
+
+        self._btn_preview = QPushButton("プレビュー")
+        self._btn_preview.setFixedSize(140, 44)
+        self._btn_preview.setToolTip("今の入力内容で「見本」入りのPDFを表示します（発行はしません）")
+        self._btn_preview.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #1D4ED8;"
+            "background: white; border: 2px solid #1D4ED8; border-radius: 6px;")
+        self._btn_preview.clicked.connect(self._preview)
+
+        self._btn_test_send = QPushButton("テスト送信")
+        self._btn_test_send.setFixedSize(120, 44)
+        self._btn_test_send.setToolTip(
+            "番号を使わずに、自分宛てに「見本」のメールを試し送信します（発行はしません）")
+        self._btn_test_send.setStyleSheet(self._btn_preview.styleSheet())
+        self._btn_test_send.clicked.connect(self._test_send)
+        # メール送付のときだけ使う
+        self._btn_test_send.setVisible(self._delivery.currentText() == "メール送付")
+        self._delivery.currentTextChanged.connect(
+            lambda text: self._btn_test_send.setVisible(text == "メール送付"))
+
+        # 宛先欄の「クリア」（会員情報だけ消す）と区別する
+        self._btn_clear = QPushButton("すべてクリア")
+        self._btn_clear.setFixedSize(110, 44)
+        self._btn_clear.setToolTip("入力をすべて消して、新しく作成します")
+        self._btn_clear.clicked.connect(self._clear_all)
+
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
+        if not self._edit_issuance_id:   # 修正・再発行の画面では使わない
+            action_row.addWidget(self._btn_clear)
+        action_row.addWidget(self._btn_preview)
+        action_row.addWidget(self._btn_test_send)
+        action_row.addWidget(self._btn_issue, 1)
+        layout.addLayout(action_row)
 
         if not self._edit_issuance_id:
             self._add_row()
@@ -1097,6 +1137,88 @@ class IssuanceCounterWidget(QWidget):
         from app.ui.pdf_filename_dialog import PdfFilenameDialog
         PdfFilenameDialog(self).exec()
 
+    def _issuable_lines(self) -> list[dict] | None:
+        """発行（プレビュー）に使う明細。使えないときは警告して None を返す。"""
+        if not self._rows:
+            QMessageBox.warning(self, "入力エラー", "項目を1つ以上追加してください。")
+            return None
+        all_lines = self._collect_lines_data()
+        # 数量0の行は明細に含めない（まとめて発行と同じ扱い）
+        lines_data = [l for l in all_lines if l["quantity"] > 0]
+        if not all_lines:
+            QMessageBox.warning(self, "エラー",
+                                "項目が入力されていません。\n"
+                                "各行で項目を選択するか、直接入力してください。")
+            return None
+        if not lines_data:
+            QMessageBox.warning(self, "エラー",
+                                "数量が1以上の項目がありません。\n"
+                                "数量0の項目は明細に含まれません。")
+            return None
+        return lines_data
+
+    def _build_preview(self) -> tuple:
+        """今の入力内容から、未保存の発行データとプレビュー PDF の作成引数を作る。
+
+        入力に不足があれば警告して (None, None) を返す。"""
+        org = self._org_name.text().strip()
+        if not org:
+            QMessageBox.warning(self, "入力エラー", "事業所名を入力してください。")
+            return None, None
+        lines_data = self._issuable_lines()
+        if lines_data is None:
+            return None, None
+
+        from app.services.issuance_service import build_preview_issuance
+        is_invoice = self._doc_type_str == "invoice"
+        fields = dict(
+            recipient_organization=org,
+            recipient_name=self._rep_name_edit.text().strip(),
+            recipient_department=self._dept_edit.text().strip(),
+            member_number=self._member_number_edit.text().strip(),
+            company_settings_id=self._issuer_combo.currentData(),
+            seal_image_id=self._seal_combo.currentData(),
+        )
+        kwargs = dict(subject=self._derive_project_name())
+        if is_invoice:
+            qd = self._due_date.date()
+            fields.update(bank_account_id=self._bank_combo.currentData(),
+                          show_recipient_person=self._show_person_chk.isChecked())
+            kwargs.update(
+                due_date=date(qd.year(), qd.month(), qd.day()),
+                window_envelope=self._window_envelope_chk.isChecked(),
+                recipient_postal_code=self._postal_code_edit.text().strip(),
+                recipient_address=self._address1_edit.text().strip(),
+                recipient_address2=self._address2_edit.text().strip())
+        else:
+            # 発行時と同じく、メール送付の領収書は控えなし
+            kwargs["receipt_include_copy"] = self._delivery.currentText() != "メール送付"
+        return build_preview_issuance(lines_data, self._doc_type_str, **fields), kwargs
+
+    def _preview(self):
+        """今の入力内容で「見本」入りの PDF を作って開く。DB には記録しない。"""
+        iss, kwargs = self._build_preview()
+        if iss is None:
+            return
+        from app.services.print_service import open_pdf
+        from app.utils import pdf_helpers
+        session = get_session()
+        try:
+            path = pdf_helpers.generate_preview_pdf(session, iss, **kwargs)
+        except Exception as e:
+            _log.warning("プレビューの作成に失敗", exc_info=True)
+            QMessageBox.critical(self, "プレビューエラー", str(e))
+            return
+        finally:
+            session.close()
+        if not path:
+            QMessageBox.warning(
+                self, "プレビュー不可",
+                "自社情報（会社設定）が未登録のためプレビューできません。\n"
+                "設定 → 会社情報 から登録してください。")
+            return
+        open_pdf(path)
+
     def _issue(self):
         org = self._org_name.text().strip()
         if not org:
@@ -1121,16 +1243,23 @@ class IssuanceCounterWidget(QWidget):
             except ValueError as e:
                 QMessageBox.warning(self, "入力エラー", str(e))
                 return
-        if not self._rows:
-            QMessageBox.warning(self, "入力エラー", "項目を1つ以上追加してください。")
+        lines_data = self._issuable_lines()
+        if lines_data is None:
             return
-
-        lines_data = self._collect_lines_data()
-
-        if not lines_data:
-            QMessageBox.warning(self, "エラー",
-                                "項目が入力されていません。\n"
-                                "各行で項目を選択するか、直接入力してください。")
+        # 発行後も入力を残すので、うっかり同じ請求書を二重に発行しないよう確認する
+        if (self._edit_issuance_id is None
+                and self._last_issued_signature == self._input_signature()
+                and QMessageBox.question(
+                    self, "二重発行の確認",
+                    "直前に発行したものと同じ内容です。\n"
+                    "同じ内容でもう1枚発行しますか？"
+                ) != QMessageBox.StandardButton.Yes):
+            return
+        total = sum(int(l["unit_price"]) * int(l["quantity"]) for l in lines_data)
+        if total == 0 and QMessageBox.question(
+                self, "合計0円の確認",
+                "合計が0円です。このまま発行しますか？"
+        ) != QMessageBox.StandardButton.Yes:
             return
 
         from app.utils.pdf_helpers import get_company_and_bank
@@ -1231,26 +1360,9 @@ class IssuanceCounterWidget(QWidget):
                 )
                 _add_log(session, "発行", "issuance", iss.id,
                          f"{label} {iss.doc_number} 宛先：{iss.recipient_organization or iss.recipient_name}")
-            # ── 保存先を選択（メール送付以外）──────────────────────────
-            from PyQt6.QtWidgets import QFileDialog
-            from app.utils.pdf_helpers import get_pdf_output_dir
+            issued_no = iss.doc_number   # セッションを閉じた後も表示に使う
+            from app.utils import pdf_helpers
             _delivery_text = self._delivery.currentText()
-            _save_path: str | None = None
-            # 発行・修正再発行どちらも保存先を選択させる（PDF再生成のたびに保存先を確認）
-            if _delivery_text != "メール送付":
-                _out_dir = get_pdf_output_dir()
-                from app.utils.pdf_helpers import build_pdf_filename
-                _default_name = os.path.join(_out_dir, build_pdf_filename(iss))
-                _save_path, _ = QFileDialog.getSaveFileName(
-                    self, "PDFの保存先を選択", _default_name, "PDF ファイル (*.pdf)"
-                )
-                if not _save_path:
-                    QMessageBox.information(
-                        self, "保存キャンセル",
-                        "発行は記録されましたが、PDFは保存されませんでした。\n"
-                        "再発行タブから出力できます。",
-                    )
-            from app.utils.pdf_helpers import generate_and_open
             due_date = None
             window_envelope = False
             postal_code = address1 = address2 = ""
@@ -1262,25 +1374,21 @@ class IssuanceCounterWidget(QWidget):
                     postal_code = self._postal_code_edit.text().strip()
                     address1    = self._address1_edit.text().strip()
                     address2    = self._address2_edit.text().strip()
-            _proj = get_project_by_id(session, iss.project_id)
+            pdf_opts = dict(
+                due_date=due_date,
+                window_envelope=window_envelope,
+                recipient_postal_code=postal_code,
+                recipient_address=address1,
+                recipient_address2=address2,
+                project=get_project_by_id(session, iss.project_id),
+            )
             if _delivery_text == "メール送付":
                 # メール添付用に生成（ビューアで開かない）
-                generate_and_open(iss, session, due_date=due_date, open_file=False,
-                                  window_envelope=window_envelope,
-                                  recipient_postal_code=postal_code,
-                                  recipient_address=address1,
-                                  recipient_address2=address2,
-                                  project=_proj,
-                                  receipt_include_copy=doc_type != "receipt")
-            elif _save_path:
-                # 指定パスに保存してビューアで開く
-                generate_and_open(iss, session, due_date=due_date,
-                                  save_path=_save_path,
-                                  window_envelope=window_envelope,
-                                  recipient_postal_code=postal_code,
-                                  recipient_address=address1,
-                                  recipient_address2=address2,
-                                  project=_proj)
+                pdf_helpers.generate_and_open(
+                    iss, session, open_file=False,
+                    receipt_include_copy=doc_type != "receipt", **pdf_opts)
+            else:
+                outputted = self._save_print_pdf(session, iss, pdf_opts)
             if _delivery_text == "メール送付":
                 from app.services.email_service import (
                     get_issuance_email_context,
@@ -1288,9 +1396,7 @@ class IssuanceCounterWidget(QWidget):
                 )
                 from app.services.operation_log_service import add_log
                 from app.ui.invoice_mail_confirm_dialog import InvoiceMailConfirmDialog
-                from app.ui.m365_mail_worker import M365MailWorker
-                from app.utils.app_config import get_m365_client_id, get_m365_tenant_id
-                from PyQt6.QtWidgets import QApplication, QProgressDialog
+                mail_sent = False
                 try:
                     to_addr, subject, body_html, pdf_path = prepare_issuance_email(
                         session, iss, to_addr=email or None)
@@ -1323,67 +1429,37 @@ class IssuanceCounterWidget(QWidget):
                         # 確認画面で変更した主宛先も再発行用に保持する。
                         iss.recipient_email = to_addr
                         session.commit()
-                        client_id = get_m365_client_id()
-                        tenant_id = get_m365_tenant_id()
-                        if not client_id or not tenant_id:
+                        ok, err_msg = self._send_via_m365(
+                            to_recipients, subject, body_html, pdf_path,
+                            cc_recipients=cc_recipients,
+                            bcc_recipients=bcc_recipients)
+                        if ok:
+                            from datetime import datetime
+                            iss.mail_subject = subject
+                            iss.mail_sent_at = datetime.now()
+                            iss.mail_delivery_status = "pending"
+                            iss.mail_delivery_message = "Microsoft 365の配信結果を確認してください。"
+                            iss.mail_delivery_checked_at = None
+                            session.commit()
+                            add_log(session, "メール送信", "issuance",
+                                    iss.id,
+                                    f"{iss.doc_number} → "
+                                    f"{', '.join(to_recipients)}")
+                            mail_sent = True
+                            QMessageBox.information(
+                                self, "メール送信",
+                                f"{', '.join(to_recipients)} "
+                                "にメールを送信しました。")
+                        elif err_msg:   # None は設定不備（表示済み）
+                            add_log(session, "メール送信失敗", "issuance",
+                                    iss.id,
+                                    f"{iss.doc_number}：{err_msg}")
                             QMessageBox.critical(
-                                self, "設定エラー",
-                                "Microsoft 365 の Client ID / Tenant ID が"
-                                "設定されていません。\n"
-                                "設定 → メール送信設定から入力してください。")
-                        else:
-                            thread = QThread(self)
-                            worker = M365MailWorker(
-                                client_id, tenant_id, to_recipients,
-                                subject, body_html, pdf_path,
-                                cc_recipients=cc_recipients or None,
-                                bcc_recipients=bcc_recipients or None)
-                            worker.moveToThread(thread)
-                            prog = QProgressDialog(
-                                "Microsoft 365 でメール送信中…",
-                                None, 0, 0, self)
-                            prog.setWindowTitle("メール送信")
-                            prog.setWindowModality(
-                                Qt.WindowModality.WindowModal)
-                            prog.show()
-                            _result: dict = {}
-                            def _on_done(r, _r=_result, _t=thread):
-                                _r["ok"] = r
-                                _t.quit()
-                            def _on_err(msg, _r=_result, _t=thread):
-                                _r["err"] = msg
-                                _t.quit()
-                            worker.finished.connect(_on_done)
-                            worker.failed.connect(_on_err)
-                            thread.started.connect(worker.run)
-                            thread.finished.connect(prog.close)
-                            thread.finished.connect(thread.deleteLater)
-                            thread.start()
-                            while thread.isRunning():
-                                QApplication.processEvents()
-                            if "ok" in _result:
-                                from datetime import datetime
-                                iss.mail_subject = subject
-                                iss.mail_sent_at = datetime.now()
-                                iss.mail_delivery_status = "pending"
-                                iss.mail_delivery_message = "Microsoft 365の配信結果を確認してください。"
-                                iss.mail_delivery_checked_at = None
-                                session.commit()
-                                add_log(session, "メール送信", "issuance",
-                                        iss.id,
-                                        f"{iss.doc_number} → "
-                                        f"{', '.join(to_recipients)}")
-                                QMessageBox.information(
-                                    self, "メール送信",
-                                    f"{', '.join(to_recipients)} "
-                                    "にメールを送信しました。")
-                            else:
-                                err_msg = _result.get("err", "不明なエラー")
-                                add_log(session, "メール送信失敗", "issuance",
-                                        iss.id,
-                                        f"{iss.doc_number}：{err_msg}")
-                                QMessageBox.critical(
-                                    self, "メール送信エラー", err_msg)
+                                self, "メール送信エラー", err_msg)
+                # キャンセル・設定不備・送信失敗のいずれでも、送れなかったら印刷を提案する
+                outputted = mail_sent or self._offer_switch_to_print(session, iss, pdf_opts)
+            if not outputted and self._handle_no_output(session, iss):
+                return   # 取り消した。入力は残っているので、そのまま発行し直せる
         except Exception as e:
             QMessageBox.critical(self, "発行エラー", str(e))
             return
@@ -1393,19 +1469,202 @@ class IssuanceCounterWidget(QWidget):
         if self._edit_issuance_id is not None:
             self.edit_completed.emit()
         else:
-            self._member_number_edit.clear()
-            self._org_name.clear()
-            self._kana_edit.clear()
-            self._dept_edit.clear()
-            self._rep_name_edit.clear()
-            self._rep_kana_edit.clear()
-            self._phone_edit.clear()
-            self._email.clear()
-            if self._doc_type_str == "invoice":
-                self._postal_code_edit.clear()
-                self._address1_edit.clear()
-                self._address2_edit.clear()
-            for row in list(self._rows):
-                self._remove_row(row)
-            self._add_row()
-            self._update_total()
+            # 連続して作成できるよう入力は残す。消すときは「クリア」ボタン
+            self._last_issued_signature = self._input_signature()
+            self._issued_label.setText(f"{issued_no} を発行しました")
+
+    def _send_via_m365(self, to_recipients: list[str], subject: str,
+                       body_html: str, pdf_path: str | None,
+                       cc_recipients: list[str] | None = None,
+                       bcc_recipients: list[str] | None = None
+                       ) -> tuple[bool, str | None]:
+        """Microsoft 365 でメールを送り、終わるまで待つ。
+
+        戻り値は (成功したか, エラーメッセージ)。設定が未入力のときは
+        ここで設定エラーを表示し、(False, None) を返す。"""
+        from PyQt6.QtWidgets import QApplication, QProgressDialog
+        from app.ui.m365_mail_worker import M365MailWorker
+        from app.utils.app_config import get_m365_client_id, get_m365_tenant_id
+        client_id = get_m365_client_id()
+        tenant_id = get_m365_tenant_id()
+        if not client_id or not tenant_id:
+            QMessageBox.critical(
+                self, "設定エラー",
+                "Microsoft 365 の Client ID / Tenant ID が"
+                "設定されていません。\n"
+                "設定 → メール送信設定から入力してください。")
+            return False, None
+        thread = QThread(self)
+        worker = M365MailWorker(
+            client_id, tenant_id, to_recipients,
+            subject, body_html, pdf_path,
+            cc_recipients=cc_recipients or None,
+            bcc_recipients=bcc_recipients or None)
+        worker.moveToThread(thread)
+        prog = QProgressDialog("Microsoft 365 でメール送信中…", None, 0, 0, self)
+        prog.setWindowTitle("メール送信")
+        prog.setWindowModality(Qt.WindowModality.WindowModal)
+        prog.show()
+        result: dict = {}
+
+        def _on_done(r):
+            result["ok"] = r
+            thread.quit()
+
+        def _on_err(msg):
+            result["err"] = msg
+            thread.quit()
+        worker.finished.connect(_on_done)
+        worker.failed.connect(_on_err)
+        thread.started.connect(worker.run)
+        thread.finished.connect(prog.close)
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
+        # 待ち画面（WindowModal）の間はメイン画面を閉じられないので、
+        # スレッドが動作中に破棄されることはない
+        while thread.isRunning():
+            QApplication.processEvents()
+        if "ok" in result:
+            return True, None
+        return False, result.get("err", "不明なエラー")
+
+    def _test_send(self):
+        """番号を使わずに、指定したアドレスへ「見本」の請求書メールを試し送信する。
+
+        DB への記録・採番・送信記録は一切しない。本番の確認画面（CC・BCC を
+        編集できる）は使わず、宛先は聞いた1件だけにする（お客様への誤送信防止）。"""
+        iss, kwargs = self._build_preview()
+        if iss is None:
+            return
+        from PyQt6.QtWidgets import QInputDialog
+        from app.services.email_service import build_test_issuance_email, validate_email_addr
+        from app.utils.app_config import get_m365_test_recipient
+        addr, ok = QInputDialog.getText(
+            self, "テスト送信",
+            "テストメールの送信先（自分のアドレス）：",
+            text=get_m365_test_recipient())
+        if not ok or not addr.strip():
+            return
+        try:
+            addr = validate_email_addr(addr.strip())
+        except ValueError as e:
+            QMessageBox.warning(self, "入力エラー", str(e))
+            return
+
+        from app.utils import pdf_helpers
+        session = get_session()
+        try:
+            pdf_path = pdf_helpers.generate_preview_pdf(session, iss, **kwargs)
+            if not pdf_path:
+                QMessageBox.warning(
+                    self, "テスト送信不可",
+                    "自社情報（会社設定）が未登録のため作成できません。\n"
+                    "設定 → 会社情報 から登録してください。")
+                return
+            subject, body_html = build_test_issuance_email(
+                session, iss, project_name=kwargs.get("subject", ""))
+        except Exception as e:
+            _log.warning("テスト送信の準備に失敗", exc_info=True)
+            QMessageBox.critical(self, "テスト送信エラー", str(e))
+            return
+        finally:
+            session.close()
+
+        sent, err_msg = self._send_via_m365([addr], subject, body_html, pdf_path)
+        if sent:
+            QMessageBox.information(
+                self, "テスト送信",
+                f"{addr} にテストメールを送信しました。\n"
+                "（請求書は発行されていません）")
+        elif err_msg:
+            QMessageBox.critical(self, "テスト送信エラー", err_msg)
+
+    def _save_print_pdf(self, session, iss, pdf_opts: dict) -> bool:
+        """保存先を選ばせて印刷用 PDF を作り、ビューアで開く。保存したら True。"""
+        from PyQt6.QtWidgets import QFileDialog
+        from app.utils import pdf_helpers
+        default_name = os.path.join(pdf_helpers.get_pdf_output_dir(),
+                                    pdf_helpers.build_pdf_filename(iss))
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "PDFの保存先を選択", default_name, "PDF ファイル (*.pdf)")
+        if not save_path:
+            return False
+        pdf_helpers.generate_and_open(iss, session, save_path=save_path, **pdf_opts)
+        return True
+
+    def _offer_switch_to_print(self, session, iss, pdf_opts: dict) -> bool:
+        """メールで送らなかったとき、同じ番号のまま印刷に切り替えるか聞く。
+
+        画面の発行方法を変えて発行し直すと、番号の違う2枚目ができてしまうため。
+        印刷用 PDF を保存したら True。"""
+        if QMessageBox.question(
+                self, "印刷に切り替え",
+                f"{iss.doc_number} はメールで送信されていません。\n"
+                "同じ番号のまま印刷に切り替えますか？"
+        ) != QMessageBox.StandardButton.Yes:
+            return False
+        from app.services.issuance_service import switch_to_print
+        switch_to_print(session, iss)
+        return self._save_print_pdf(session, iss, pdf_opts)
+
+    def _handle_no_output(self, session, iss) -> bool:
+        """印刷もメール送信もされなかったときの後始末。発行を取り消したら True。
+
+        新規発行は取り消す（何も出力していないので）。修正・再発行は元の発行を
+        消せないので、記録は残して再発行タブからの出力を案内する。"""
+        if self._edit_issuance_id is not None:
+            QMessageBox.information(
+                self, "保存キャンセル",
+                "発行は記録されましたが、PDFは保存されませんでした。\n"
+                "再発行タブから出力できます。")
+            return False
+        from app.services.issuance_service import cancel_unoutput_issuance
+        number = iss.doc_number
+        cancel_unoutput_issuance(session, iss)
+        QMessageBox.information(
+            self, "発行を取り消しました",
+            f"印刷もメール送信もされなかったため、{number} の発行を取り消しました。\n"
+            "（この番号は欠番になります。入力内容はそのまま残っています）")
+        return True
+
+    def _input_signature(self) -> tuple:
+        """発行内容を決める入力値すべて。前回の発行と同じ内容かの判定に使う。"""
+        fields = [
+            self._member_number_edit.text(), self._org_name.text(),
+            self._kana_edit.text(), self._dept_edit.text(),
+            self._rep_name_edit.text(), self._rep_kana_edit.text(),
+            self._phone_edit.text(), self._email.text(),
+            self._delivery.currentText(),
+            self._issuer_combo.currentData(), self._seal_combo.currentData(),
+        ]
+        if self._doc_type_str == "invoice":
+            fields += [
+                self._bank_combo.currentData(), self._show_person_chk.isChecked(),
+                self._due_date.date().toString("yyyyMMdd"),
+                self._window_envelope_chk.isChecked(),
+                self._postal_code_edit.text(), self._address1_edit.text(),
+                self._address2_edit.text(),
+            ]
+        lines = tuple(tuple(sorted(l.items())) for l in self._collect_lines_data())
+        return tuple(fields) + (lines,)
+
+    def _clear_all(self):
+        """入力をすべて消して、新しい発行を始められる状態にする。"""
+        self._member_number_edit.clear()
+        self._org_name.clear()
+        self._kana_edit.clear()
+        self._dept_edit.clear()
+        self._rep_name_edit.clear()
+        self._rep_kana_edit.clear()
+        self._phone_edit.clear()
+        self._email.clear()
+        if self._doc_type_str == "invoice":
+            self._postal_code_edit.clear()
+            self._address1_edit.clear()
+            self._address2_edit.clear()
+        for row in list(self._rows):
+            self._remove_row(row)
+        self._add_row()
+        self._update_total()
+        self._last_issued_signature = None
+        self._issued_label.setText("")

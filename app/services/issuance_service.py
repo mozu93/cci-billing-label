@@ -372,6 +372,67 @@ def create_direct_issuance(session: Session, lines_data: list[dict],
     return issuance
 
 
+def switch_to_print(session: Session, issuance: Issuance) -> None:
+    """メールで送らなかった発行を、同じ番号のまま「印刷」に切り替える。"""
+    from app.services.operation_log_service import add_log
+    before = issuance.delivery_method
+    issuance.delivery_method = "印刷"
+    session.commit()
+    add_log(session, "発行方法変更", "issuance", issuance.id,
+            f"{issuance.doc_number} {before}→印刷")
+
+
+def cancel_unoutput_issuance(session: Session, issuance: Issuance) -> None:
+    """印刷もメール送信もされなかった新規発行を取り消す。
+
+    明細（cascade）と、領収書で同時に作った入金記録を削除する。番号は戻さない：
+    複数端末で共有する採番を巻き戻すと、他端末の発行と番号が重なりうるため、
+    欠番とし、理由が追えるよう「発行取消」のログを残す。
+    修正・再発行の既存データには使わないこと（元の発行が失われる）。"""
+    from app.services.operation_log_service import add_log
+    label = "請求書" if issuance.doc_type == "invoice" else "領収書"
+    iss_id, number = issuance.id, issuance.doc_number
+    session.query(Payment).filter_by(issuance_id=iss_id).delete()
+    session.delete(issuance)
+    session.commit()
+    add_log(session, "発行取消", "issuance", iss_id,
+            f"{label} {number} 出力なしのため取消（欠番）")
+
+
+PREVIEW_DOC_NUMBER = "（プレビュー）"
+
+
+def build_preview_issuance(lines_data: list[dict], doc_type: str,
+                           **fields) -> Issuance:
+    """プレビュー用の発行データを作る。DB には記録せず、採番もしない。
+
+    fields には Issuance の列（recipient_organization など）をそのまま渡す。
+    戻り値はどのセッションにも属さない。永続化済みのオブジェクトを関連に
+    つなぐとセッションへ巻き込まれるため、関連は明細（lines）だけにする。
+    """
+    total = sum(int(l["unit_price"]) * int(l["quantity"]) for l in lines_data)
+    issuance = Issuance(
+        doc_type=doc_type,
+        doc_number=PREVIEW_DOC_NUMBER,
+        amount=total,
+        issued_at=datetime.now(),
+        **fields,
+    )
+    issuance.lines = [
+        IssuanceLine(
+            item_template_id=ld.get("item_template_id"),
+            item_name=ld["item_name"],
+            quantity=ld["quantity"],
+            unit=ld["unit"],
+            unit_price=ld["unit_price"],
+            tax_rate=ld["tax_rate"],
+            line_total=int(ld["unit_price"]) * int(ld["quantity"]),
+        )
+        for ld in lines_data
+    ]
+    return issuance
+
+
 def update_direct_issuance(session: Session, issuance_id: int,
                             lines_data: list[dict],
                             recipient_organization: str, recipient_name: str,

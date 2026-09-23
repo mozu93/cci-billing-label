@@ -275,7 +275,13 @@ def test_issue_invoice_persists_selected_issuer_and_display_setting(qtbot, memor
     s.close()
 
     monkeypatch.setattr(ic.QMessageBox, "information", lambda *a, **k: None)
-    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: ("", "")))
+    # 保存先は選んだことにし、PDF の作成だけ差し替える
+    # （保存しないと出力なしとして発行が取り消される）
+    import app.utils.pdf_helpers as pdf_helpers
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: ("C:/print/INV.pdf", "")))
+    monkeypatch.setattr(pdf_helpers, "generate_and_open",
+                        lambda iss, session, **k: k.get("save_path"))
 
     w = ic.IssuanceCounterWidget("invoice")
     qtbot.addWidget(w)

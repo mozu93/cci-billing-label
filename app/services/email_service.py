@@ -318,13 +318,36 @@ def prepare_issuance_email(session, issuance,
     subject_t, body_t = get_email_template(issuance.doc_type)
     subject = render_email_template(subject_t, context)
     body = render_email_template(body_t, context)
+    return to_addr, subject, _body_to_html(body), issuance.pdf_path
+
+
+def _body_to_html(body: str) -> str:
     import html as _html
-    body_html = (
+    return (
         "<div style='font-family:sans-serif; font-size:14px; line-height:1.8;'>"
         + _html.escape(body).replace("\n", "<br>")
         + "</div>"
     )
-    return to_addr, subject, body_html, issuance.pdf_path
+
+
+TEST_MAIL_NOTE = "※これはテスト送信です。請求書は発行されていません。"
+
+
+def build_test_issuance_email(session, issuance, project_name: str = ""
+                              ) -> tuple[str, str]:
+    """試し送信用の (件名, 本文HTML)。本番と同じテンプレートを使い、
+    件名に【テスト】、本文の先頭に注意書きを付ける。
+
+    issuance は build_preview_issuance() の未保存データ（project_id なし）を想定し、
+    差し込みタグ {件名} には project_name を使う。"""
+    from app.utils.pdf_helpers import get_issuer_for_project
+    company, _bank, _seal = get_issuer_for_project(session, None, issuance=issuance)
+    context = build_issuance_context(
+        issuance, company.name if company else "", project_name)
+    subject_t, body_t = get_email_template(issuance.doc_type)
+    subject = "【テスト】" + render_email_template(subject_t, context)
+    body = TEST_MAIL_NOTE + "\n\n" + render_email_template(body_t, context)
+    return subject, _body_to_html(body)
 
 
 def prepare_reminder_email(session, issuance, due_date=None,

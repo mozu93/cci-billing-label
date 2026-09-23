@@ -225,6 +225,87 @@ def generate_and_open(issuance, session, reissue: bool = False,
     return path
 
 
+def get_preview_dir():
+    """プレビュー PDF の置き場所（実行時データなのでユーザープロファイル配下）。"""
+    from app.utils.app_config import CONFIG_DIR
+    return CONFIG_DIR / "preview"
+
+
+def _stamp_watermark(src_path: str, dst_path: str, text: str = "見本") -> None:
+    """各ページの中央に、斜めの薄い透かし文字を重ねる。"""
+    import io
+    from pypdf import PdfReader, PdfWriter
+    from reportlab.lib.colors import Color
+    from reportlab.pdfgen import canvas
+    from app.services.pdf.fonts import register_fonts, FONT_BOLD
+
+    register_fonts()
+    writer = PdfWriter(clone_from=src_path)
+    for page in writer.pages:
+        w, h = float(page.mediabox.width), float(page.mediabox.height)
+        buf = io.BytesIO()
+        c = canvas.Canvas(buf, pagesize=(w, h))
+        size = min(w, h) * 0.3
+        c.setFont(FONT_BOLD, size)
+        c.setFillColor(Color(0.85, 0.1, 0.1, alpha=0.18))
+        c.translate(w / 2, h / 2)
+        c.rotate(35)
+        c.drawCentredString(0, -size / 3, text)
+        c.save()
+        buf.seek(0)
+        page.merge_page(PdfReader(buf).pages[0])
+    with open(dst_path, "wb") as f:
+        writer.write(f)
+
+
+def generate_preview_pdf(session, issuance, subject: str = "", due_date=None,
+                         window_envelope: bool = False,
+                         recipient_postal_code: str = "",
+                         recipient_address: str = "",
+                         recipient_address2: str = "",
+                         receipt_include_copy: bool = True) -> str | None:
+    """build_preview_issuance() の発行データから、「見本」入りのプレビュー PDF を作る。
+
+    DB には何も書かない。ビューアで開いたままの古いプレビューは上書きできないため
+    毎回別名で作り、削除できる古いプレビューはここで消す。
+    """
+    from datetime import datetime
+    company, bank, seal = get_issuer_for_project(session, None, issuance=issuance)
+    if not company:
+        return None
+
+    out_dir = get_preview_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for old in out_dir.glob("preview_*.pdf"):
+        try:
+            old.unlink()
+        except OSError:
+            pass   # ビューアで開いている
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    path = str(out_dir / f"preview_{stamp}.pdf")
+    raw_path = str(out_dir / f"raw_{stamp}.pdf")
+
+    try:
+        if issuance.doc_type == "invoice":
+            from app.services.pdf.invoice_pdf import generate_invoice_pdf
+            generate_invoice_pdf(
+                issuance, company, raw_path, bank, seal_image=seal,
+                window_envelope=window_envelope,
+                recipient_postal_code=recipient_postal_code if window_envelope else "",
+                recipient_address=recipient_address if window_envelope else "",
+                recipient_address2=recipient_address2 if window_envelope else "",
+                subject=subject, due_date=due_date)
+        else:
+            from app.services.pdf.receipt_pdf import generate_receipt_pdf
+            generate_receipt_pdf(issuance, company, raw_path, seal_image=seal,
+                                 include_copy=receipt_include_copy)
+        _stamp_watermark(raw_path, path)
+    finally:
+        if os.path.exists(raw_path):
+            os.remove(raw_path)
+    return path
+
+
 def merge_and_open(paths: list[str], base_name: str,
                    output_dir: str | None = None) -> str | None:
     """複数PDFを1ファイルに結合して開く（連続印刷用）。
