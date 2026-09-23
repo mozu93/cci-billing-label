@@ -129,11 +129,9 @@ class _AdminWidget(QWidget):
         )
         if ans != QMessageBox.StandardButton.Yes:
             return
+        from app.services.maintenance_service import reset_document_numbers
         self._exec_delete(
-            [
-                "payments", "issuance_lines", "issuances",
-                "document_sequences",
-            ],
+            reset_document_numbers,
             "発行番号リセット完了",
             "発行書類と入金記録を削除しました。",
         )
@@ -149,14 +147,9 @@ class _AdminWidget(QWidget):
         )
         if ans != QMessageBox.StandardButton.Yes:
             return
+        from app.services.maintenance_service import delete_all_except_issuers
         self._exec_delete(
-            [
-                "payments", "issuance_lines", "issuances",
-                "document_sequences",
-                "project_members", "project_templates", "projects",
-                "members", "operation_logs",
-                "item_templates", "categories", "staff",
-            ],
+            delete_all_except_issuers,
             "全データ削除完了",
             "発行元情報以外のデータをすべて削除しました。\nアプリを再起動することを推奨します。",
         )
@@ -171,26 +164,19 @@ class _AdminWidget(QWidget):
         )
         if ans != QMessageBox.StandardButton.Yes:
             return
+        from app.services.maintenance_service import initialize_business_data
         self._exec_delete(
-            [
-                "payments", "issuance_lines", "issuances",
-                "document_sequences",
-                "project_members", "project_templates", "projects",
-                "members", "operation_logs",
-            ],
+            initialize_business_data,
             "初期化完了",
             "業務データを初期化しました。\nアプリを再起動することを推奨します。",
         )
 
     # ── 共通削除処理 ────────────────────────────────────────────
-    def _exec_delete(self, tables: list[str], ok_title: str, ok_msg: str):
+    def _exec_delete(self, delete_func, ok_title: str, ok_msg: str):
         from app.database.connection import get_session
-        from sqlalchemy import text
         session = get_session()
         try:
-            for tbl in tables:
-                session.execute(text(f"DELETE FROM {tbl}"))
-            session.commit()
+            delete_func(session)
         except Exception as e:
             session.rollback()
             QMessageBox.critical(self, "削除エラー", f"削除中にエラーが発生しました。\n{e}")
