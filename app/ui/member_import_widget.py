@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QCheckBox,
 )
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QBrush, QColor
 
 # ── 列定数 ───────────────────────────────────────────────────────
 COL_CHK  = 0
@@ -98,7 +99,15 @@ class MemberMappingDialog(QDialog):
         desc.setWordWrap(True)
         layout.addWidget(desc)
 
+        # 取り込み先ごとの設定状況（行がスクロールで隠れても分かるように）
+        self._field_labels = field_labels
+        self._status_label = QLabel()
+        self._status_label.setWordWrap(True)
+        self._status_label.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(self._status_label)
+
         table = QTableWidget(len(headers), 3)
+        self._table = table
         table.setHorizontalHeaderLabels(["CSV列名", "取り込み先", "サンプル値"])
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
@@ -124,12 +133,14 @@ class MemberMappingDialog(QDialog):
                     combo.setCurrentIndex(i)
                     break
             self._combos[hdr] = combo
+            combo.currentIndexChanged.connect(self._refresh_status)
             table.setCellWidget(row, 1, combo)
             sample = (preview[0].get(hdr) or "").strip() if preview else ""
             table.setItem(row, 2, QTableWidgetItem(sample))
 
         table.resizeRowsToContents()
         layout.addWidget(table)
+        self._refresh_status()
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -144,6 +155,64 @@ class MemberMappingDialog(QDialog):
         btn_row.addWidget(btn_cancel)
         btn_row.addWidget(btn_ok)
         layout.addLayout(btn_row)
+
+    # ── 設定状況 ──────────────────────────────────────────────────
+
+    _ROW_COLORS = {"assigned": "#DBEAFE", "duplicate": "#FEE2E2"}
+
+    def _headers_by_field(self) -> dict[str, list[str]]:
+        result: dict[str, list[str]] = {}
+        for hdr, combo in self._combos.items():
+            field = combo.currentData()
+            if field:
+                result.setdefault(field, []).append(hdr)
+        return result
+
+    def _row_state(self, row: int) -> str:
+        """行の状態：none（対象外）/ assigned（設定済み）/ duplicate（重複）。"""
+        field = self._combos[self._headers[row]].currentData()
+        if not field:
+            return "none"
+        return ("duplicate" if len(self._headers_by_field()[field]) > 1
+                else "assigned")
+
+    def _refresh_status(self):
+        by_field = self._headers_by_field()
+        parts = []
+        for field, label in self._field_labels.items():
+            # どのCSV列かは行の色分けで分かるので、ここには取り込み先名だけ出す
+            hdrs = by_field.get(field, [])
+            if len(hdrs) > 1:
+                style, text = "color:#DC2626; font-weight:bold;", f"⚠{label}（{len(hdrs)}列）"
+            elif hdrs:
+                style, text = "color:#15803D;", f"✔{label}"
+            else:
+                style, text = "color:#9CA3AF;", f"✖{label}"
+            # 項目名の途中で折り返さない（項目の間でだけ改行させる）。
+            # Qt のリッチテキストは white-space:nowrap を守らないため、
+            # 文字の間に WORD JOINER (U+2060) を挟んで改行を禁止する
+            text = "\u2060".join(text)
+            parts.append(f'<span style="{style}">{text}</span>')
+        self._status_label.setText("設定状況：" + "&nbsp; ".join(parts))
+
+        for row in range(len(self._headers)):
+            color = self._ROW_COLORS.get(self._row_state(row))
+            brush = QBrush(QColor(color)) if color else None
+            for col in (0, 2):
+                item = self._table.item(row, col)
+                if item:
+                    item.setData(Qt.ItemDataRole.BackgroundRole, brush)
+
+    def accept(self):
+        dups = [self._field_labels.get(f, f)
+                for f, hdrs in self._headers_by_field().items() if len(hdrs) > 1]
+        if dups:
+            QMessageBox.warning(
+                self, "取り込み先の重複",
+                "次の取り込み先が複数の列に設定されています。\n"
+                "どれか1列だけにしてください。\n\n" + "、".join(dups))
+            return
+        super().accept()
 
     def get_mapping(self) -> dict[str, str]:
         return {hdr: combo.currentData()
@@ -260,7 +329,10 @@ class MemberImportWidget(QWidget):
         self._table.setColumnWidth(COL_CHK, 30)
         hdr.setSectionResizeMode(COL_NO,   QHeaderView.ResizeMode.Interactive)
         self._table.setColumnWidth(COL_NO, 80)
-        hdr.setSectionResizeMode(COL_ORG,  QHeaderView.ResizeMode.Stretch)
+        # Stretch にすると利用者が幅を変えられないため、Interactive にして
+        # 余った幅は最後の列（メール）に回す
+        hdr.setSectionResizeMode(COL_ORG,  QHeaderView.ResizeMode.Interactive)
+        self._table.setColumnWidth(COL_ORG, 220)
         hdr.setSectionResizeMode(COL_KANA, QHeaderView.ResizeMode.Interactive)
         self._table.setColumnWidth(COL_KANA, 130)
         hdr.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Interactive)
@@ -269,6 +341,7 @@ class MemberImportWidget(QWidget):
         self._table.setColumnWidth(COL_TEL, 110)
         hdr.setSectionResizeMode(COL_MAIL, QHeaderView.ResizeMode.Interactive)
         self._table.setColumnWidth(COL_MAIL, 160)
+        hdr.setStretchLastSection(True)
 
         # ヘッダー左端に全選択チェックボックスを配置
         self._header_chk = QCheckBox(self._table.horizontalHeader())
