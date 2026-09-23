@@ -21,15 +21,26 @@
 
 ## 最新バージョン
 
-v2.4.8
+v2.5.0
 
 変更内容は [RELEASE_NOTES.md](RELEASE_NOTES.md) を参照してください。
 
 ## インストール
 
 [GitHub Releases](https://github.com/mozu93/cci-billing-label-releases/releases) から
-`CCIBillingLabel_Setup_2.4.8.exe` をダウンロードして実行してください。
+`CCIBillingLabel_Setup_2.5.0.exe` をダウンロードして実行してください。
 管理者権限は不要です。
+
+## データの保存先
+
+アプリの実行時データはユーザーフォルダ配下に保存されます（リポジトリ内ではありません）。
+
+| 内容 | 場所 |
+|---|---|
+| 設定・データベース・ログ | `~/.cci-billing-label/` |
+| PDF出力・バックアップ | `~/cci-billing-label/` |
+
+v2.5.0 で `.cci-billing` から移しました。初回起動時に自動で引き継がれます。
 
 ## 開発環境での起動
 
