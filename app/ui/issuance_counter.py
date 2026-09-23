@@ -539,10 +539,23 @@ class IssuanceCounterWidget(QWidget):
         grid_basic.addWidget(self._phone_edit, 0, 3)
         grid_basic.addWidget(_lbl("事業所名"), 1, 0)
         grid_basic.addWidget(self._org_name,   1, 1, 1, 3)
+        # 所属・役職と氏名は宛名の印字に関わるので、折りたたまず常に見せる
+        grid_basic.addWidget(_lbl("所属・役職"), 2, 0)
+        grid_basic.addWidget(self._dept_edit,     2, 1)
+        grid_basic.addWidget(_lbl("氏名"),       2, 2)
+        grid_basic.addWidget(self._rep_name_edit, 2, 3)
         dest_vbox.addLayout(grid_basic)
 
+        if self._doc_type_str == "invoice":
+            # 宛名・住所の印字オプションは、影響する入力欄のすぐ下に置く
+            from app.utils.app_config import get_config as _get_cfg
+            self._show_person_chk = QCheckBox("宛名に役職・氏名を印字する")
+            self._show_person_chk.setChecked(_get_cfg().get("recipient_person_last", True))
+            dest_vbox.addWidget(self._show_person_chk)
+            dest_vbox.addLayout(self._build_address_section())
+
         # ── 詳細トグルボタン ─────────────────────────────────
-        self._btn_detail_toggle = QPushButton("▶ フリガナ・氏名・メール等の詳細を入力")
+        self._btn_detail_toggle = QPushButton("▶ フリガナ・メール等の詳細を入力")
         self._btn_detail_toggle.setFlat(True)
         self._btn_detail_toggle.setStyleSheet(
             "text-align: left; color: #0055aa; padding: 2px 0;"
@@ -557,15 +570,11 @@ class IssuanceCounterWidget(QWidget):
         grid_detail.setContentsMargins(0, 0, 0, 0)
 
         grid_detail.addWidget(_lbl("フリガナ"),     0, 0)
-        grid_detail.addWidget(self._kana_edit,      0, 1, 1, 3)
-        grid_detail.addWidget(_lbl("所属・役職"),   1, 0)
-        grid_detail.addWidget(self._dept_edit,      1, 1, 1, 3)
-        grid_detail.addWidget(_lbl("氏名"),         2, 0)
-        grid_detail.addWidget(self._rep_name_edit,  2, 1)
-        grid_detail.addWidget(_lbl("氏名フリガナ"), 2, 2)
-        grid_detail.addWidget(self._rep_kana_edit,  2, 3)
-        grid_detail.addWidget(_lbl("メール"),       3, 0)
-        grid_detail.addWidget(self._email,          3, 1, 1, 3)
+        grid_detail.addWidget(self._kana_edit,      0, 1)
+        grid_detail.addWidget(_lbl("氏名フリガナ"), 0, 2)
+        grid_detail.addWidget(self._rep_kana_edit,  0, 3)
+        grid_detail.addWidget(_lbl("メール"),       1, 0)
+        grid_detail.addWidget(self._email,          1, 1, 1, 3)
 
         self._detail_widget.setVisible(False)
         dest_vbox.addWidget(self._detail_widget)
@@ -589,11 +598,6 @@ class IssuanceCounterWidget(QWidget):
             opts_form.addRow("銀行口座", self._bank_combo)
             opts_form.addRow("印鑑",     self._seal_combo)
 
-            from app.utils.app_config import get_config as _get_cfg
-            self._show_person_chk = QCheckBox("宛名に役職・氏名を印字する")
-            self._show_person_chk.setChecked(_get_cfg().get("recipient_person_last", True))
-            opts_form.addRow(self._show_person_chk)
-
             from app.utils.app_config import get_config as _gcfg
             _last_inv = _gcfg().get("last_issuance_counter_invoice", {})
             self._reload_issuer_combo(
@@ -608,42 +612,13 @@ class IssuanceCounterWidget(QWidget):
 
             y, m = (date.today().year, date.today().month + 1) if date.today().month < 12 else (date.today().year + 1, 1)
             default_due = date(y, m, calendar.monthrange(y, m)[1])
+            # 支払期日は下部の合計欄に置く（_build の末尾）
             self._due_date = QDateEdit(QDate(default_due.year, default_due.month, default_due.day))
             self._due_date.setCalendarPopup(True)
             self._due_date.setDisplayFormat("yyyy/MM/dd")
-            opts_form.addRow("支払期日", self._due_date)
-            self._window_envelope_chk = QCheckBox("窓あき封筒モード（住所を印字）")
-            opts_form.addRow(self._window_envelope_chk)
             self._btn_filename = QPushButton("PDFファイル名を設定…")
             self._btn_filename.clicked.connect(self._open_filename_settings)
             opts_form.addRow("保存名", self._btn_filename)
-
-            self._addr_widget = QWidget()
-            addr_form = QFormLayout(self._addr_widget)
-            addr_form.setContentsMargins(0, 4, 0, 0)
-            addr_form.setVerticalSpacing(3)
-            addr_form.setHorizontalSpacing(8)
-            self._postal_code_edit = QLineEdit()
-            self._postal_code_edit.setFixedHeight(FIELD_H)
-            self._postal_code_edit.setPlaceholderText("例：1234567")
-            self._address1_edit = QLineEdit()
-            self._address1_edit.setFixedHeight(FIELD_H)
-            self._address1_edit.setPlaceholderText("都道府県・市区町村・番地（自動入力）")
-            self._address2_edit = QLineEdit()
-            self._address2_edit.setFixedHeight(FIELD_H)
-            self._address2_edit.setPlaceholderText("建物名・部屋番号（任意）")
-            addr_form.addRow("郵便番号", self._postal_code_edit)
-            addr_form.addRow("住所",     self._address1_edit)
-            addr_form.addRow("住所2",    self._address2_edit)
-            self._addr_widget.setVisible(False)
-            self._window_envelope_chk.toggled.connect(self._addr_widget.setVisible)
-            opts_form.addRow(self._addr_widget)
-
-            self._postal_timer = QTimer(self)
-            self._postal_timer.setSingleShot(True)
-            self._postal_timer.timeout.connect(self._do_postal_lookup)
-            self._postal_code_edit.textChanged.connect(
-                lambda: self._postal_timer.start(600))
         else:
             self._issuer_combo = QComboBox()
             self._seal_combo   = QComboBox()
@@ -706,11 +681,23 @@ class IssuanceCounterWidget(QWidget):
         lines_layout.addLayout(add_btn_row)
         _cl.addWidget(grp_lines)
 
-        # ── 合計 ─────────────────────────────────────────
+        # ── 支払期日・合計（発行ボタンの直前に必ず目に入る位置） ──────
+        self._summary_bar = QWidget()
+        bar = QHBoxLayout(self._summary_bar)
+        bar.setContentsMargins(2, 0, 2, 0)
+        bar.setSpacing(8)
+        if self._doc_type_str == "invoice":
+            due_lbl = QLabel("支払期日")
+            due_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #333;")
+            self._due_date.setFixedHeight(FIELD_H)
+            self._due_date.setStyleSheet("font-size: 14px; font-weight: bold;")
+            bar.addWidget(due_lbl)
+            bar.addWidget(self._due_date)
+        bar.addStretch()
         self._total_label = QLabel("合計：¥0")
         self._total_label.setStyleSheet(
             "font-size: 18px; font-weight: bold; color: #1D4ED8; padding: 6px 2px;")
-        _cl.addWidget(self._total_label)
+        bar.addWidget(self._total_label)
 
         # スクロール可能領域をメインレイアウトに追加
         _outer_scroll = QScrollArea()
@@ -719,6 +706,9 @@ class IssuanceCounterWidget(QWidget):
         _outer_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         _outer_scroll.setWidget(_content)
         layout.addWidget(_outer_scroll, 1)
+
+        # 支払期日・合計は発行ボタンとともに画面下部に固定（スクロールで隠れない）
+        layout.addWidget(self._summary_bar)
 
         # ── 発行ボタン（常に画面下部に固定）──────────────
         _btn_lbl = "修正して再発行" if self._edit_issuance_id else "発行する"
@@ -732,6 +722,59 @@ class IssuanceCounterWidget(QWidget):
 
         if not self._edit_issuance_id:
             self._add_row()
+
+    def _build_address_section(self) -> QVBoxLayout:
+        """宛先欄の住所部分（請求書のみ）。
+
+        住所は会員情報として常に見せ、印字しないとき（窓あき封筒でない）は
+        グレーにして編集できないようにする。"""
+        box = QVBoxLayout()
+        box.setContentsMargins(0, 6, 0, 0)
+        box.setSpacing(4)
+
+        self._window_envelope_chk = QCheckBox("窓あき封筒で住所を印字する")
+        box.addWidget(self._window_envelope_chk)
+
+        self._postal_code_edit = QLineEdit()
+        self._postal_code_edit.setFixedHeight(FIELD_H)
+        self._postal_code_edit.setFixedWidth(90)
+        self._postal_code_edit.setPlaceholderText("例：1234567")
+        self._address1_edit = QLineEdit()
+        self._address1_edit.setFixedHeight(FIELD_H)
+        self._address1_edit.setPlaceholderText("都道府県・市区町村・番地（自動入力）")
+        self._address2_edit = QLineEdit()
+        self._address2_edit.setFixedHeight(FIELD_H)
+        self._address2_edit.setPlaceholderText("建物名・部屋番号（任意）")
+
+        def _lbl(text):
+            l = QLabel(text)
+            l.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            return l
+
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        grid.setColumnMinimumWidth(0, 72)   # 上の宛先欄と見出しの幅をそろえる
+        grid.setColumnStretch(3, 1)
+        grid.addWidget(_lbl("郵便番号"),        0, 0)
+        grid.addWidget(self._postal_code_edit, 0, 1)
+        grid.addWidget(_lbl("住所"),           0, 2)
+        grid.addWidget(self._address1_edit,    0, 3)
+        grid.addWidget(_lbl("住所2"),          1, 2)
+        grid.addWidget(self._address2_edit,    1, 3)
+        box.addLayout(grid)
+
+        def _set_address_enabled(on: bool):
+            for f in (self._postal_code_edit, self._address1_edit, self._address2_edit):
+                f.setEnabled(on)
+        _set_address_enabled(False)
+        self._window_envelope_chk.toggled.connect(_set_address_enabled)
+
+        self._postal_timer = QTimer(self)
+        self._postal_timer.setSingleShot(True)
+        self._postal_timer.timeout.connect(self._do_postal_lookup)
+        self._postal_code_edit.textChanged.connect(
+            lambda: self._postal_timer.start(600))
+        return box
 
     def _make_header(self) -> QWidget:
         hdr = QWidget()
@@ -972,17 +1015,17 @@ class IssuanceCounterWidget(QWidget):
         visible = not self._detail_widget.isVisible()
         self._detail_widget.setVisible(visible)
         self._btn_detail_toggle.setText(
-            "▼ フリガナ・氏名・メール等の詳細を入力" if visible
-            else "▶ フリガナ・氏名・メール等の詳細を入力"
+            "▼ フリガナ・メール等の詳細を入力" if visible
+            else "▶ フリガナ・メール等の詳細を入力"
         )
 
     def _show_detail(self):
         self._detail_widget.setVisible(True)
-        self._btn_detail_toggle.setText("▼ フリガナ・氏名・メール等の詳細を入力")
+        self._btn_detail_toggle.setText("▼ フリガナ・メール等の詳細を入力")
 
     def _hide_detail(self):
         self._detail_widget.setVisible(False)
-        self._btn_detail_toggle.setText("▶ フリガナ・氏名・メール等の詳細を入力")
+        self._btn_detail_toggle.setText("▶ フリガナ・メール等の詳細を入力")
 
     def _clear_member_fields(self):
         self._num_popup.hide()
@@ -1010,11 +1053,10 @@ class IssuanceCounterWidget(QWidget):
         self._rep_kana_edit.setText(member.representative_kana or "")
         self._phone_edit.setText(member.phone or "")
         self._email.setText(member.email or "")
-        # 詳細欄に何か入っていれば自動展開
+        # 詳細欄（折りたたみ側）に何か入っていれば自動展開。
+        # 所属・役職と氏名は常に表示しているので判定に含めない
         has_detail = any([
-            member.organization_kana, getattr(member, "department", ""),
-            member.representative_name, member.representative_kana,
-            member.email,
+            member.organization_kana, member.representative_kana, member.email,
         ])
         if has_detail:
             self._show_detail()
