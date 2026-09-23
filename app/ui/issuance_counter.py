@@ -7,9 +7,9 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
     QLineEdit, QSpinBox, QComboBox, QLabel, QPushButton,
     QMessageBox, QFrame, QScrollArea, QStyleFactory, QDialog,
-    QCheckBox, QDateEdit, QCompleter, QListWidget,
+    QCheckBox, QDateEdit, QCompleter,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QDate, QTimer, QThread, QPoint
+from PyQt6.QtCore import Qt, pyqtSignal, QDate, QTimer, QThread, QStringListModel
 from PyQt6.QtGui import QIntValidator
 from app.database.connection import get_session
 from app.services.category_service import get_active_categories
@@ -475,14 +475,17 @@ class IssuanceCounterWidget(QWidget):
 
         self._member_number_edit = QLineEdit()
         self._member_number_edit.setFixedHeight(FIELD_H)
-        self._member_number_edit.textChanged.connect(self._on_member_num_text_changed)
-
-        self._num_popup = QListWidget()
-        self._num_popup.setWindowFlags(Qt.WindowType.Popup)
-        self._num_popup.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._num_popup.setMaximumHeight(180)
-        self._num_popup.hide()
-        self._num_popup.itemClicked.connect(self._on_num_popup_clicked)
+        # 候補一覧は QCompleter で出す。自前の Popup（QListWidget）だとキー入力を
+        # 横取りし、1桁入力すると2桁目以降が入らなかった。QCompleter の一覧は
+        # キー入力を入力欄へ流す。並び順は自前で決めるので、Qt 側では絞り込まない
+        self._member_number_model = QStringListModel(self)
+        self._member_number_completer = QCompleter(self._member_number_model, self)
+        self._member_number_completer.setCompletionMode(
+            QCompleter.CompletionMode.UnfilteredPopupCompletion)
+        self._member_number_completer.setWidget(self._member_number_edit)
+        self._member_number_completer.activated.connect(self._on_num_selected)
+        # textEdited は利用者の入力でだけ届く（候補選択後の setText では再表示しない）
+        self._member_number_edit.textEdited.connect(self._on_member_num_text_changed)
 
         self._btn_clear_member = QPushButton("クリア")
         self._btn_clear_member.setFixedSize(52, FIELD_H)
@@ -977,34 +980,23 @@ class IssuanceCounterWidget(QWidget):
         if member:
             self._fill_from_member(member)
 
-    def _on_member_num_text_changed(self, text: str):
-        q = unicodedata.normalize('NFKC', text.strip())
-        self._num_popup.clear()
-        if not q or not self._member_by_number:
-            self._num_popup.hide()
-            return
+    def _member_number_candidates(self) -> list[str]:
+        """入力中の会員番号の候補。前方一致を先、部分一致を後に、最大20件。"""
+        q = unicodedata.normalize('NFKC', self._member_number_edit.text().strip())
+        if not q:
+            return []
         q_lower = q.lower()
         starts = sorted(k for k in self._member_by_number if k.lower().startswith(q_lower))
         contains = sorted(k for k in self._member_by_number if q_lower in k.lower() and not k.lower().startswith(q_lower))
-        matches = (starts + contains)[:20]
-        if not matches:
-            self._num_popup.hide()
-            return
-        for m in matches:
-            self._num_popup.addItem(m)
-        pos = self._member_number_edit.mapToGlobal(
-            QPoint(0, self._member_number_edit.height())
-        )
-        self._num_popup.move(pos)
-        self._num_popup.setFixedWidth(max(self._member_number_edit.width(), 100))
-        self._num_popup.show()
+        return (starts + contains)[:20]
 
-    def _on_num_popup_clicked(self, item):
-        text = item.text()
-        member = self._member_by_number.get(text)
-        self._num_popup.hide()
-        if member:
-            self._fill_from_member(member)
+    def _on_member_num_text_changed(self, _text: str):
+        matches = self._member_number_candidates()
+        self._member_number_model.setStringList(matches)
+        if matches:
+            self._member_number_completer.complete()
+        else:
+            self._member_number_completer.popup().hide()
 
     def _on_num_selected(self, text: str):
         member = self._member_by_number.get(text)
@@ -1028,7 +1020,7 @@ class IssuanceCounterWidget(QWidget):
         self._btn_detail_toggle.setText("▶ フリガナ・メール等の詳細を入力")
 
     def _clear_member_fields(self):
-        self._num_popup.hide()
+        self._member_number_completer.popup().hide()
         self._member_number_edit.blockSignals(True)
         self._member_number_edit.clear()
         self._member_number_edit.blockSignals(False)
@@ -1042,7 +1034,7 @@ class IssuanceCounterWidget(QWidget):
         self._hide_detail()
 
     def _fill_from_member(self, member):
-        self._num_popup.hide()
+        self._member_number_completer.popup().hide()
         self._member_number_edit.blockSignals(True)
         self._member_number_edit.setText(member.member_number or "")
         self._member_number_edit.blockSignals(False)
