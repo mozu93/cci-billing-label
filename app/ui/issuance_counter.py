@@ -27,12 +27,17 @@ from app.utils.applog import get_logger
 _log = get_logger(__name__)
 
 # 列幅・行高（px）
-W_CAT   = 150
+W_CAT   = 120
 W_PRICE = 90
 W_QTY   = 80
+W_UNIT  = 60
 W_SUB   = 90
 W_SAVE  = 70
 W_DEL   = 40
+# 項目列だけは伸縮する。ヘッダー(QLabel)と行(QComboBox)で最小幅が違うと、
+# 幅が足りなくなったときに縮み方が食い違って列がズレるため、同じ値を使う。
+# 品目名が見切れない幅を確保する。基準幅780pxでも他の列と両立する。
+W_ITEM_MIN = 150
 ROW_H   = 48
 FIELD_H = 31
 
@@ -69,6 +74,8 @@ class _LineRow(QFrame):
         self.tmpl_combo.setEditable(True)
         self.tmpl_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.tmpl_combo.setFixedHeight(FIELD_H)
+        # ヘッダーのラベルと同じ最小幅にして、狭いときの縮み方を揃える。
+        self.tmpl_combo.setMinimumWidth(W_ITEM_MIN)
         self.tmpl_combo.addItem("（項目を選択または入力）", None)
         self.tmpl_combo.lineEdit().setPlaceholderText("（項目を選択または入力）")
         self.tmpl_combo.lineEdit().textChanged.connect(
@@ -86,6 +93,12 @@ class _LineRow(QFrame):
         self.qty_spin.setFixedHeight(FIELD_H)
         self.qty_spin.setRange(1, 9999)
         self.qty_spin.setValue(1)
+        # 単位（テンプレートの値を初期値にし、ここで直せる）
+        self.unit_edit = QLineEdit("式")
+        self.unit_edit.setFixedWidth(W_UNIT)
+        self.unit_edit.setFixedHeight(FIELD_H)
+        self.unit_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.unit_edit.setMaxLength(8)
         # 小計
         self.sub_label = QLabel("¥0")
         self.sub_label.setFixedWidth(W_SUB)
@@ -110,7 +123,8 @@ class _LineRow(QFrame):
             " background: transparent; font-weight: bold; }"
             "QPushButton:hover { color: #ff0000; }")
 
-        for w in (self.cat_combo, self.tmpl_combo, self.price_edit, self.qty_spin):
+        for w in (self.cat_combo, self.tmpl_combo, self.price_edit,
+                  self.qty_spin, self.unit_edit):
             if style:
                 w.setStyle(style)
             w.setStyleSheet(_SS_FIELD)
@@ -119,6 +133,7 @@ class _LineRow(QFrame):
         lay.addWidget(self.tmpl_combo, 1)
         lay.addWidget(self.price_edit)
         lay.addWidget(self.qty_spin)
+        lay.addWidget(self.unit_edit)
         lay.addWidget(self.sub_label)
         lay.addWidget(self.btn_save_tmpl)
         lay.addWidget(self.btn_del)
@@ -145,6 +160,10 @@ class _LineRow(QFrame):
             return int(self.price_edit.text())
         except (ValueError, TypeError):
             return 0
+
+    def unit(self) -> str:
+        """空欄のまま発行されても PDF が崩れないよう「式」で補う。"""
+        return self.unit_edit.text().strip() or "式"
 
 
 class _PostalWorker(QThread):
@@ -367,6 +386,7 @@ class IssuanceCounterWidget(QWidget):
             row.qty_spin.blockSignals(True)
             row.qty_spin.setValue(int(line.quantity))
             row.qty_spin.blockSignals(False)
+            row.unit_edit.setText(line.unit or "式")
             return
 
         tmpl = next((t for t in self._templates if t.id == line.item_template_id), None)
@@ -396,6 +416,9 @@ class IssuanceCounterWidget(QWidget):
         row.qty_spin.blockSignals(True)
         row.qty_spin.setValue(int(line.quantity))
         row.qty_spin.blockSignals(False)
+
+        # テンプレートの現在の単位ではなく、発行時に保存した単位を出す。
+        row.unit_edit.setText(line.unit or "式")
 
     def _tmpls_for_cat(self, cat_id) -> list:
         if cat_id is None:
@@ -718,12 +741,15 @@ class IssuanceCounterWidget(QWidget):
         lay.setContentsMargins(6, 0, 6, 0)
         lay.setSpacing(6)
         specs = [("業務名", W_CAT), ("項目", None), ("単価（円）", W_PRICE),
-                 ("数量", W_QTY), ("小計", W_SUB), ("", W_SAVE), ("", W_DEL)]
+                 ("数量", W_QTY), ("単位", W_UNIT), ("小計", W_SUB),
+                 ("", W_SAVE), ("", W_DEL)]
         for text, w in specs:
             lbl = QLabel(text)
             lbl.setStyleSheet("font-weight: bold; color: #333; background: transparent;")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             if w is None:
+                # 行の項目コンボと同じ最小幅にして、縮み方を揃える。
+                lbl.setMinimumWidth(W_ITEM_MIN)
                 lay.addWidget(lbl, 1)
             else:
                 lbl.setFixedWidth(w)
@@ -755,11 +781,13 @@ class IssuanceCounterWidget(QWidget):
         row.tmpl_combo.clear()
         row.tmpl_combo.addItem("（項目を選択または入力）", None)
         for t in candidates:
-            label = f"{t.name}　¥{int(t.unit_price):,}/{t.unit}"
+            # 単価と単位は隣の入力欄に出るので、ここには載せない。
+            # 重複するうえ、狭い幅では品目名が見切れて読めなくなる。
+            label = t.name
             if cat_id is None:
                 cname = self._cat_name_by_id.get(t.category_id)
                 if cname:
-                    label = f"{t.name}（{cname}）　¥{int(t.unit_price):,}/{t.unit}"
+                    label = f"{t.name}（{cname}）"
             row.tmpl_combo.addItem(label, t.id)
         restored = False
         if cur_id is not None:
@@ -845,7 +873,38 @@ class IssuanceCounterWidget(QWidget):
         tmpl = next((t for t in self._templates if t.id == tmpl_id), None)
         if tmpl is not None:
             row.price_edit.setText(str(int(tmpl.unit_price)))
+            row.unit_edit.setText(tmpl.unit or "式")
         self._update_total()
+
+    def _collect_lines_data(self) -> list[dict]:
+        """各行を発行用の明細データにする。単位は画面の値を優先する。"""
+        _PH = "（項目を選択または入力）"
+        lines_data = []
+        for row in self._rows:
+            tmpl_id = row.tmpl_combo.currentData()
+            tmpl    = next((t for t in self._templates if t.id == tmpl_id), None)
+            if tmpl is not None:
+                price = row.price() or int(tmpl.unit_price)
+                lines_data.append({
+                    "item_template_id": tmpl.id,
+                    "item_name":        tmpl.name,
+                    "quantity":         row.qty_spin.value(),
+                    "unit":             row.unit(),
+                    "unit_price":       price,
+                    "tax_rate":         tmpl.tax_rate,
+                })
+            else:
+                name = row.tmpl_combo.currentText().strip()
+                if name and name != _PH:
+                    lines_data.append({
+                        "item_template_id": None,
+                        "item_name":        name,
+                        "quantity":         row.qty_spin.value(),
+                        "unit":             row.unit(),
+                        "unit_price":       row.price(),
+                        "tax_rate":         10,
+                    })
+        return lines_data
 
     def _update_total(self):
         total = 0
@@ -1031,32 +1090,7 @@ class IssuanceCounterWidget(QWidget):
             QMessageBox.warning(self, "入力エラー", "項目を1つ以上追加してください。")
             return
 
-        _PH = "（項目を選択または入力）"
-        lines_data = []
-        for row in self._rows:
-            tmpl_id = row.tmpl_combo.currentData()
-            tmpl    = next((t for t in self._templates if t.id == tmpl_id), None)
-            if tmpl is not None:
-                price = row.price() or int(tmpl.unit_price)
-                lines_data.append({
-                    "item_template_id": tmpl.id,
-                    "item_name":        tmpl.name,
-                    "quantity":         row.qty_spin.value(),
-                    "unit":             tmpl.unit,
-                    "unit_price":       price,
-                    "tax_rate":         tmpl.tax_rate,
-                })
-            else:
-                name = row.tmpl_combo.currentText().strip()
-                if name and name != _PH:
-                    lines_data.append({
-                        "item_template_id": None,
-                        "item_name":        name,
-                        "quantity":         row.qty_spin.value(),
-                        "unit":             "式",
-                        "unit_price":       row.price(),
-                        "tax_rate":         10,
-                    })
+        lines_data = self._collect_lines_data()
 
         if not lines_data:
             QMessageBox.warning(self, "エラー",
