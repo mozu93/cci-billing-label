@@ -6,48 +6,75 @@
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QLabel, QPushButton, QProgressBar,
 )
-from PyQt6.QtCore import QThread, pyqtSignal
+import threading
+
+from PyQt6.QtCore import QObject, pyqtSignal
+
+# 確認・ダウンロードは QThread を使わない。QThread は動作中に親（バナー）ごと
+# 破棄されると Qt がプロセスを強制終了する（0xC0000409）ため、ウィンドウを
+# すぐ閉じたときに落ちていた。終了を待たずに捨てられるデーモンスレッドで行い、
+# 結果はメインスレッドに属する中継役（notifier）のシグナルで受け取る。
 
 
-class _VersionCheckThread(QThread):
+class _VersionCheckNotifier(QObject):
     found = pyqtSignal(str, str, str)  # (tag_name, download_url, sha256)
-
-    def run(self):
-        try:
-            from app.utils.updater import check_latest_version, is_newer_version
-            from app.version import __version__
-            result = check_latest_version()
-            if result and is_newer_version(__version__, result["tag_name"]):
-                self.found.emit(
-                    result["tag_name"],
-                    result["download_url"],
-                    result["sha256"],
-                )
-        except Exception:
-            return
+    done = pyqtSignal()
 
 
-class _DownloadThread(QThread):
+class _DownloadNotifier(QObject):
     progress = pyqtSignal(int, int)   # (received, total)
     finished = pyqtSignal(str)        # tmp_path
     failed   = pyqtSignal()
+    done     = pyqtSignal()
 
-    def __init__(self, url: str, sha256: str, parent=None):
-        super().__init__(parent)
-        self._url = url
-        self._sha256 = sha256
 
-    def run(self):
-        from app.utils.updater import download_new_exe
-        path = download_new_exe(
-            self._url,
-            self._sha256,
-            progress_callback=self.progress.emit,
-        )
+# 処理中の中継役を保持する。バナーが先に破棄されても、処理が終わるまで生かしておく
+_pending_notifiers: set[QObject] = set()
+
+
+def _run_in_background(notifier, target, name: str) -> None:
+    """target(notifier) をデーモンスレッドで実行する。
+
+    notifier はメインスレッドで作ること（シグナルはキュー経由でメインスレッドに届く）。
+    受け手のウィジェットが破棄されると、Qt が接続を自動で切断する。
+    """
+    def _body():
+        try:
+            target(notifier)
+        finally:
+            notifier.done.emit()
+
+    notifier.done.connect(lambda: _pending_notifiers.discard(notifier))
+    _pending_notifiers.add(notifier)
+    threading.Thread(target=_body, name=name, daemon=True).start()
+
+
+def _check_version(notifier: _VersionCheckNotifier):
+    try:
+        from app.utils.updater import check_latest_version, is_newer_version
+        from app.version import __version__
+        result = check_latest_version()
+        if result and is_newer_version(__version__, result["tag_name"]):
+            notifier.found.emit(
+                result["tag_name"],
+                result["download_url"],
+                result["sha256"],
+            )
+    except Exception:
+        pass
+
+
+def _download(notifier: _DownloadNotifier, url: str, sha256: str):
+    from app.utils.updater import download_new_exe
+    path = None
+    try:
+        path = download_new_exe(url, sha256,
+                                progress_callback=notifier.progress.emit)
+    finally:
         if path:
-            self.finished.emit(path)
+            notifier.finished.emit(path)
         else:
-            self.failed.emit()
+            notifier.failed.emit()
 
 
 class UpdateBanner(QWidget):
@@ -103,9 +130,9 @@ class UpdateBanner(QWidget):
         layout.addWidget(self._btn_install)
 
     def _start_check(self):
-        self._check_thread = _VersionCheckThread(self)
-        self._check_thread.found.connect(self._on_update_found)
-        self._check_thread.start()
+        notifier = _VersionCheckNotifier()
+        notifier.found.connect(self._on_update_found)
+        _run_in_background(notifier, _check_version, "version-check")
 
     def _on_update_found(self, tag: str, url: str, sha256: str):
         self._download_url = url
@@ -117,12 +144,13 @@ class UpdateBanner(QWidget):
         self._btn_dl.setVisible(False)
         self._progress.setVisible(True)
         self._progress.setRange(0, 0)
-        self._dl_thread = _DownloadThread(
-            self._download_url, self._download_sha256, self)
-        self._dl_thread.progress.connect(self._on_progress)
-        self._dl_thread.finished.connect(self._on_download_done)
-        self._dl_thread.failed.connect(self._on_download_failed)
-        self._dl_thread.start()
+        notifier = _DownloadNotifier()
+        notifier.progress.connect(self._on_progress)
+        notifier.finished.connect(self._on_download_done)
+        notifier.failed.connect(self._on_download_failed)
+        url, sha256 = self._download_url, self._download_sha256
+        _run_in_background(notifier, lambda n: _download(n, url, sha256),
+                           "update-download")
 
     def _on_progress(self, received: int, total: int):
         if total > 0:

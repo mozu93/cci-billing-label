@@ -1512,7 +1512,7 @@ class IssuanceFromProjectWidget(QWidget):
             return
 
         import html as _html
-        from PyQt6.QtCore import QThread
+        import threading
         from app.ui.m365_mail_worker import M365MailWorker
 
         doc_label  = "請求書" if self._doc_type == "invoice" else "領収書"
@@ -1544,9 +1544,9 @@ class IssuanceFromProjectWidget(QWidget):
             f"アプリで内容を確認してください。</p>"
         )
 
-        thread = QThread(self)
+        # QThread(self) にすると、送信後も止まらないスレッドが画面と一緒に破棄され、
+        # アプリ終了時に Qt がプロセスを強制終了していた（0xC0000409）。
+        # 画面に結びつかない Python スレッドで送り、終了時は送信完了を待つ（daemon=False）
         worker = M365MailWorker(client_id, tenant_id, [supervisor_email], subject, body_html)
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        thread.finished.connect(thread.deleteLater)
-        thread.start()
+        threading.Thread(target=worker.run, name="admin-notification",
+                         daemon=False).start()

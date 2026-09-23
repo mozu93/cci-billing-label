@@ -9,6 +9,14 @@ from sqlalchemy.orm import sessionmaker
 from app.database.models import Base
 
 
+@pytest.fixture(autouse=True)
+def _no_update_check_network(monkeypatch):
+    """MainWindow の UpdateBanner がテスト中に GitHub へ問い合わせないようにする。
+    結果がネットワーク状況に左右されないように。個別のテストで上書きしてよい。"""
+    import app.utils.updater as updater
+    monkeypatch.setattr(updater, "check_latest_version", lambda: None)
+
+
 @pytest.fixture
 def db_session():
     engine = create_engine("sqlite:///:memory:")
