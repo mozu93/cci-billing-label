@@ -292,13 +292,13 @@ def _draw_naiwa(c, issuance, x0, y0, w, top):
     P = 1.5 * mm
 
     lines = getattr(issuance, "lines", []) or []
+    # 税額は請求書（invoice_pdf）と同じく、税率ごとに1回・整数で切り捨てる。
+    # 税抜額を先に切り捨てて差し引くと税額が実質切り上げになり、請求書と1円ずれる
     tax10_incl = sum(int(l.line_total) for l in lines if l.tax_rate == 10)
-    tax10_base = int(tax10_incl / 1.1)
-    tax10_amt  = tax10_incl - tax10_base
+    tax10_amt  = tax10_incl * 10 // 110
 
     tax8_incl  = sum(int(l.line_total) for l in lines if l.tax_rate == 8)
-    tax8_base  = int(tax8_incl / 1.08)
-    tax8_amt   = tax8_incl - tax8_base
+    tax8_amt   = tax8_incl * 8 // 108
 
     exempt = sum(int(l.line_total) for l in lines if l.tax_rate in (0, -1))
 
