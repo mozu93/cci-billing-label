@@ -29,13 +29,14 @@ def test_batch_issuance_tab_no_legacy_tab(qtbot, memory_db):
 
 
 def test_closed_combo_ignores_mouse_wheel(qtbot, memory_db):
+    """まとめて発行のプルダウンも、アプリ全体のホイールガードの対象になる。"""
     from app.ui.batch_issuance_tab import BatchIssuanceTab
+    from app.ui.wheel_guard import WheelGuard
     tab = BatchIssuanceTab()
     qtbot.addWidget(tab)
     combo = tab.findChild(QComboBox)
     assert combo is not None
-    assert tab._combo_wheel_guard.eventFilter(
-        combo, QEvent(QEvent.Type.Wheel)) is True
+    assert WheelGuard().eventFilter(combo, QEvent(QEvent.Type.Wheel)) is True
 
 
 def test_returning_to_project_tab_refreshes_summary(qtbot, memory_db):

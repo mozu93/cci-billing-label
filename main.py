@@ -43,6 +43,9 @@ def main():
     app.setWindowIcon(QIcon(str(base_dir / "assets" / "app_icon.ico")))
     app.setStyle("Fusion")
     app.setStyleSheet(STYLESHEET)
+    # プルダウン・数値欄・日付欄がマウスホイールで変わる誤入力を防ぐ（アプリ全体）
+    from app.ui.wheel_guard import install_wheel_guard
+    install_wheel_guard(app)
     # Windows 11 の日本語 UI 標準フォント。無い環境では Meiryo UI にフォールバックする。
     _ui_font = QFont("Yu Gothic UI", 10)
     _ui_font.setStyleStrategy(QFont.StyleStrategy.PreferDefault)

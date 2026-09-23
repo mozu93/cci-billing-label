@@ -1,41 +1,17 @@
 # app/ui/batch_issuance_tab.py
-from PyQt6.QtWidgets import QApplication, QWidget, QComboBox, QTabWidget, QVBoxLayout
-from PyQt6.QtCore import QObject, QEvent
+from PyQt6.QtWidgets import QWidget, QTabWidget, QVBoxLayout
 from app.ui.project_tab import ProjectTab
 from app.ui.issuance_from_project import IssuanceFromProjectWidget
 
 
-class _BatchComboWheelGuard(QObject):
-    """まとめて発行内の閉じたプルダウンへのホイール操作を無効にする。"""
-
-    @staticmethod
-    def _is_in_batch_tab(combo: QComboBox) -> bool:
-        parent = combo.parentWidget()
-        while parent is not None:
-            if isinstance(parent, BatchIssuanceTab):
-                return True
-            parent = parent.parentWidget()
-        return False
-
-    def eventFilter(self, watched, event):
-        if (isinstance(watched, QComboBox)
-                and event.type() == QEvent.Type.Wheel
-                and self._is_in_batch_tab(watched)
-                # 展開中の候補リストは通常どおりホイールでスクロールできる。
-                and not watched.view().isVisible()):
-            event.accept()
-            return True
-        return super().eventFilter(watched, event)
-
-
 class BatchIssuanceTab(QWidget):
-    """まとめて発行：名簿単位の準備と書類発行をまとめるタブ。"""
+    """まとめて発行：名簿単位の準備と書類発行をまとめるタブ。
+
+    プルダウンのホイール操作の無効化は、アプリ全体（app/ui/wheel_guard.py）で行う。
+    """
 
     def __init__(self):
         super().__init__()
-        # 動的に追加される名簿パネル内のQComboBoxも含めて保護する。
-        self._combo_wheel_guard = _BatchComboWheelGuard(self)
-        QApplication.instance().installEventFilter(self._combo_wheel_guard)
         layout = QVBoxLayout(self)
         self._tabs = QTabWidget()
         self._project_tab = ProjectTab()
