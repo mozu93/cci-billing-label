@@ -26,6 +26,59 @@ def test_dialog_preselects_default_category(qtbot, memory_db):
     assert dlg._category.currentData() == cat2_id
 
 
+def test_dialog_uses_default_unit(qtbot, memory_db):
+    from app.ui.item_template_management import ItemTemplateDialog
+    dlg = ItemTemplateDialog(default_name="視察研修会参加費", default_unit="人")
+    qtbot.addWidget(dlg)
+    assert dlg._unit.text() == "人"
+
+
+class _CapturingDialog:
+    """ItemTemplateDialog の代わりに、渡された引数だけを記録する。"""
+    captured: dict = {}
+
+    def __init__(self, parent=None, **kwargs):
+        _CapturingDialog.captured = kwargs
+
+    def exec(self):
+        from PyQt6.QtWidgets import QDialog
+        return QDialog.DialogCode.Rejected
+
+
+def test_counter_row_unit_is_passed_to_template_dialog(qtbot, memory_db, monkeypatch):
+    """単発発行の「テンプレ登録」で、行で入力した単位がダイアログに引き継がれる。"""
+    import app.ui.item_template_management as itm
+    from app.ui.issuance_counter import IssuanceCounterWidget
+    monkeypatch.setattr(itm, "ItemTemplateDialog", _CapturingDialog)
+
+    w = IssuanceCounterWidget()
+    qtbot.addWidget(w)
+    row = w._rows[0]
+    row.tmpl_combo.setEditText("視察研修会参加費")
+    row.price_edit.setText("5000")
+    row.unit_edit.setText("人")
+    w._save_row_as_template(row)
+    assert _CapturingDialog.captured["default_unit"] == "人"
+    assert _CapturingDialog.captured["default_price"] == 5000
+
+
+def test_project_form_row_unit_is_passed_to_template_dialog(qtbot, memory_db, monkeypatch):
+    """まとめて発行の事業登録でも、行の単位がダイアログに引き継がれる。"""
+    import app.ui.item_template_management as itm
+    from app.ui.project_form import ProjectFormDialog
+    monkeypatch.setattr(itm, "ItemTemplateDialog", _CapturingDialog)
+
+    dlg = ProjectFormDialog()
+    qtbot.addWidget(dlg)
+    if not dlg._rows:
+        dlg._add_row()
+    row = dlg._rows[-1]
+    row.name_combo.setEditText("視察研修会参加費")
+    row.unit_edit.setText("人")
+    dlg._save_row_as_template(row)
+    assert _CapturingDialog.captured["default_unit"] == "人"
+
+
 def test_counter_widget_has_quick_add_button(qtbot, memory_db):
     """窓口発行（フリー発行）に新規テンプレートの近道ボタンとハンドラがある。"""
     from app.ui.issuance_counter import IssuanceCounterWidget

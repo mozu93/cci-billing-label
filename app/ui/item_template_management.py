@@ -122,7 +122,8 @@ class ItemTemplateDialog(QDialog):
     def __init__(self, parent=None, template: ItemTemplate | None = None,
                  default_category_id: int | None = None,
                  default_name: str | None = None,
-                 default_price: int | None = None):
+                 default_price: int | None = None,
+                 default_unit: str | None = None):
         super().__init__(parent)
         self._template = template
         self.setWindowTitle("請求項目テンプレート編集" if template else "請求項目テンプレート登録")
@@ -143,6 +144,8 @@ class ItemTemplateDialog(QDialog):
                 self._name.setText(default_name)
             if default_price is not None:
                 self._unit_price.setValue(default_price)
+            if default_unit:
+                self._unit.setText(default_unit)
 
     @property
     def result_name(self) -> str:

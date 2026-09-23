@@ -486,6 +486,7 @@ class ProjectFormDialog(QDialog):
             default_category_id=self._category.currentData(),
             default_name=name,
             default_price=row.price_spin.value(),
+            default_unit=row.unit_edit.text().strip(),
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return

@@ -873,6 +873,7 @@ class IssuanceCounterWidget(QWidget):
             default_category_id=row.cat_combo.currentData(),
             default_name=name,
             default_price=row.price(),
+            default_unit=row.unit(),
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
