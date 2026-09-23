@@ -171,6 +171,22 @@ def test_issuer_block_shrinks_long_lines_to_prevent_wrapping():
     assert any(p.style.fontSize < 10 for p in info)
 
 
+def test_window_envelope_address_is_11pt():
+    """窓あき封筒の郵便番号・住所は11pt（9ptでは小さく読みにくかった）。"""
+    from app.services.pdf.invoice_pdf import _build_client_block
+    from app.database.models import Issuance
+
+    iss = Issuance(doc_number="INV-004", doc_type="invoice",
+                   recipient_organization="○○商事株式会社")
+    parts = _build_client_block(
+        iss, window_envelope=True, recipient_postal_code="510-0001",
+        recipient_address="三重県四日市市八幡町1-1", recipient_address2="○○ビル2F")
+    sizes = {p.text: p.style.fontSize for p in parts if hasattr(p, "text")}
+    assert sizes["〒510-0001"] == 11
+    assert sizes["三重県四日市市八幡町1-1"] == 11
+    assert sizes["○○ビル2F"] == 11
+
+
 def test_build_client_block_hides_person_when_disabled():
     from app.services.pdf.invoice_pdf import _build_client_block
     from app.database.models import Issuance

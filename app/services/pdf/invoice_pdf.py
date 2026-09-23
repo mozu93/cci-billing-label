@@ -283,15 +283,16 @@ def _build_client_block(issuance, subject: str = "",
     person = (issuance.recipient_name or "") if show_recipient_person else ""
 
     if window_envelope:
+        addr_size = 11   # 9pt では小さく読みにくかった
         if recipient_postal_code:
             parts.append(Paragraph(f"〒{recipient_postal_code}",
-                                   _s("addr", size=9, color=C_SUB)))
+                                   _s("addr", size=addr_size, color=C_SUB)))
         if recipient_address:
             parts.append(Paragraph(recipient_address,
-                                   _s("addr2", size=9, color=C_SUB)))
+                                   _s("addr2", size=addr_size, color=C_SUB)))
         if recipient_address2:
             parts.append(Paragraph(recipient_address2,
-                                   _s("addr3", size=9, color=C_SUB)))
+                                   _s("addr3", size=addr_size, color=C_SUB)))
         if recipient_postal_code or recipient_address:
             parts.append(Spacer(1, 2*mm))
 
