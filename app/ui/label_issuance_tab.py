@@ -125,6 +125,15 @@ class LabelIssuanceTab(QWidget):
         self._build()
         self._load_projects()
 
+    def showEvent(self, event):
+        """左メニューから開くたびに名簿の候補を読み直す。
+
+        __init__ でしか読んでいなかったため、起動後に作った名簿が
+        アプリを再起動するまで件名コンボに出てこなかった。
+        """
+        super().showEvent(event)
+        self._load_projects()
+
     def _build(self):
         layout = QVBoxLayout(self)
 
