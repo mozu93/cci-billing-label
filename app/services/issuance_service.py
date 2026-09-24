@@ -7,13 +7,29 @@ from app.database.models import (
 )
 
 
+# この年度（4月始まり）から、番号を「INV-年度-年度内の通し番号」にする。
+# それより前は「INV-年月-月ごとの連番」。すでに発行した番号は変えない。
+# 番号は全端末で共有するDBで付けるため、切り替え前に全端末の更新が必要
+# （古い版の端末は切り替え後も旧形式で番号を出してしまう）。
+FISCAL_NUMBERING_FROM = 2027
+
+
 def get_next_doc_number(session: Session, doc_type: str,
                          fiscal_year: int, month: int) -> str:
-    """DBの原子的なUPSERTで次の文書番号を予約する。"""
+    """DBの原子的なUPSERTで次の文書番号を予約する。
+
+    fiscal_year・month は発行する日の暦年・月（名前は歴史的経緯による）。
+    2027年4月以降は年度単位の通し番号（例：INV-2027-0001）、それより前は
+    年月単位の連番（例：INV-202703-0001）。採番表の year_month には、
+    前者は年度（"2027"）、後者は年月（"202703"）を入れるので重ならない。"""
     if doc_type not in ("invoice", "receipt"):
         raise ValueError("文書種別が不正です。")
     prefix = "INV" if doc_type == "invoice" else "RCP"
-    ym = f"{fiscal_year}{month:02d}"
+    fy = fiscal_year_of(date(fiscal_year, month, 1))
+    if fy >= FISCAL_NUMBERING_FROM:
+        ym = str(fy)
+    else:
+        ym = f"{fiscal_year}{month:02d}"
     pattern = f"{prefix}-{ym}-%"
     last = (session.query(Issuance)
             .filter(Issuance.doc_number.like(pattern))

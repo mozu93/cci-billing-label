@@ -75,6 +75,35 @@ def test_get_next_doc_number_catches_up_when_sequence_is_behind(db_session):
         db_session, "invoice", 2026, 5) == "INV-202605-0043"
 
 
+def test_numbering_switches_to_fiscal_year_from_april_2027(db_session):
+    """2027年4月以降は「INV-年度-年度内の通し番号」（毎年4月に1から）。"""
+    # 2027年3月まではこれまでどおり年月＋月ごとの連番
+    assert get_next_doc_number(db_session, "invoice", 2027, 3) == "INV-202703-0001"
+    # 2027年4月から2027年度の通し番号。月が変わっても続く
+    assert get_next_doc_number(db_session, "invoice", 2027, 4) == "INV-2027-0001"
+    assert get_next_doc_number(db_session, "invoice", 2027, 12) == "INV-2027-0002"
+    # 翌年1〜3月も2027年度
+    assert get_next_doc_number(db_session, "invoice", 2028, 3) == "INV-2027-0003"
+    # 2028年4月で2028年度として1に戻る
+    assert get_next_doc_number(db_session, "invoice", 2028, 4) == "INV-2028-0001"
+    # 領収書は別の連番
+    assert get_next_doc_number(db_session, "receipt", 2027, 5) == "RCP-2027-0001"
+
+
+def test_fiscal_numbering_resumes_after_existing_data(db_session):
+    """採番表が失われても、既存の番号の続きから付ける（旧形式の番号とは混同しない）。"""
+    from app.database.models import Issuance, Project
+    project = Project(name="既存案件", fiscal_year=2027, project_type="counter")
+    db_session.add(project)
+    db_session.flush()
+    db_session.add_all([
+        Issuance(project_id=project.id, doc_type="invoice", doc_number="INV-2027-0041"),
+        Issuance(project_id=project.id, doc_type="invoice", doc_number="INV-202703-0099"),
+    ])
+    db_session.commit()
+    assert get_next_doc_number(db_session, "invoice", 2027, 6) == "INV-2027-0042"
+
+
 def test_document_number_reservation_is_rolled_back(db_session):
     first = get_next_doc_number(db_session, "invoice", 2026, 5)
     db_session.rollback()
