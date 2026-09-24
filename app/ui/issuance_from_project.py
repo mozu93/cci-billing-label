@@ -5,7 +5,8 @@ from datetime import date
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QLabel, QHeaderView, QComboBox, QLineEdit, QMessageBox,
-    QSpinBox, QFileDialog, QProgressDialog, QCheckBox, QDateEdit
+    QSpinBox, QFileDialog, QProgressDialog, QCheckBox, QDateEdit,
+    QFrame, QGridLayout,
 )
 from PyQt6.QtCore import Qt, QTimer, QDate
 from app.database.connection import get_session
@@ -147,15 +148,11 @@ class IssuanceFromProjectWidget(QWidget):
         filter_row.addStretch()
         layout.addLayout(filter_row)
 
-        # ── アクション行（配付方法 / 支払期日 / 検索 / Excel） ──────────
+        # ── 発行の設定（普段は1行の要約、「変更」で開いて編集する） ─────────
         label = "請求書" if self._doc_type == "invoice" else "領収書"
-        action_row = QHBoxLayout()
         self._delivery_combo = QComboBox()
         self._delivery_combo.addItems(["印刷", "メール送付"])
-        action_row.addWidget(QLabel("発行方法："))
-        action_row.addWidget(self._delivery_combo)
 
-        # 発行元設定は下の専用行に配置し、画面幅が狭くても切れないようにする。
         self._issuer_combo = QComboBox()
         self._bank_combo = QComboBox()
         self._seal_combo = QComboBox()
@@ -177,41 +174,14 @@ class IssuanceFromProjectWidget(QWidget):
             self._window_envelope_chk = QCheckBox("窓あき封筒モード")
             self._show_person_chk = QCheckBox("役職名・氏名を印字")
             self._show_person_chk.setChecked(True)
-            action_row.addSpacing(16)
-            action_row.addWidget(QLabel("支払期日："))
-            action_row.addWidget(self._due_date)
+            date_label, date_edit = "支払期日：", self._due_date
         else:
             today = date.today()
             self._issued_date = QDateEdit(QDate(today.year, today.month, today.day))
             self._issued_date.setCalendarPopup(True)
             self._issued_date.setDisplayFormat("yyyy/MM/dd")
-            action_row.addSpacing(16)
-            action_row.addWidget(QLabel("発行日："))
-            action_row.addWidget(self._issued_date)
+            date_label, date_edit = "発行日：", self._issued_date
 
-        action_row.addStretch()
-        self._search = QLineEdit()
-        self._search.setPlaceholderText("事業所名・代表者名で絞り込み")
-        self._search.setMinimumWidth(120)
-        self._timer = QTimer()
-        self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self._load_members)
-        self._search.textChanged.connect(lambda: self._timer.start(300))
-        action_row.addWidget(self._search)
-        action_row.addSpacing(8)
-        self._btn_export_xlsx = QPushButton("Excel出力")
-        self._btn_export_xlsx.setToolTip(
-            "表示中の名簿と数量をExcelに出力します。\n"
-            "Excelで数量を入力後、「Excel取込」で読み込めます。")
-        self._btn_export_xlsx.clicked.connect(self._export_excel)
-        action_row.addWidget(self._btn_export_xlsx)
-        self._btn_import_xlsx = QPushButton("Excel取込")
-        self._btn_import_xlsx.setToolTip(
-            "Excel出力したファイルを読み込み、数量と発行チェックを画面に反映します。")
-        self._btn_import_xlsx.clicked.connect(self._import_excel)
-        action_row.addWidget(self._btn_import_xlsx)
-        action_row.addSpacing(8)
-        action_row.addWidget(QLabel("PDF出力："))
         self._pdf_output_combo = QComboBox()
         self._pdf_output_combo.addItem(
             "事業所ごとの個別PDF", "individual")
@@ -219,34 +189,107 @@ class IssuanceFromProjectWidget(QWidget):
             "一括PDF＋個別PDF", "merged")
         self._pdf_output_combo.setToolTip(
             "個別PDFでは、各事業所を設定済みのファイル名で保存します。")
-        action_row.addWidget(self._pdf_output_combo)
         btn_filename = QPushButton("ファイル名設定…")
         btn_filename.setToolTip(
             "PDFファイル名に事業所名・発行日・管理番号・請求金額を設定します。")
         btn_filename.clicked.connect(self._open_filename_settings)
-        action_row.addWidget(btn_filename)
-        layout.addLayout(action_row)
 
-        issuer_row = QHBoxLayout()
-        issuer_row.addWidget(QLabel("発行元："))
-        issuer_row.addWidget(self._issuer_combo)
-        issuer_row.addSpacing(12)
-        issuer_row.addWidget(QLabel("口座："))
-        issuer_row.addWidget(self._bank_combo)
-        issuer_row.addSpacing(12)
-        issuer_row.addWidget(QLabel("印鑑："))
-        issuer_row.addWidget(self._seal_combo)
-        issuer_row.addStretch()
-        layout.addLayout(issuer_row)
+        settings_box = QFrame()
+        settings_box.setObjectName("SettingsBox")
+        settings_box.setStyleSheet(
+            "#SettingsBox { border: 1px solid #CBD5E1; border-radius: 6px;"
+            " background: #F8FAFC; }")
+        box_layout = QVBoxLayout(settings_box)
+        box_layout.setContentsMargins(10, 6, 10, 6)
+        box_layout.setSpacing(6)
+
+        head = QHBoxLayout()
+        head_title = QLabel("発行の設定")
+        head_title.setStyleSheet("font-weight: bold; color: #1D4ED8;")
+        head.addWidget(head_title, 0, Qt.AlignmentFlag.AlignTop)
+        self._settings_summary = QLabel("")
+        self._settings_summary.setWordWrap(True)
+        self._settings_summary.setStyleSheet("color: #334155;")
+        head.addWidget(self._settings_summary, 1)
+        self._btn_settings_toggle = QPushButton("▼ 変更")
+        self._btn_settings_toggle.setToolTip(
+            "発行方法・日付・発行元・PDF出力などを変更します")
+        self._btn_settings_toggle.clicked.connect(self._toggle_settings_panel)
+        head.addWidget(self._btn_settings_toggle, 0, Qt.AlignmentFlag.AlignTop)
+        box_layout.addLayout(head)
+
+        self._settings_panel = QWidget()
+        grid = QGridLayout(self._settings_panel)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(6)
+
+        def _lbl(text):
+            lb = QLabel(text)
+            lb.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            return lb
+
+        grid.addWidget(_lbl("発行方法："), 0, 0)
+        grid.addWidget(self._delivery_combo, 0, 1)
+        grid.addWidget(_lbl(date_label), 0, 2)
+        grid.addWidget(date_edit, 0, 3)
+        grid.addWidget(_lbl("発行元："), 1, 0)
+        grid.addWidget(self._issuer_combo, 1, 1)
+        grid.addWidget(_lbl("口座："), 1, 2)
+        grid.addWidget(self._bank_combo, 1, 3)
+        grid.addWidget(_lbl("印鑑："), 2, 0)
+        grid.addWidget(self._seal_combo, 2, 1)
+        grid.addWidget(_lbl("PDF出力："), 2, 2)
+        pdf_row = QHBoxLayout()
+        pdf_row.setSpacing(6)
+        pdf_row.addWidget(self._pdf_output_combo, 1)
+        pdf_row.addWidget(btn_filename)
+        grid.addLayout(pdf_row, 2, 3)
+        if self._doc_type == "invoice":
+            opts = QHBoxLayout()
+            opts.addWidget(self._window_envelope_chk)
+            opts.addSpacing(12)
+            opts.addWidget(self._show_person_chk)
+            opts.addStretch()
+            grid.addLayout(opts, 3, 1, 1, 3)
+        grid.setColumnStretch(4, 1)
+        self._settings_panel.setVisible(False)
+        box_layout.addWidget(self._settings_panel)
+        layout.addWidget(settings_box)
         self._reload_issuers()
 
+        # 設定を変えたら要約を更新する
+        for combo in (self._delivery_combo, self._issuer_combo, self._bank_combo,
+                      self._seal_combo, self._pdf_output_combo):
+            combo.currentIndexChanged.connect(self._update_settings_summary)
+        date_edit.dateChanged.connect(self._update_settings_summary)
         if self._doc_type == "invoice":
-            option_row = QHBoxLayout()
-            option_row.addWidget(self._window_envelope_chk)
-            option_row.addSpacing(8)
-            option_row.addWidget(self._show_person_chk)
-            option_row.addStretch()
-            layout.addLayout(option_row)
+            self._window_envelope_chk.toggled.connect(self._update_settings_summary)
+            self._show_person_chk.toggled.connect(self._update_settings_summary)
+
+        # ── 一覧の操作（検索 / Excel）：一覧のすぐ上 ─────────────────────
+        tools_row = QHBoxLayout()
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("事業所名・代表者名で絞り込み")
+        self._search.setMinimumWidth(120)
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._load_members)
+        self._search.textChanged.connect(lambda: self._timer.start(300))
+        tools_row.addWidget(self._search, 1)
+        tools_row.addSpacing(8)
+        self._btn_export_xlsx = QPushButton("Excel出力")
+        self._btn_export_xlsx.setToolTip(
+            "表示中の名簿と数量をExcelに出力します。\n"
+            "Excelで数量を入力後、「Excel取込」で読み込めます。")
+        self._btn_export_xlsx.clicked.connect(self._export_excel)
+        tools_row.addWidget(self._btn_export_xlsx)
+        self._btn_import_xlsx = QPushButton("Excel取込")
+        self._btn_import_xlsx.setToolTip(
+            "Excel出力したファイルを読み込み、数量と発行チェックを画面に反映します。")
+        self._btn_import_xlsx.clicked.connect(self._import_excel)
+        tools_row.addWidget(self._btn_import_xlsx)
+        layout.addLayout(tools_row)
 
         self._table = _CheckableTable(0, 7)
         self._table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
@@ -269,18 +312,60 @@ class IssuanceFromProjectWidget(QWidget):
         self._status_label = QLabel("")
         layout.addWidget(self._status_label)
 
-        # ── 発行ボタン（画面最下部に固定）─────────────────────────────
+        # ── プレビュー・発行（画面最下部に1行で固定。単発発行とそろえる）──────
+        self._btn_preview = QPushButton(f"チェックした{label}をプレビュー")
+        self._btn_preview.setFixedHeight(44)
+        self._btn_preview.setMinimumWidth(220)
+        self._btn_preview.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #1D4ED8;"
+            " background: white; border: 2px solid #1D4ED8; border-radius: 6px;")
+        self._btn_preview.clicked.connect(self._preview_checked)
         self._btn_issue = QPushButton(f"チェックした{label}を発行する")
         self._btn_issue.setFixedHeight(44)
         self._btn_issue.setStyleSheet(
             "font-size: 14px; font-weight: bold;"
             " background: #2563EB; color: white; border-radius: 6px;")
         self._btn_issue.clicked.connect(self._issue_checked)
-        layout.addWidget(self._btn_issue)
-        self._btn_preview = QPushButton(f"選択した{label}をプレビュー")
-        self._btn_preview.setFixedHeight(36)
-        self._btn_preview.clicked.connect(self._preview_checked)
-        layout.addWidget(self._btn_preview)
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(8)
+        bottom_row.addWidget(self._btn_preview)
+        bottom_row.addWidget(self._btn_issue, 1)
+        layout.addLayout(bottom_row)
+        self._update_settings_summary()
+
+    # ── 発行の設定（要約と折りたたみ） ──────────────────────────────
+
+    _WJ = chr(0x2060)   # WORD JOINER（この位置では改行しない）
+
+    def _toggle_settings_panel(self):
+        visible = not self._settings_panel.isVisible()
+        self._settings_panel.setVisible(visible)
+        self._btn_settings_toggle.setText("▲ 閉じる" if visible else "▼ 変更")
+
+    def _update_settings_summary(self, *_):
+        """発行の設定を1行の要約にする。閉じていても設定値を確認できるように。"""
+        def _name(combo):
+            return combo.currentText().replace("★", "").strip() or "（なし）"
+
+        parts = [self._delivery_combo.currentText()]
+        if self._doc_type == "invoice":
+            parts.append(f"支払期日 {self._due_date.date().toString('yyyy/MM/dd')}")
+        else:
+            parts.append(f"発行日 {self._issued_date.date().toString('yyyy/MM/dd')}")
+        parts.append(f"発行元：{_name(self._issuer_combo)}")
+        parts.append(f"口座：{_name(self._bank_combo)}")
+        parts.append(f"印鑑：{_name(self._seal_combo)}")
+        parts.append("個別PDF" if self._pdf_output_combo.currentData() == "individual"
+                     else "一括PDF＋個別PDF")
+        if self._doc_type == "invoice":
+            if self._window_envelope_chk.isChecked():
+                parts.append("窓あき封筒")
+            parts.append("役職・氏名を印字" if self._show_person_chk.isChecked()
+                         else "役職・氏名なし")
+        # 項目の途中（「個別｜PDF」など）で折り返さないよう、各項目の文字間に
+        # WORD JOINER を挟む。改行は区切りの「／」の位置でだけ起きる
+        self._settings_summary.setText(
+            "／".join(self._WJ.join(p) for p in parts))
 
     def _setup_table_columns(self):
         hdr = self._table.horizontalHeader()
