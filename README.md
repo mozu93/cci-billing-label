@@ -4,7 +4,7 @@
 
 ## 主な機能
 
-- 請求書・領収書の単発発行
+- 請求書・領収書の単発発行（発行前の見本PDFプレビュー、番号を使わない請求書メールの試し送信）
 - 名簿を使ったまとめて発行
 - Excel・貼り付けによる名簿取り込み
 - 事業所ごとの個別PDF、一括PDFの出力
@@ -21,14 +21,14 @@
 
 ## 最新バージョン
 
-v2.5.0
+v2.5.1
 
 変更内容は [RELEASE_NOTES.md](RELEASE_NOTES.md) を参照してください。
 
 ## インストール
 
 [GitHub Releases](https://github.com/mozu93/cci-billing-label-releases/releases) から
-`CCIBillingLabel_Setup_2.5.0.exe` をダウンロードして実行してください。
+`CCIBillingLabel_Setup_2.5.1.exe` をダウンロードして実行してください。
 管理者権限は不要です。
 
 ## データの保存先
