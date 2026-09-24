@@ -12,6 +12,7 @@ from app.services.project_service import (
     get_projects, get_project_progress, get_project_by_id
 )
 from app.services.category_service import get_category_names
+from app.services.issuance_service import fiscal_year_of
 from app.services.report_service import get_project_amount_summary
 from app.ui.project_form import ProjectFormDialog
 from app.ui.project_member_panel import ProjectMemberPanel
@@ -33,7 +34,8 @@ class ProjectTab(QWidget):
         top_row = QHBoxLayout()
         top_row.addWidget(QLabel("年度："))
         self._year_combo = QComboBox()
-        current_year = date.today().year
+        # 年度は4月始まり（入金管理とそろえる）。翌年度も選べるようにする
+        current_year = fiscal_year_of(date.today())
         for y in range(current_year + 1, current_year - 5, -1):
             self._year_combo.addItem(f"{y}年度", y)
         self._year_combo.setCurrentIndex(1)

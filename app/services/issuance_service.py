@@ -522,7 +522,7 @@ def search_reissuable_issuances(
     対象は発行済みの書類と領収書。領収書は準備中でも控えを出せる。
     一覧に名簿名と名簿種別を出すため、Project を組にして返す。
     """
-    from sqlalchemy import or_
+    from sqlalchemy import and_, or_
     q = (session.query(Issuance, Project)
          .join(Project, Issuance.project_id == Project.id)
          .filter(or_(
@@ -530,7 +530,15 @@ def search_reissuable_issuances(
              Issuance.status == "発行済み",
          )))
     if fiscal_year:
-        q = q.filter(Project.fiscal_year == fiscal_year)
+        # 年度は4月始まり。単発発行の集計用名簿は年度が当てにならないので
+        # 発行日で判定する（_issuance_fiscal_year と同じ考え方）
+        start = datetime(fiscal_year, 4, 1)
+        end = datetime(fiscal_year + 1, 4, 1)
+        q = q.filter(or_(
+            and_(Project.project_type != "counter", Project.fiscal_year == fiscal_year),
+            and_(Project.project_type == "counter",
+                 Issuance.issued_at >= start, Issuance.issued_at < end),
+        ))
     if project_id:
         q = q.filter(Issuance.project_id == project_id)
     if doc_type:

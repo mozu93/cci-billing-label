@@ -196,7 +196,9 @@ class ProjectFormDialog(QDialog):
 
         self._fiscal_year = QSpinBox()
         self._fiscal_year.setRange(2000, 2099)
-        self._fiscal_year.setValue(date.today().year)
+        # 年度は4月始まり（名簿・請求内容の一覧の初期表示とそろえる）
+        from app.services.issuance_service import fiscal_year_of
+        self._fiscal_year.setValue(fiscal_year_of(date.today()))
         self._fiscal_year.setMaximumWidth(80)
 
         self._category = QComboBox()

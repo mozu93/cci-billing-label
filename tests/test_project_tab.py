@@ -85,6 +85,34 @@ def test_project_tab_column_headers(qtbot, memory_db):
     assert "未発行" in headers
 
 
+class _Feb2027:
+    """date.today() を 2027年2月10日（2026年度）に固定する。"""
+    @staticmethod
+    def today():
+        from datetime import date
+        return date(2027, 2, 10)
+
+
+def test_default_year_is_fiscal_year_starting_april(qtbot, memory_db, monkeypatch):
+    """年度は4月始まり。2027年2月は2026年度を初期表示する（入金管理とそろえる）。"""
+    import app.ui.project_tab as project_tab
+    monkeypatch.setattr(project_tab, "date", _Feb2027)
+    w = project_tab.ProjectTab()
+    qtbot.addWidget(w)
+    assert w._year_combo.currentData() == 2026
+    years = [w._year_combo.itemData(i) for i in range(w._year_combo.count())]
+    assert years[:2] == [2027, 2026]   # 翌年度も選べる
+
+
+def test_new_project_default_year_is_fiscal_year(qtbot, memory_db, monkeypatch):
+    """新しく作る名簿・請求内容の年度も4月始まり（作った名簿が一覧に出るように）。"""
+    import app.ui.project_form as project_form
+    monkeypatch.setattr(project_form, "date", _Feb2027)
+    dlg = project_form.ProjectFormDialog()
+    qtbot.addWidget(dlg)
+    assert dlg._fiscal_year.value() == 2026
+
+
 def test_export_buttons_share_the_year_row(qtbot, memory_db):
     """CSV出力・Excel出力は年度の行にまとめ、1行にする（幅780pxでも収まる）。"""
     from PyQt6.QtWidgets import QPushButton

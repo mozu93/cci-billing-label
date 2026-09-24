@@ -49,7 +49,9 @@ class ReissueWidget(QWidget):
         top.addWidget(QLabel("年度："))
         self._year_combo = QComboBox()
         self._year_combo.setMinimumWidth(95)
-        y = date.today().year
+        # 年度は4月始まり（他の画面とそろえる）。「すべて」・翌年度・今年度…の順
+        from app.services.issuance_service import fiscal_year_of
+        y = fiscal_year_of(date.today())
         self._year_combo.addItem("すべて", None)
         for yr in range(y + 1, y - 5, -1):
             self._year_combo.addItem(f"{yr}年度", yr)
