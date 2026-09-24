@@ -479,17 +479,20 @@ class IssuanceFromProjectWidget(QWidget):
         finally:
             session.close()
 
-        # 年度コンボ（重複なし降順）
-        years = sorted({p.fiscal_year for p in self._all_projects}, reverse=True)
+        # 年度コンボ（重複なし降順）。当年度（4月始まり）は名簿がなくても選べる
+        from app.services.issuance_service import fiscal_year_of
+        this_year = fiscal_year_of(date.today())
+        years = sorted({p.fiscal_year for p in self._all_projects} | {this_year},
+                       reverse=True)
         current_year = self._year_combo.currentData()
         self._year_combo.blockSignals(True)
         self._year_combo.clear()
         self._year_combo.addItem("すべて", None)
         for y in years:
             self._year_combo.addItem(f"{y}年度", y)
-        # デフォルト：最新年度
-        if years and current_year is None:
-            self._year_combo.setCurrentIndex(1)
+        # デフォルト：当年度（来年度の名簿を先に作っても当年度を表示する）
+        if current_year is None:
+            self._year_combo.setCurrentIndex(self._year_combo.findData(this_year))
         else:
             for i in range(self._year_combo.count()):
                 if self._year_combo.itemData(i) == current_year:

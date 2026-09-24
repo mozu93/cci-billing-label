@@ -421,3 +421,40 @@ def test_closed_projects_are_listed(qtbot, memory_db):
     w = IssuanceFromProjectWidget("invoice")
     qtbot.addWidget(w)
     assert [p.name for p in w._all_projects] == ["完了にした名簿"]
+
+
+class _Sep2026:
+    """date.today() を 2026年9月25日（2026年度）に固定する。"""
+    @staticmethod
+    def today():
+        from datetime import date
+        return date(2026, 9, 25)
+
+
+def _projects(*years):
+    from app.database.connection import get_session
+    from app.services.project_service import create_project
+    s = get_session()
+    for y in years:
+        create_project(s, f"{y}年度 視察研修", None, y, "list")
+    s.close()
+
+
+def test_default_year_is_this_fiscal_year(qtbot, memory_db, monkeypatch):
+    """来年度の名簿があっても、初期表示は当年度（4月始まり）。"""
+    import app.ui.issuance_from_project as ifp
+    monkeypatch.setattr(ifp, "date", _Sep2026)
+    _projects(2025, 2026, 2027)
+    w = ifp.IssuanceFromProjectWidget("invoice")
+    qtbot.addWidget(w)
+    assert w._year_combo.currentData() == 2026
+
+
+def test_this_fiscal_year_is_selectable_without_projects(qtbot, memory_db, monkeypatch):
+    """当年度の名簿がまだなくても、当年度を初期表示する。"""
+    import app.ui.issuance_from_project as ifp
+    monkeypatch.setattr(ifp, "date", _Sep2026)
+    _projects(2025)
+    w = ifp.IssuanceFromProjectWidget("invoice")
+    qtbot.addWidget(w)
+    assert w._year_combo.currentData() == 2026
