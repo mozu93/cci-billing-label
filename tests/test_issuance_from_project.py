@@ -406,3 +406,18 @@ def test_issue_checked_skips_voided_invoice(qtbot, memory_db, monkeypatch):
            .count())
     s.close()
     assert cnt == 0
+
+
+def test_closed_projects_are_listed(qtbot, memory_db):
+    """旧版で「完了」にした名簿も、発行する名簿として選べる（完了は廃止）。"""
+    from app.database.connection import get_session
+    from app.services.project_service import create_project
+    from app.ui.issuance_from_project import IssuanceFromProjectWidget
+    s = get_session()
+    p = create_project(s, "完了にした名簿", None, 2026, "list")
+    p.status = "closed"
+    s.commit()
+    s.close()
+    w = IssuanceFromProjectWidget("invoice")
+    qtbot.addWidget(w)
+    assert [p.name for p in w._all_projects] == ["完了にした名簿"]

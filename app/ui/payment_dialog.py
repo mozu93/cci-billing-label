@@ -9,7 +9,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QDate, QTimer
 from app.database.connection import get_session
 from app.services.issuance_service import (
-    record_payment, get_project_issuances, get_all_issuances, get_issuance
+    record_payment, get_issuance, get_payment_issuances, get_project_issuances,
+    get_payment_fiscal_years, count_unpaid_invoices_before, fiscal_year_of,
 )
 from app.services.project_service import (
     get_projects, get_project_by_id, get_project_member
@@ -56,8 +57,15 @@ class PaymentManagementWidget(QWidget):
 
         # ── フィルタ行 ──────────────────────────────────────────────
         filter_row = QHBoxLayout()
+        # 年度（4月〜翌3月）。名簿の候補と一覧をこの年度に絞る
+        self._year_combo = QComboBox()
+        self._year_combo.currentIndexChanged.connect(self._load_projects_for_year)
+
         self._proj_combo = QComboBox()
-        self._proj_combo.setMinimumWidth(300)
+        # 年度の欄を足しても幅780pxに収まるよう240pxにする。長い名簿名は欄では
+        # 省略されるが、開いた一覧は広げて全体を読めるようにする
+        self._proj_combo.setMinimumWidth(240)
+        self._proj_combo.view().setMinimumWidth(400)
         self._proj_combo.currentIndexChanged.connect(self._load)
 
         self._doctype_combo = QComboBox()
@@ -68,6 +76,8 @@ class PaymentManagementWidget(QWidget):
         self._status_combo.addItems(["発行済み", "支払済み", "すべて"])
         self._status_combo.currentIndexChanged.connect(self._load)
 
+        filter_row.addWidget(QLabel("年度："))
+        filter_row.addWidget(self._year_combo)
         filter_row.addWidget(QLabel("名簿："))
         filter_row.addWidget(self._proj_combo)
         filter_row.addWidget(QLabel("種別："))
@@ -76,6 +86,12 @@ class PaymentManagementWidget(QWidget):
         filter_row.addWidget(self._status_combo)
         filter_row.addStretch()
         layout.addLayout(filter_row)
+
+        # 今年度で開くと前年度以前の未入金が見えなくなるため、あれば知らせる
+        self._earlier_unpaid_label = QLabel("")
+        self._earlier_unpaid_label.setStyleSheet("color: #B45309; font-weight: bold;")
+        self._earlier_unpaid_label.setVisible(False)
+        layout.addWidget(self._earlier_unpaid_label)
 
         search_row = QHBoxLayout()
         self._search = QLineEdit()
@@ -160,15 +176,49 @@ class PaymentManagementWidget(QWidget):
     # ── データ読み込み ─────────────────────────────────────────────
 
     def _load_projects(self):
+        """年度の選択肢を作り直してから、名簿の候補と一覧を読み直す。"""
         session = get_session()
         try:
-            projects = get_projects(session, status="active")
+            years = get_payment_fiscal_years(session)
         finally:
             session.close()
+        first_time = self._year_combo.count() == 0
+        selected = (fiscal_year_of(date.today()) if first_time
+                    else self._year_combo.currentData())
+        self._year_combo.blockSignals(True)
+        self._year_combo.clear()
+        self._year_combo.addItem("すべての年度", None)
+        for y in years:
+            self._year_combo.addItem(f"{y}年度", y)
+        idx = self._year_combo.findData(selected)
+        self._year_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._year_combo.blockSignals(False)
+        self._load_projects_for_year()
+
+    def _load_projects_for_year(self):
+        """選んだ年度の名簿を候補にする（「完了」の有無は問わない）。"""
+        year = self._year_combo.currentData()
+        session = get_session()
+        try:
+            projects = get_projects(session, fiscal_year=year)
+            earlier_unpaid = (count_unpaid_invoices_before(session, year)
+                              if year is not None else 0)
+        finally:
+            session.close()
+        selected = self._proj_combo.currentData()
+        self._proj_combo.blockSignals(True)
         self._proj_combo.clear()
         self._proj_combo.addItem("すべて", None)
         for p in projects:
             self._proj_combo.addItem(p.name, p.id)
+        idx = self._proj_combo.findData(selected)
+        self._proj_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._proj_combo.blockSignals(False)
+
+        self._earlier_unpaid_label.setText(
+            f"⚠ 前年度以前に未入金 {earlier_unpaid}件があります。"
+            "年度を「すべての年度」にすると表示されます。")
+        self._earlier_unpaid_label.setVisible(earlier_unpaid > 0)
         self._load()
 
     def _load(self):
@@ -179,10 +229,9 @@ class PaymentManagementWidget(QWidget):
 
         session = get_session()
         try:
-            if project_id is None:
-                issuances = get_all_issuances(session, status)
-            else:
-                issuances = get_project_issuances(session, project_id, status)
+            issuances = get_payment_issuances(
+                session, fiscal_year=self._year_combo.currentData(),
+                project_id=project_id, status=status)
             self._table.setSortingEnabled(False)
             self._table.setRowCount(0)
 

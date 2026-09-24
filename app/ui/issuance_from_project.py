@@ -388,7 +388,8 @@ class IssuanceFromProjectWidget(QWidget):
     def _load_projects(self):
         session = get_session()
         try:
-            self._all_projects = get_projects(session, status="active")
+            # 「完了」は廃止したので状態は問わない（年度で絞り込む）
+            self._all_projects = get_projects(session)
             cats = get_active_categories(session)
         finally:
             session.close()

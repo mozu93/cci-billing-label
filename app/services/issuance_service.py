@@ -564,6 +564,65 @@ def get_project_issuances(session: Session, project_id: int,
     return q.order_by(Issuance.created_at.desc()).all()
 
 
+def fiscal_year_of(d) -> int:
+    """4月始まりの年度。2027年3月は2026年度。"""
+    return d.year if d.month >= 4 else d.year - 1
+
+
+def _issuance_fiscal_year(issuance: Issuance, project: Project | None) -> int | None:
+    """書類の年度。まとめて発行は名簿の年度、単発発行は発行日で決める。
+
+    単発発行の集計用名簿（project_type="counter"）は名前だけで使い回され、
+    年度が最初に作った年のままなので、名簿の年度は当てにできない。"""
+    if project is not None and project.project_type != "counter":
+        return project.fiscal_year
+    return fiscal_year_of(issuance.issued_at) if issuance.issued_at else None
+
+
+def get_payment_issuances(session: Session, fiscal_year: int | None = None,
+                          project_id: int | None = None,
+                          status: str | None = None) -> list[Issuance]:
+    """入金管理の一覧用。年度・名簿・状態で絞り込み、新しい順に返す。"""
+    rows = (get_project_issuances(session, project_id, status)
+            if project_id is not None else get_all_issuances(session, status))
+    if fiscal_year is None:
+        return rows
+    projects = {p.id: p for p in session.query(Project).all()}
+    return [i for i in rows
+            if _issuance_fiscal_year(i, projects.get(i.project_id)) == fiscal_year]
+
+
+def count_unpaid_invoices_before(session: Session, fiscal_year: int) -> int:
+    """指定年度より前の未入金の請求書の件数（名簿でキャンセルになった人は除く）。
+
+    入金管理を今年度で開いたときに、前年度以前の未入金を見落とさないために使う。"""
+    projects = {p.id: p for p in session.query(Project).all()}
+    cancelled = {pm_id for (pm_id,) in
+                 session.query(ProjectMember.id).filter(ProjectMember.is_cancelled.is_(True))}
+    count = 0
+    for iss in (session.query(Issuance)
+                .filter(Issuance.doc_type == "invoice", Issuance.status == "発行済み")):
+        if iss.project_member_id in cancelled:
+            continue
+        fy = _issuance_fiscal_year(iss, projects.get(iss.project_id))
+        if fy is not None and fy < fiscal_year:
+            count += 1
+    return count
+
+
+def get_payment_fiscal_years(session: Session, today: date | None = None) -> list[int]:
+    """入金管理の年度の選択肢（新しい順）。名簿・書類のある年度と今年度。"""
+    projects = {p.id: p for p in session.query(Project).all()}
+    years = {fiscal_year_of(today or date.today())}
+    # まだ書類のない名簿の年度も選べるように（単発発行の集計用名簿は年度が当てにならない）
+    years |= {p.fiscal_year for p in projects.values() if p.project_type != "counter"}
+    for iss in session.query(Issuance):
+        fy = _issuance_fiscal_year(iss, projects.get(iss.project_id))
+        if fy is not None:
+            years.add(fy)
+    return sorted(years, reverse=True)
+
+
 def issue_receipt_for_invoice(session: Session, invoice_id: int,
                               payment_date: date,
                               payment_method: str = "現金",

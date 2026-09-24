@@ -9,13 +9,15 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from app.database.connection import get_session
 from app.services.project_service import (
-    get_projects, close_project, reopen_project,
-    get_project_progress, get_project_by_id
+    get_projects, get_project_progress, get_project_by_id
 )
 from app.services.category_service import get_category_names
 from app.services.report_service import get_project_amount_summary
 from app.ui.project_form import ProjectFormDialog
 from app.ui.project_member_panel import ProjectMemberPanel
+
+_EMPTY_TEXT = ("この年度の名簿・請求内容はありません。\n"
+               "「＋ 名簿・請求内容を作成」から、件名と請求内容を登録してください。")
 
 
 class ProjectTab(QWidget):
@@ -46,40 +48,18 @@ class ProjectTab(QWidget):
         btn_add.clicked.connect(self._add)
         btn_edit = QPushButton("編集")
         btn_edit.clicked.connect(self._edit)
-        self._btn_close = QPushButton("完了")
-        self._btn_close.clicked.connect(self._close)
-        self._btn_reopen = QPushButton("完了を戻す")
-        self._btn_reopen.clicked.connect(self._reopen)
-        btn_rollover = QPushButton("年度更新")
-        btn_rollover.clicked.connect(self._rollover)
-        self._btn_close.setEnabled(False)
-        self._btn_reopen.setEnabled(False)
-        top_row.addWidget(btn_add)
-        top_row.addWidget(btn_edit)
-        top_row.addWidget(self._btn_close)
-        top_row.addWidget(self._btn_reopen)
-        top_row.addWidget(btn_rollover)
-        top_row.addStretch()
-
-        self._status_combo = QComboBox()
-        self._status_combo.addItem("受付中", "active")
-        self._status_combo.addItem("完了", "closed")
-        self._status_combo.addItem("すべて", None)
-        self._status_combo.setCurrentIndex(0)
-        self._status_combo.currentIndexChanged.connect(self._load)
-        top_row.addWidget(QLabel("状態："))
-        top_row.addWidget(self._status_combo)
-        layout.addLayout(top_row)
-
-        export_row = QHBoxLayout()
+        # 「完了」「年度更新」は廃止した。名簿は毎年新しく作り、年度で絞り込む
         btn_csv = QPushButton("CSV出力")
         btn_csv.clicked.connect(self._export_csv)
         btn_excel = QPushButton("Excel出力")
         btn_excel.clicked.connect(self._export_excel)
-        export_row.addWidget(btn_csv)
-        export_row.addWidget(btn_excel)
-        export_row.addStretch()
-        layout.addLayout(export_row)
+        top_row.addWidget(btn_add)
+        top_row.addWidget(btn_edit)
+        top_row.addStretch()
+        # 出力は一覧全体への操作なので、右端にまとめて1行にする
+        top_row.addWidget(btn_csv)
+        top_row.addWidget(btn_excel)
+        layout.addLayout(top_row)
 
         # 名簿の確認・編集が主作業になるため、下側を広く確保する。
         # 境界は利用者がドラッグして、案件一覧と名簿の高さを調整できる。
@@ -101,9 +81,7 @@ class ProjectTab(QWidget):
         from PyQt6.QtWidgets import QVBoxLayout as VL
         self._member_panel_layout = VL(self._member_panel_container)
         self._member_panel_container.setMinimumHeight(300)
-        self._empty_label = QLabel(
-            "受付中のデータはありません。\n"
-            "「＋ 名簿・請求内容を作成」から、件名と請求内容を登録してください。")
+        self._empty_label = QLabel(_EMPTY_TEXT)
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setStyleSheet(
             "color: #64748B; font-size: 13px; padding: 24px;")
@@ -116,11 +94,10 @@ class ProjectTab(QWidget):
 
     def _load(self):
         year = self._year_combo.currentData()
-        status = self._status_combo.currentData()
         session = get_session()
         try:
             cat_name = get_category_names(session)
-            projects = get_projects(session, fiscal_year=year, status=status)
+            projects = get_projects(session, fiscal_year=year)
             self._table.setRowCount(0)
             self._export_rows = []
             for proj in projects:
@@ -159,28 +136,21 @@ class ProjectTab(QWidget):
                 self._empty_label.setText(
                     "一覧からデータを選択すると、名簿の確認・取り込みができます。")
             else:
-                self._empty_label.setText(
-                    "受付中のデータはありません。\n"
-                    "「＋ 名簿・請求内容を作成」から、件名と請求内容を登録してください。")
+                self._empty_label.setText(_EMPTY_TEXT)
             self._empty_label.setVisible(True)
         finally:
             session.close()
 
     def _on_select(self, row, *_):
         if row < 0:
-            self._btn_close.setEnabled(False)
-            self._btn_reopen.setEnabled(False)
             return
         project_id = self._table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         session = get_session()
         try:
             proj = get_project_by_id(session, project_id)
             project_type = proj.project_type if proj else "list"
-            status = proj.status if proj else None
         finally:
             session.close()
-        self._btn_close.setEnabled(status == "active")
-        self._btn_reopen.setEnabled(status == "closed")
         self._clear_member_panel()
         self._empty_label.setVisible(False)
         if project_type == "list":
@@ -279,28 +249,6 @@ class ProjectTab(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._load()
 
-    def _close(self):
-        pid = self._selected_project_id()
-        if pid is None:
-            return
-        session = get_session()
-        try:
-            close_project(session, pid)
-        finally:
-            session.close()
-        self._load()
-
-    def _reopen(self):
-        pid = self._selected_project_id()
-        if pid is None:
-            return
-        session = get_session()
-        try:
-            reopen_project(session, pid)
-        finally:
-            session.close()
-        self._load()
-
     def _export_csv(self):
         if not self._export_rows:
             QMessageBox.information(self, "情報", "データがありません。")
@@ -329,9 +277,3 @@ class ProjectTab(QWidget):
             QMessageBox.information(self, "完了", f"Excelを保存しました。\n{path}")
         except Exception as e:
             QMessageBox.critical(self, "エラー", str(e))
-
-    def _rollover(self):
-        from app.ui.fiscal_year_dialog import FiscalYearDialog
-        dlg = FiscalYearDialog(self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self._load()

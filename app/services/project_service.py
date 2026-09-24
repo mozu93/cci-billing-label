@@ -99,20 +99,6 @@ def get_project_by_id(session: Session, project_id: int) -> Project | None:
     return session.get(Project, project_id)
 
 
-def reopen_project(session: Session, project_id: int) -> None:
-    proj = session.get(Project, project_id)
-    if proj:
-        proj.status = "active"
-        session.commit()
-
-
-def close_project(session: Session, project_id: int) -> None:
-    proj = session.get(Project, project_id)
-    if proj:
-        proj.status = "closed"
-        session.commit()
-
-
 def add_template_to_project(session: Session, project_id: int,
                              template_id: int,
                              unit_price_override: int | None = None,
