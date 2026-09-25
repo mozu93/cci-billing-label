@@ -180,3 +180,23 @@ def test_roster_shows_right_after_import_on_create(qtbot, memory_db, monkeypatch
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     panels = w.findChildren(ProjectMemberPanel)
     assert len(panels) == 1 and panels[0]._table.rowCount() == 2
+
+
+def test_top_area_has_title(qtbot, memory_db):
+    """上のエリア（件名の一覧）にも見出しを付け、下の名簿と区別する。"""
+    from PyQt6.QtWidgets import QLabel
+    from app.ui.project_tab import ProjectTab
+    w = ProjectTab()
+    qtbot.addWidget(w)
+    assert "件名の一覧（発行・入金の状況）" in [lb.text() for lb in w.findChildren(QLabel)]
+
+
+def test_title_column_stays_readable_when_narrow(qtbot, memory_db):
+    """幅が狭くても件名の列がつぶれない（以前は伸縮列で20px程度になり読めなかった）。"""
+    from app.ui.project_tab import ProjectTab
+    w = ProjectTab()
+    qtbot.addWidget(w)
+    w.resize(780, 500)
+    w.show()
+    qtbot.waitExposed(w)
+    assert w._table.columnWidth(1) >= 160

@@ -11,7 +11,8 @@ from app.database.models import ProjectMember
 from app.services.project_service import (
     get_project_members, add_roster_entries, remove_member_from_project,
     copy_roster_from_project, get_projects, set_project_members_cancelled,
-    get_project_member, update_project_member_fields, EDITABLE_MEMBER_FIELDS
+    get_project_member, update_project_member_fields, EDITABLE_MEMBER_FIELDS,
+    get_project_by_id,
 )
 
 COL_CHK = 0  # チェックボックス列
@@ -198,39 +199,61 @@ class ProjectMemberPanel(QWidget):
     def _build(self):
         layout = QVBoxLayout(self)
         heading_row = QHBoxLayout()
-        heading_row.addWidget(QLabel("名簿"))
+        # どの件名の名簿かを見出しで示す（上の件名の一覧と区別する）
+        session = get_session()
+        try:
+            proj = get_project_by_id(session, self._project_id)
+            proj_name = proj.name if proj else ""
+        finally:
+            session.close()
+        title = QLabel(f"名簿：{proj_name}")
+        title.setStyleSheet("font-weight: bold; color: #1D4ED8;")
+        heading_row.addWidget(title)
+        heading_row.addSpacing(16)
         heading_row.addStretch()
         heading_row.addWidget(QLabel("検索："))
         self._search = QLineEdit()
         self._search.setClearButtonEnabled(True)
         self._search.setPlaceholderText("事業所名・フリガナ・氏名・氏名フリガナで絞り込み")
-        self._search.setMinimumWidth(320)
+        self._search.setMinimumWidth(240)
         self._search.textChanged.connect(self._apply_filter)
-        heading_row.addWidget(self._search)
+        heading_row.addWidget(self._search, 1)
         layout.addLayout(heading_row)
 
+        # 見切れないよう名前は短くし、詳しい説明はツールチップで補う。
+        # 左に「名簿に追加する」、右に「チェックした行への操作」をまとめる
+        def _btn(text, tip, slot):
+            b = QPushButton(text)
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            return b
+
+        btn_add = _btn("1件追加", "名簿に1件を手入力で追加します。", self._add_entry)
+        btn_import = _btn(
+            "Excel・貼付で追加",
+            "Excelファイルや貼り付けたデータを、いまの名簿を消さずに追加します。\n"
+            "すでに名簿にある行は重複としてスキップできます。",
+            self._open_import)
+        btn_copy = _btn("他名簿から追加",
+                        "ほかの名簿の行を、この名簿にコピーして追加します。",
+                        self._copy_from_project)
+        btn_edit = _btn("編集", "選んだ行の内容を編集します（行のダブルクリックでも開けます）。",
+                        self._edit_entry)
+        btn_cancel = _btn("参加キャンセル",
+                          "チェックした行を参加キャンセルにします。\n"
+                          "発行済みの書類は履歴として残り、今後の発行と入金管理の対象から外れます。",
+                          lambda: self._set_cancelled_checked(True))
+        btn_restore = _btn("キャンセル解除", "チェックした行の参加キャンセルを取り消します。",
+                           lambda: self._set_cancelled_checked(False))
+        self._btn_del = _btn("削除", "チェックした行を名簿から削除します。",
+                             self._remove_checked)
+
         btn_row = QHBoxLayout()
-        btn_add = QPushButton("行を追加")
-        btn_add.clicked.connect(self._add_entry)
-        btn_edit = QPushButton("編集")
-        btn_edit.clicked.connect(self._edit_entry)
-        btn_copy = QPushButton("他の名簿からコピー")
-        btn_copy.clicked.connect(self._copy_from_project)
-        btn_import = QPushButton("追加取り込み（Excel/貼り付け）")
-        btn_import.setToolTip(
-            "Excelや貼り付けたデータを、いまの名簿を消さずに追加します。\n"
-            "すでに名簿にある行は重複としてスキップできます。")
-        btn_import.clicked.connect(self._open_import)
-        self._btn_del = QPushButton("選択削除")
-        self._btn_del.clicked.connect(self._remove_checked)
-        btn_cancel = QPushButton("参加キャンセル")
-        btn_cancel.clicked.connect(lambda: self._set_cancelled_checked(True))
-        btn_restore = QPushButton("キャンセルを戻す")
-        btn_restore.clicked.connect(lambda: self._set_cancelled_checked(False))
-        for b in [btn_add, btn_edit, btn_copy, btn_import, btn_cancel, btn_restore,
-                  self._btn_del]:
+        for b in (btn_add, btn_import, btn_copy):
             btn_row.addWidget(b)
         btn_row.addStretch()
+        for b in (btn_edit, btn_cancel, btn_restore, self._btn_del):
+            btn_row.addWidget(b)
         layout.addLayout(btn_row)
 
         self._table = QTableWidget(0, len(COLS))

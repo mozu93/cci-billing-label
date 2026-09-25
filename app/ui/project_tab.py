@@ -72,12 +72,26 @@ class ProjectTab(QWidget):
         self._table = QTableWidget(0, 9)
         self._table.setHorizontalHeaderLabels(
             ["業務名", "件名", "全件", "請求書発行済", "領収書発行済", "未発行", "総額", "入金件数", "入金額"])
-        self._table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch)
+        # 件名を伸縮列にすると、幅が足りないとき他の列に押されて20px程度に
+        # つぶれ読めなかった。固定幅（ドラッグで変更可）にし、余りは最後の列が埋める。
+        # 足りないときは横スクロールする
+        hdr = self._table.horizontalHeader()
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        self._table.setColumnWidth(1, 180)
+        hdr.setStretchLastSection(True)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setMinimumHeight(140)
         self._table.currentCellChanged.connect(self._on_select)
-        splitter.addWidget(self._table)
+        # 上は件名ごとの集計、下は選んだ件名の名簿。見出しで区別する
+        top_area = QWidget()
+        top_layout = QVBoxLayout(top_area)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(4)
+        top_title = QLabel("件名の一覧（発行・入金の状況）")
+        top_title.setStyleSheet("font-weight: bold; color: #1D4ED8;")
+        top_layout.addWidget(top_title)
+        top_layout.addWidget(self._table)
+        splitter.addWidget(top_area)
 
         self._member_panel_container = QWidget()
         from PyQt6.QtWidgets import QVBoxLayout as VL

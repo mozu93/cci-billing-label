@@ -33,8 +33,8 @@ def test_panel_has_add_and_copy_buttons(qtbot, memory_db):
     panel = ProjectMemberPanel(pid)
     qtbot.addWidget(panel)
     texts = _button_texts(panel)
-    assert "行を追加" in texts
-    assert "他の名簿からコピー" in texts
+    assert "1件追加" in texts
+    assert "他名簿から追加" in texts
 
 
 def test_member_panel_has_registration_date_column(qtbot, memory_db):
@@ -125,7 +125,8 @@ def test_panel_import_button_says_append(qtbot, memory_db):
     from app.ui.project_member_panel import ProjectMemberPanel
     panel = ProjectMemberPanel(_project_with_roster())
     qtbot.addWidget(panel)
-    assert "追加取り込み（Excel/貼り付け）" in _button_texts(panel)
+    # 見切れないよう短くしつつ、「追加」であることは名前で分かるようにする
+    assert "Excel・貼付で追加" in _button_texts(panel)
 
 
 def test_panel_emits_roster_changed_on_delete(qtbot, memory_db, monkeypatch):
@@ -175,3 +176,29 @@ def test_project_tab_refreshes_row_after_roster_change(qtbot, memory_db):
     assert tab._table.item(row, 2).text() == "2"   # 全件
     assert tab._table.item(row, 5).text() == "2"   # 未発行
     assert tab._export_rows[row]["全件"] == 2
+
+
+def test_panel_title_shows_project_name(qtbot, memory_db):
+    """下のエリアが、どの件名の名簿かを見出しで示す。"""
+    from PyQt6.QtWidgets import QLabel
+    from app.ui.project_member_panel import ProjectMemberPanel
+    panel = ProjectMemberPanel(_project_with_roster())
+    qtbot.addWidget(panel)
+    labels = [lb.text() for lb in panel.findChildren(QLabel)]
+    assert any(t.startswith("名簿：") and len(t) > 3 for t in labels)
+
+
+def test_panel_buttons_fit_780px_without_truncation(qtbot, memory_db):
+    """ボタン名が見切れない（各ボタンが文字の幅以上あり、右端からはみ出さない）。"""
+    from app.ui.project_member_panel import ProjectMemberPanel
+    panel = ProjectMemberPanel(_project_with_roster())
+    qtbot.addWidget(panel)
+    panel.resize(780, 500)
+    panel.show()
+    qtbot.waitExposed(panel)
+    for text in ("1件追加", "Excel・貼付で追加", "他名簿から追加", "編集",
+                 "参加キャンセル", "キャンセル解除", "削除"):
+        b = next(x for x in panel.findChildren(QPushButton) if x.text() == text)
+        assert b.width() >= b.sizeHint().width(), f"「{text}」が縮められている"
+        assert b.mapTo(panel, b.rect().topRight()).x() < 780, f"「{text}」がはみ出した"
+        assert b.toolTip(), f"「{text}」に説明がない"
