@@ -16,12 +16,12 @@ COL_CHK  = 0
 COL_NUM  = 1   # 会員番号（編集不可）
 COL_ORG  = 2   # 事業所名（Alt+Enter 折り返し可）
 COL_KANA = 3   # フリガナ（編集不可）
-COL_REP  = 4   # 代表者名（Alt+Enter 折り返し可）
-COL_DEPT = 5   # 役職・所属（Alt+Enter 折り返し可）
+COL_DEPT = 4   # 役職・所属（Alt+Enter 折り返し可。宛名の並びに合わせ、代表者名の左）
+COL_REP  = 5   # 代表者名（Alt+Enter 折り返し可）
 COL_POST = 6   # 郵便番号（編集不可）
 COL_ADDR = 7   # 住所（編集可）
 
-_HEADERS = ["", "会員番号", "事業所名", "フリガナ", "代表者名", "役職・所属", "郵便番号", "住所"]
+_HEADERS = ["", "会員番号", "事業所名", "フリガナ", "役職・所属", "代表者名", "郵便番号", "住所"]
 
 LABEL_MODES = [
     ("宛名（氏名あり）", "normal"),

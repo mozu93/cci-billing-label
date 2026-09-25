@@ -57,7 +57,7 @@ class _CompactDelegate(QStyledItemDelegate):
 _COL_FIELDS = [
     None,            # チェックボックス
     "roster_no", "member_number", "organization_name", "organization_kana",
-    "representative_name", "representative_kana", "department",
+    "department", "representative_name", "representative_kana",
     "postal_code", "address", "address2", "phone", "email",
     None,            # キャンセル
     None,            # 登録日
@@ -69,9 +69,9 @@ COLS = [
     ("会員番号",       80),
     ("事業所名",      180),
     ("フリガナ",      160),
+    ("所属・役職名",  120),   # 宛名の並びに合わせ、氏名の左
     ("氏名",          100),
     ("氏名フリガナ",  130),
-    ("所属・役職名",  120),
     ("郵便番号",       80),
     ("住所１",        200),
     ("住所２",        140),
@@ -90,9 +90,9 @@ class RosterEntryDialog(QDialog):
         ("member_number",        "会員番号"),
         ("organization_name",    "事業所名"),
         ("organization_kana",    "フリガナ（事業所）"),
+        ("department",           "所属・役職名"),
         ("representative_name",  "氏名"),
         ("representative_kana",  "氏名フリガナ"),
-        ("department",           "所属・役職名"),
         ("postal_code",          "郵便番号"),
         ("address",              "住所１"),
         ("address2",             "住所２"),
@@ -335,9 +335,9 @@ class ProjectMemberPanel(QWidget):
                 pm.member_number or "",
                 pm.organization_name or "",
                 pm.organization_kana or "",
+                pm.department or "",
                 pm.representative_name or "",
                 pm.representative_kana or "",
-                pm.department or "",
                 pm.postal_code or "",
                 pm.address or "",
                 pm.address2 or "",
