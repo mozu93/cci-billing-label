@@ -71,6 +71,38 @@ def get_delivery_trace(client_id: str, tenant_id: str, client_secret: str,
     return {"status": status, "message": message}
 
 
+TEST_MODE_SUBJECT_PREFIX = "【テスト送信モード】"
+
+
+def apply_mail_test_mode(to_recipients: list[str], subject: str, body_html: str,
+                         cc_recipients: list[str] | None,
+                         bcc_recipients: list[str] | None) -> tuple:
+    """テスト送信モードなら、宛先をテスト送信先だけに差し替える。
+
+    開発中に本物のお客様へ送らないため。本来の宛先は本文の先頭に書く。
+    テスト送信先が未設定なら、本来の宛先に送らないよう ValueError で止める。
+    戻り値は (to, subject, body_html, cc, bcc)。"""
+    from app.utils.app_config import get_m365_test_mode, get_m365_test_recipient
+    if not get_m365_test_mode():
+        return to_recipients, subject, body_html, cc_recipients, bcc_recipients
+    test_to = (get_m365_test_recipient() or "").strip()
+    if not test_to:
+        raise ValueError(
+            "テスト送信モードがオンですが、テスト送信先が設定されていません。"
+            "設定 → メール送信設定で入力してください。")
+    import html as _html
+    lines = [f"To：{', '.join(to_recipients)}"]
+    if cc_recipients:
+        lines.append(f"CC：{', '.join(cc_recipients)}")
+    if bcc_recipients:
+        lines.append(f"BCC：{', '.join(bcc_recipients)}")
+    note = ("<div style='border:2px solid #DC2626; padding:8px; margin-bottom:12px;"
+            " color:#DC2626; font-family:sans-serif;'>"
+            "<b>テスト送信モードで送信しました。本来の宛先：</b><br>"
+            + "<br>".join(_html.escape(line) for line in lines) + "</div>")
+    return [test_to], TEST_MODE_SUBJECT_PREFIX + subject, note + body_html, None, None
+
+
 class M365MailService:
     """Microsoft Graph API /me/sendMail を使ってメールを送信する。"""
 
@@ -94,6 +126,11 @@ class M365MailService:
         bcc_recipients: list[str] | None = None,
     ) -> dict:
         """メール送信要求を送る。pdf_path を指定した場合のみPDFを添付する。"""
+        # テスト送信モードなら、ここで宛先をテスト送信先だけに差し替える
+        # （どの画面から送っても必ずここを通る）
+        to_recipients, subject, body_html, cc_recipients, bcc_recipients = (
+            apply_mail_test_mode(to_recipients, subject, body_html,
+                                 cc_recipients, bcc_recipients))
         if pdf_path is not None and not Path(pdf_path).is_file():
             raise FileNotFoundError(f"PDFファイルが見つかりません: {pdf_path}")
         validate_mail(

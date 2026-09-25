@@ -2,6 +2,7 @@
 from PyQt6.QtCore import QEvent, QThread, Qt
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QGridLayout,
@@ -36,10 +37,12 @@ from app.utils.app_config import (
     get_m365_account_username,
     get_m365_client_id,
     get_m365_sender_address,
+    get_m365_test_mode,
     get_m365_test_recipient,
     get_m365_trace_client_secret,
     get_m365_tenant_id,
     save_m365_config,
+    set_m365_test_mode,
 )
 from app.utils.applog import get_logger
 
@@ -389,6 +392,16 @@ class EmailSettingsWidget(QWidget):
         form.addRow("送信アカウント", account_row)
         form.addRow("代理送信元", self._m365_sender)
         form.addRow("テスト送信先", test_row)
+        # 開発中に本物のお客様へ送らないためのモード。切り替えた時点で保存する
+        self._test_mode_chk = QCheckBox(
+            "テスト送信モード（アプリが送るすべてのメールをテスト送信先に送る）")
+        self._test_mode_chk.setStyleSheet("color: #DC2626; font-weight: bold;")
+        self._test_mode_chk.setToolTip(
+            "オンの間は、請求書・領収書・督促・発行通知などすべてのメールが\n"
+            "テスト送信先だけに届きます（CC・BCCには送りません）。\n"
+            "件名に【テスト送信モード】が付き、本文の先頭に本来の宛先が書かれます。")
+        self._test_mode_chk.toggled.connect(self._on_test_mode_toggled)
+        form.addRow("", self._test_mode_chk)
         form.addRow("", note)
         layout.addWidget(group)
 
@@ -407,6 +420,28 @@ class EmailSettingsWidget(QWidget):
         self._refresh_accounts(get_m365_account_username())
         self._m365_sender.setText(get_m365_sender_address())
         self._test_recipient.setText(get_m365_test_recipient())
+        self._test_mode_chk.blockSignals(True)
+        self._test_mode_chk.setChecked(get_m365_test_mode())
+        self._test_mode_chk.blockSignals(False)
+
+    def _on_test_mode_toggled(self, on: bool):
+        if on:
+            recipient = self._test_recipient.text().strip()
+            try:
+                from app.services.email_service import validate_email_addr
+                validate_email_addr(recipient)
+            except ValueError:
+                QMessageBox.warning(
+                    self, "テスト送信モード",
+                    "テスト送信モードにするには、先に「テスト送信先」に"
+                    "受信できるメールアドレスを入力してください。")
+                self._test_mode_chk.blockSignals(True)
+                self._test_mode_chk.setChecked(False)
+                self._test_mode_chk.blockSignals(False)
+                return
+            # 入力したテスト送信先をモードと同時に保存する（未保存のまま送られないように）
+            self._save_m365_fields()
+        set_m365_test_mode(on)
 
     def _m365_ids(self) -> tuple[str, str]:
         return (

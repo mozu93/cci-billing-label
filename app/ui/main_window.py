@@ -191,10 +191,29 @@ class MainWindow(QMainWindow):
             self._user_lbl = QLabel(f"👤 {user_name}")
             self._user_lbl.setStyleSheet("color: #475569; font-size: 12px; padding: 0 8px;")
             sb.addPermanentWidget(self._user_lbl)
+        # テスト送信モードの切り忘れを防ぐため、オンの間は赤字で出し続ける。
+        # 設定は別の画面で切り替わるので、数秒ごとに読み直す
+        self._test_mode_label = QLabel("")
+        self._test_mode_label.setStyleSheet(
+            "color: white; background: #DC2626; font-weight: bold;"
+            " font-size: 12px; padding: 0 8px; border-radius: 3px;")
+        sb.addPermanentWidget(self._test_mode_label)
+        self._refresh_test_mode_label()
+        self._test_mode_timer = QTimer(self)
+        self._test_mode_timer.timeout.connect(self._refresh_test_mode_label)
+        self._test_mode_timer.start(3000)
         ver_lbl = QLabel(f"v{__version__}")
         ver_lbl.setStyleSheet("color: #94A3B8; font-size: 11px; padding: 0 8px;")
         sb.addPermanentWidget(ver_lbl)
         sb.showMessage("準備完了")
+
+    def _refresh_test_mode_label(self):
+        from app.utils.app_config import get_m365_test_mode, get_m365_test_recipient
+        on = get_m365_test_mode()
+        if on:
+            self._test_mode_label.setText(
+                f"テスト送信モード（メールはすべて {get_m365_test_recipient()} へ）")
+        self._test_mode_label.setVisible(on)
 
     def _run_auto_backup(self):
         from pathlib import Path

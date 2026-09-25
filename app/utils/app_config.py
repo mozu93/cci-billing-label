@@ -103,6 +103,19 @@ def get_m365_test_recipient() -> str:
     return get_m365_config().get("test_recipient", "")
 
 
+def get_m365_test_mode() -> bool:
+    """テスト送信モード：オンなら、アプリが送るすべてのメールをテスト送信先に送る。"""
+    return bool(get_m365_config().get("test_mode", False))
+
+
+def set_m365_test_mode(enabled: bool) -> None:
+    config = get_config()
+    m365 = dict(config.get("m365", {}))
+    m365["test_mode"] = bool(enabled)
+    config["m365"] = m365
+    save_config(config)
+
+
 def get_m365_trace_client_secret() -> str:
     return get_m365_config().get("trace_client_secret", "")
 
