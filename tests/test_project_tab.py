@@ -113,8 +113,8 @@ def test_new_project_default_year_is_fiscal_year(qtbot, memory_db, monkeypatch):
     assert dlg._fiscal_year.value() == 2026
 
 
-def test_export_buttons_share_the_year_row(qtbot, memory_db):
-    """CSV出力・Excel出力は年度の行にまとめ、1行にする（幅780pxでも収まる）。"""
+def test_top_row_buttons_share_the_year_row(qtbot, memory_db):
+    """作成・編集は年度の行に1行で並ぶ（幅780pxでも収まる）。"""
     from PyQt6.QtWidgets import QPushButton
     from app.ui.project_tab import ProjectTab
     w = ProjectTab()
@@ -124,7 +124,9 @@ def test_export_buttons_share_the_year_row(qtbot, memory_db):
     qtbot.waitExposed(w)
     buttons = {b.text(): b for b in w.findChildren(QPushButton)}
     row_y = w._year_combo.mapTo(w, w._year_combo.rect().center()).y()
-    for text in ("＋ 名簿・請求内容を作成", "編集", "CSV出力", "Excel出力"):
+    # ダッシュボードの出力は廃止（名簿の出力は下の名簿欄にある）
+    assert "CSV出力" not in buttons and "Excel出力" not in buttons
+    for text in ("＋ 名簿・請求内容を作成", "編集"):
         b = buttons[text]
         assert abs(b.mapTo(w, b.rect().center()).y() - row_y) <= 2, text
         assert b.mapTo(w, b.rect().topRight()).x() < 780, text

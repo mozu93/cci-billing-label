@@ -3,7 +3,6 @@ from datetime import date
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QComboBox, QLabel, QHeaderView, QDialog, QSplitter,
-    QFileDialog, QMessageBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
@@ -24,7 +23,6 @@ _EMPTY_TEXT = ("この年度の名簿・請求内容はありません。\n"
 class ProjectTab(QWidget):
     def __init__(self):
         super().__init__()
-        self._export_rows: list[dict] = []
         self._build()
         self._load()
 
@@ -51,16 +49,9 @@ class ProjectTab(QWidget):
         btn_edit = QPushButton("編集")
         btn_edit.clicked.connect(self._edit)
         # 「完了」「年度更新」は廃止した。名簿は毎年新しく作り、年度で絞り込む
-        btn_csv = QPushButton("CSV出力")
-        btn_csv.clicked.connect(self._export_csv)
-        btn_excel = QPushButton("Excel出力")
-        btn_excel.clicked.connect(self._export_excel)
         top_row.addWidget(btn_add)
         top_row.addWidget(btn_edit)
         top_row.addStretch()
-        # 出力は一覧全体への操作なので、右端にまとめて1行にする
-        top_row.addWidget(btn_csv)
-        top_row.addWidget(btn_excel)
         layout.addLayout(top_row)
 
         # 名簿の確認・編集が主作業になるため、下側を広く確保する。
@@ -115,7 +106,6 @@ class ProjectTab(QWidget):
             cat_name = get_category_names(session)
             projects = get_projects(session, fiscal_year=year)
             self._table.setRowCount(0)
-            self._export_rows = []
             for proj in projects:
                 p = get_project_progress(session, proj.id)
                 pending = p["pending"]
@@ -136,17 +126,6 @@ class ProjectTab(QWidget):
                     if col == 5 and pending > 0:
                         item.setForeground(QColor("#DC2626"))
                     self._table.setItem(row, col, item)
-                self._export_rows.append({
-                    "業務名": cat_name.get(proj.category_id, ""),
-                    "件名": proj.name,
-                    "全件": p["total"],
-                    "請求書発行済": p["invoice_issued"],
-                    "領収書発行済": p["receipt_issued"],
-                    "未発行": pending,
-                    "総額": total_amount,
-                    "入金件数": paid_count,
-                    "入金額": paid_amount,
-                })
             self._clear_member_panel()
             if projects:
                 self._empty_label.setText(
@@ -208,16 +187,6 @@ class ProjectTab(QWidget):
                     cell.setData(
                         Qt.ItemDataRole.ForegroundRole,
                         QColor("#DC2626") if p["pending"] > 0 else None)
-            if row < len(self._export_rows):
-                self._export_rows[row].update({
-                    "全件": p["total"],
-                    "請求書発行済": p["invoice_issued"],
-                    "領収書発行済": p["receipt_issued"],
-                    "未発行": p["pending"],
-                    "総額": total_amount,
-                    "入金件数": paid_count,
-                    "入金額": paid_amount,
-                })
             break
 
     def _clear_member_panel(self):
@@ -271,32 +240,3 @@ class ProjectTab(QWidget):
         dlg = ProjectFormDialog(project_id=pid, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._load()
-
-    def _export_csv(self):
-        if not self._export_rows:
-            QMessageBox.information(self, "情報", "データがありません。")
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "CSV保存", "", "CSV (*.csv)")
-        if not path:
-            return
-        import csv
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.DictWriter(f, fieldnames=list(self._export_rows[0].keys()))
-            writer.writeheader()
-            writer.writerows(self._export_rows)
-        QMessageBox.information(self, "完了", f"CSVを保存しました。\n{path}")
-
-    def _export_excel(self):
-        if not self._export_rows:
-            QMessageBox.information(self, "情報", "データがありません。")
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "Excel保存", "", "Excel (*.xlsx)")
-        if not path:
-            return
-        from app.services.report_service import export_to_excel
-        headers = list(self._export_rows[0].keys())
-        try:
-            export_to_excel(self._export_rows, headers, path)
-            QMessageBox.information(self, "完了", f"Excelを保存しました。\n{path}")
-        except Exception as e:
-            QMessageBox.critical(self, "エラー", str(e))

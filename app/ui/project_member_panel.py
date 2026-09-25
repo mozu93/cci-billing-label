@@ -180,6 +180,11 @@ class ProjectMemberPanel(QWidget):
         self._search.setMinimumWidth(240)
         self._search.textChanged.connect(self._apply_filter)
         heading_row.addWidget(self._search, 1)
+        btn_export = QPushButton("Excel出力")
+        btn_export.setToolTip(
+            "表示中の名簿（検索で絞り込んでいればその行）を、全項目でExcelに出力します。")
+        btn_export.clicked.connect(self._export_excel)
+        heading_row.addWidget(btn_export)
         layout.addLayout(heading_row)
 
         # 見切れないよう名前は短くし、詳しい説明はツールチップで補う。
@@ -270,6 +275,30 @@ class ProjectMemberPanel(QWidget):
         finally:
             session.close()
         self._apply_filter()
+
+    def _export_excel(self):
+        """表示中の名簿を、画面の並び順のまま全項目でExcelに書き出す。"""
+        if self._table.rowCount() == 0:
+            QMessageBox.information(self, "Excel出力", "出力する名簿がありません。")
+            return
+        from PyQt6.QtWidgets import QFileDialog
+        from app.services.report_service import export_to_excel
+        path, _ = QFileDialog.getSaveFileName(
+            self, "名簿をExcelに出力", "名簿.xlsx", "Excel (*.xlsx)")
+        if not path:
+            return
+        headers = [name for name, _w in COLS[1:]]   # チェック列は出さない
+        rows = []
+        for r in range(self._table.rowCount()):
+            rows.append({h: (self._table.item(r, c).text()
+                             if self._table.item(r, c) else "")
+                         for c, h in enumerate(headers, start=1)})
+        try:
+            export_to_excel(rows, headers, path)
+        except Exception as e:
+            QMessageBox.critical(self, "エラー", str(e))
+            return
+        QMessageBox.information(self, "Excel出力", f"Excelを保存しました。\n{path}")
 
     def _apply_filter(self, text: str = ""):
         """指定された宛名項目だけを対象に、名簿をリアルタイムで絞り込む。"""

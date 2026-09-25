@@ -177,7 +177,6 @@ def test_project_tab_refreshes_row_after_roster_change(qtbot, memory_db):
     tab._refresh_project_row(pid)
     assert tab._table.item(row, 2).text() == "2"   # 全件
     assert tab._table.item(row, 5).text() == "2"   # 未発行
-    assert tab._export_rows[row]["全件"] == 2
 
 
 def test_panel_title_shows_project_name(qtbot, memory_db):
@@ -227,3 +226,36 @@ def test_panel_title_shows_business_and_project_name(qtbot, memory_db):
 
     assert _title(with_cat) == "名簿：不動産部会　視察研修会"
     assert _title(no_cat) == "名簿：新年会"
+
+
+def test_roster_excel_export_writes_displayed_rows(qtbot, memory_db, monkeypatch, tmp_path):
+    """名簿の「Excel出力」は、表示中の行（検索で絞り込んだ行）を全項目で書き出す。"""
+    import openpyxl
+    from PyQt6.QtWidgets import QFileDialog, QMessageBox
+    from app.database.connection import get_session
+    from app.services.project_service import add_roster_entries, create_project
+    from app.ui.project_member_panel import ProjectMemberPanel
+    s = get_session()
+    pid = create_project(s, "視察研修会", None, 2026, "list").id
+    add_roster_entries(s, pid, [
+        {"organization_name": "○○商店", "member_number": "0001", "email": "a@example.invalid"},
+        {"organization_name": "△△工業", "member_number": "0002"},
+    ])
+    s.close()
+    out = tmp_path / "roster.xlsx"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), ""))
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+
+    panel = ProjectMemberPanel(pid)
+    qtbot.addWidget(panel)
+    panel._search.setText("○○")          # 絞り込んだ状態で出力
+    btn = next(b for b in panel.findChildren(QPushButton) if b.text() == "Excel出力")
+    btn.click()
+
+    ws = openpyxl.load_workbook(out).active
+    rows = list(ws.iter_rows(values_only=True))
+    assert rows[0][:4] == ("NO.", "会員番号", "事業所名", "フリガナ")
+    assert "メール" in rows[0] and "キャンセル" in rows[0] and "登録日" in rows[0]
+    assert len(rows) == 2                 # 見出し＋絞り込んだ1行
+    assert rows[1][1] == "0001" and rows[1][2] == "○○商店"
+    assert "a@example.invalid" in rows[1]
