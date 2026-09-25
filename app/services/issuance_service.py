@@ -415,6 +415,19 @@ def cancel_unoutput_issuance(session: Session, issuance: Issuance) -> None:
             f"{label} {number} 出力なしのため取消（欠番）")
 
 
+def revert_to_prepared(session: Session, issuance: Issuance) -> None:
+    """まとめて発行でメールを送らなかった書類を「準備中」に戻す。
+
+    まとめて発行の書類は準備中の時点で番号が付いているので、戻しても欠番に
+    ならず、次に発行するときにそのまま使われる。"""
+    from app.services.operation_log_service import add_log
+    label = "請求書" if issuance.doc_type == "invoice" else "領収書"
+    issuance.status = "準備中"
+    session.commit()
+    add_log(session, "発行取消", "issuance", issuance.id,
+            f"{label} {issuance.doc_number} メール未送信のため準備中に戻した")
+
+
 PREVIEW_DOC_NUMBER = "（プレビュー）"
 
 

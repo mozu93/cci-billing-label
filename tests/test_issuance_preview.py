@@ -112,3 +112,23 @@ def test_old_previews_are_removed(db_session, preview_dir):
     second = generate_preview_pdf(db_session, iss)
     assert first != second
     assert [p.name for p in preview_dir.glob("*.pdf")] == [os.path.basename(second)]
+
+
+def test_revert_to_prepared_keeps_number(db_session):
+    """メールを送らなかったまとめて発行の書類は「準備中」に戻す（番号は欠番にしない）。"""
+    from app.database.models import OperationLog
+    from app.services.issuance_service import (
+        create_direct_issuance, revert_to_prepared)
+    iss = create_direct_issuance(
+        db_session, lines_data=_LINES, recipient_organization="○○商店",
+        recipient_name="", doc_type="invoice", fiscal_year=2026, month=9,
+        staff_id=None, staff_name="", delivery_method="メール送付",
+        project_name="直接発行")
+    number = iss.doc_number
+    revert_to_prepared(db_session, iss)
+    db_session.expire_all()
+    got = db_session.get(Issuance, iss.id)
+    assert got.status == "準備中"
+    assert got.doc_number == number
+    logs = [l.detail for l in db_session.query(OperationLog).filter_by(action="発行取消")]
+    assert len(logs) == 1 and number in logs[0]
