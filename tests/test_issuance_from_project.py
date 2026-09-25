@@ -1,4 +1,5 @@
 """Tests for IssuanceFromProjectWidget (TDD)."""
+from app.ui.issuance_from_project import COL_ITEM
 from PyQt6.QtWidgets import QPushButton, QComboBox, QLabel
 
 
@@ -159,8 +160,8 @@ def test_excel_round_trip_updates_existing_issuance_lines(
         staticmethod(lambda *args, **kwargs: (str(xlsx_path), "Excel (*.xlsx)")))
     widget._import_excel()
 
-    assert widget._table.cellWidget(0, 5).value() == 2500
-    assert widget._table.cellWidget(0, 6).value() == 3
+    assert widget._table.cellWidget(0, COL_ITEM).value() == 2500
+    assert widget._table.cellWidget(0, COL_ITEM + 1).value() == 3
     assert widget._table.item(0, 0).checkState().value == 2
 
     monkeypatch.setattr(app_config, "save_config", lambda _cfg: None)
@@ -181,8 +182,8 @@ def test_excel_round_trip_updates_existing_issuance_lines(
     session.close()
 
     # 再編集後にPDF生成が失敗しても、確定済みの明細は変更しない。
-    widget._table.cellWidget(0, 5).setValue(4000)
-    widget._table.cellWidget(0, 6).setValue(4)
+    widget._table.cellWidget(0, COL_ITEM).setValue(4000)
+    widget._table.cellWidget(0, COL_ITEM + 1).setValue(4)
 
     def _fail_pdf(*args, **kwargs):
         raise RuntimeError("PDF error")
@@ -460,3 +461,33 @@ def test_this_fiscal_year_is_selectable_without_projects(qtbot, memory_db, monke
     w = ifp.IssuanceFromProjectWidget("invoice")
     qtbot.addWidget(w)
     assert w._year_combo.currentData() == 2026
+
+
+def _headers(w):
+    return [w._table.horizontalHeaderItem(i).text()
+            for i in range(w._table.columnCount())]
+
+
+def test_department_column_is_shown(qtbot, memory_db):
+    """名簿の表に「所属・役職」の列がある（代表者名の右）。"""
+    from app.database.connection import get_session
+    from app.services.project_service import add_roster_entries, create_project
+    from app.ui.issuance_from_project import COL_DEPT, COL_REP, IssuanceFromProjectWidget
+    s = get_session()
+    pid = create_project(s, "視察研修会", None, 2026, "list").id
+    add_roster_entries(s, pid, [{"organization_name": "○○商店",
+                                 "representative_name": "山田", "department": "代表取締役"}])
+    s.close()
+    w = IssuanceFromProjectWidget("invoice")
+    qtbot.addWidget(w)
+    _select_project(w, pid)
+    headers = _headers(w)
+    assert headers[COL_REP] == "代表者名"
+    assert headers[COL_DEPT] == "所属・役職"
+    assert w._table.item(0, COL_DEPT).text() == "代表取締役"
+    assert headers[w._col_inv] == "請求書" and headers[w._col_rcp] == "領収書"
+
+    w._proj_combo.setCurrentIndex(0)          # すべて（件名の列が出る）
+    headers = _headers(w)
+    assert headers[COL_DEPT] == "所属・役職"
+    assert headers[w._col_inv] == "請求書" and headers[w._col_rcp] == "領収書"

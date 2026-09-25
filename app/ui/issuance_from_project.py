@@ -33,8 +33,10 @@ COL_CHK  = 0
 COL_NUM  = 1   # 会員番号
 COL_ORG  = 2   # 事業所名
 COL_KANA = 3   # フリガナ
-COL_REP  = 4   # 代表者名
-COL_PROJ = 5   # 件名（すべて選択時専用）
+COL_DEPT = 4   # 所属・役職（宛名の並びに合わせ、代表者名の左）
+COL_REP  = 5   # 代表者名
+COL_PROJ = 6   # 件名（すべて選択時専用）
+COL_ITEM = 6   # 項目ごとの単価・数量の最初の列（件名を選んだとき。単価・数量の順に2列ずつ）
 # 数量列: 5 〜 5+len(templates)-1  ※件名選択時
 # 請求書列 = 5+len(templates)、領収書列 = 6+len(templates) — テンプレート数で可変
 
@@ -114,11 +116,11 @@ class IssuanceFromProjectWidget(QWidget):
 
     @property
     def _col_inv(self) -> int:
-        return 6 if self._is_all_mode else 5 + len(self._templates) * 2
+        return COL_PROJ + 1 if self._is_all_mode else COL_ITEM + len(self._templates) * 2
 
     @property
     def _col_rcp(self) -> int:
-        return 7 if self._is_all_mode else 6 + len(self._templates) * 2
+        return COL_PROJ + 2 if self._is_all_mode else COL_ITEM + 1 + len(self._templates) * 2
 
     def _build(self):
         layout = QVBoxLayout(self)
@@ -370,21 +372,23 @@ class IssuanceFromProjectWidget(QWidget):
         rtc         = QHeaderView.ResizeMode.ResizeToContents
 
         if self._is_all_mode:
-            self._table.setColumnCount(8)
+            self._table.setColumnCount(COL_PROJ + 3)
             self._table.setHorizontalHeaderLabels(
-                ["", "会員番号", "事業所名", "フリガナ", "代表者名", "件名", "請求書", "領収書"])
+                ["", "会員番号", "事業所名", "フリガナ", "所属・役職", "代表者名",
+                 "件名", "請求書", "領収書"])
             hdr.setSectionResizeMode(COL_CHK,  fixed);      self._table.setColumnWidth(COL_CHK,  30)
             hdr.setSectionResizeMode(COL_NUM,  interactive); self._table.setColumnWidth(COL_NUM,  80)
             hdr.setSectionResizeMode(COL_ORG,  interactive); self._table.setColumnWidth(COL_ORG, 180)
             hdr.setSectionResizeMode(COL_KANA, interactive); self._table.setColumnWidth(COL_KANA,140)
             hdr.setSectionResizeMode(COL_REP,  interactive); self._table.setColumnWidth(COL_REP, 100)
+            hdr.setSectionResizeMode(COL_DEPT, interactive); self._table.setColumnWidth(COL_DEPT,120)
             hdr.setSectionResizeMode(COL_PROJ, interactive); self._table.setColumnWidth(COL_PROJ,200)
-            hdr.setSectionResizeMode(6, rtc)
-            hdr.setSectionResizeMode(7, rtc)
+            hdr.setSectionResizeMode(self._col_inv, rtc)
+            hdr.setSectionResizeMode(self._col_rcp, rtc)
         else:
             n = len(self._templates)
-            self._table.setColumnCount(7 + n * 2)
-            headers = ["", "会員番号", "事業所名", "フリガナ", "代表者名"]
+            self._table.setColumnCount(COL_ITEM + 2 + n * 2)
+            headers = ["", "会員番号", "事業所名", "フリガナ", "所属・役職", "代表者名"]
             for tmpl in self._templates:
                 headers.append(f"{tmpl['name']}\n単価")
                 headers.append(f"{tmpl['name']}\n数量")
@@ -395,11 +399,12 @@ class IssuanceFromProjectWidget(QWidget):
             hdr.setSectionResizeMode(COL_ORG,  interactive); self._table.setColumnWidth(COL_ORG, 180)
             hdr.setSectionResizeMode(COL_KANA, interactive); self._table.setColumnWidth(COL_KANA,140)
             hdr.setSectionResizeMode(COL_REP,  interactive); self._table.setColumnWidth(COL_REP, 100)
+            hdr.setSectionResizeMode(COL_DEPT, interactive); self._table.setColumnWidth(COL_DEPT,120)
             for i in range(n):
-                hdr.setSectionResizeMode(5 + i * 2, interactive)
-                self._table.setColumnWidth(5 + i * 2, 80)
-                hdr.setSectionResizeMode(5 + i * 2 + 1, interactive)
-                self._table.setColumnWidth(5 + i * 2 + 1, 100)
+                hdr.setSectionResizeMode(COL_ITEM + i * 2, interactive)
+                self._table.setColumnWidth(COL_ITEM + i * 2, 80)
+                hdr.setSectionResizeMode(COL_ITEM + i * 2 + 1, interactive)
+                self._table.setColumnWidth(COL_ITEM + i * 2 + 1, 100)
             for col in (self._col_inv, self._col_rcp):
                 hdr.setSectionResizeMode(col, rtc)
 
@@ -417,7 +422,7 @@ class IssuanceFromProjectWidget(QWidget):
         if col == COL_CHK:
             return  # QCheckBox ウィジェットが処理
         # 数量・単価 SpinBox 列はソート対象外
-        spin_cols = set(range(5, 5 + len(self._templates) * 2))
+        spin_cols = set(range(COL_ITEM, COL_ITEM + len(self._templates) * 2))
         if col in spin_cols:
             return
         self._save_qty_cache()
@@ -731,6 +736,7 @@ class IssuanceFromProjectWidget(QWidget):
             if sc == COL_ORG:                  return pm.organization_name or ""
             if sc == COL_KANA:                 return pm.organization_kana or ""
             if sc == COL_REP:                  return pm.representative_name or ""
+            if sc == COL_DEPT:                 return pm.department or ""
             if is_all and sc == COL_PROJ:      return proj_name
             if sc == col_inv:                  return inv_text
             if sc == col_rcp:                  return rcp_text
@@ -760,6 +766,7 @@ class IssuanceFromProjectWidget(QWidget):
                 (COL_ORG,  pm.organization_name or ""),
                 (COL_KANA, pm.organization_kana or ""),
                 (COL_REP,  pm.representative_name or ""),
+                (COL_DEPT, pm.department or ""),
             ]
             if is_all:
                 fixed_cols.append((COL_PROJ, proj_name))
@@ -770,8 +777,8 @@ class IssuanceFromProjectWidget(QWidget):
                 self._table.setItem(row, col, it)
 
             for col_offset, tmpl in enumerate(self._templates):
-                price_col = 5 + col_offset * 2
-                qty_col   = 5 + col_offset * 2 + 1
+                price_col = COL_ITEM + col_offset * 2
+                qty_col   = COL_ITEM + col_offset * 2 + 1
                 _base = "QSpinBox { min-height: 0; padding: 1px 4px; }"
                 _mod  = "QSpinBox { min-height: 0; padding: 1px 4px; background: #FFF9C4; }"
 
@@ -849,7 +856,7 @@ class IssuanceFromProjectWidget(QWidget):
     def _get_row_quantities(self, row: int) -> dict[int, int]:
         result = {}
         for col_offset, tmpl in enumerate(self._templates):
-            spin = self._table.cellWidget(row, 5 + col_offset * 2 + 1)
+            spin = self._table.cellWidget(row, COL_ITEM + col_offset * 2 + 1)
             if isinstance(spin, _QtySpinBox):
                 result[tmpl["id"]] = spin.value()
         return result
@@ -857,7 +864,7 @@ class IssuanceFromProjectWidget(QWidget):
     def _get_row_prices(self, row: int) -> dict[int, int]:
         result = {}
         for col_offset, tmpl in enumerate(self._templates):
-            spin = self._table.cellWidget(row, 5 + col_offset * 2)
+            spin = self._table.cellWidget(row, COL_ITEM + col_offset * 2)
             if isinstance(spin, _QtySpinBox):
                 result[tmpl["id"]] = spin.value()
         return result
@@ -1082,8 +1089,8 @@ class IssuanceFromProjectWidget(QWidget):
             q = file_qty.pop(pm_id)
             p = file_price.pop(pm_id, {})
             for col_offset, tmpl in enumerate(self._templates):
-                price_spin = self._table.cellWidget(r, 5 + col_offset * 2)
-                qty_spin   = self._table.cellWidget(r, 5 + col_offset * 2 + 1)
+                price_spin = self._table.cellWidget(r, COL_ITEM + col_offset * 2)
+                qty_spin   = self._table.cellWidget(r, COL_ITEM + col_offset * 2 + 1)
                 if isinstance(price_spin, _QtySpinBox) and tmpl["id"] in p:
                     price_spin.setValue(p[tmpl["id"]])
                 if isinstance(qty_spin, _QtySpinBox) and tmpl["id"] in q:
