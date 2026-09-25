@@ -13,7 +13,7 @@ from app.services.project_service import (
     get_project_members, add_roster_entries, remove_member_from_project,
     set_project_members_cancelled,
     get_project_member, update_project_member_fields, EDITABLE_MEMBER_FIELDS,
-    get_project_by_id,
+    get_project_by_id, members_with_issuances,
 )
 
 COL_CHK = 0  # チェックボックス列
@@ -454,6 +454,24 @@ class ProjectMemberPanel(QWidget):
         if not ids:
             QMessageBox.information(self, "未選択",
                                     "削除する行をチェックしてください。")
+            return
+        # 発行済みの書類がある行は削除しない。1件でも含まれていれば全体を止める
+        # （一部だけ消えると、何が消えたか分かりにくいため）
+        session = get_session()
+        try:
+            issued = members_with_issuances(session, ids)
+        finally:
+            session.close()
+        if issued:
+            names = [pm.organization_name or pm.representative_name or f"ID {pm.id}"
+                     for pm in self._members if pm.id in set(issued)]
+            QMessageBox.warning(
+                self, "削除できません",
+                "次の行は請求書・領収書を発行済みのため、名簿から削除できません。\n"
+                "参加をやめた場合は「参加キャンセル」を使ってください"
+                "（発行済みの書類は履歴として残り、今後の発行と入金管理の対象から外れます）。\n\n"
+                + "\n".join(f"・{n}" for n in names[:10])
+                + (f"\n…ほか {len(names) - 10} 件" if len(names) > 10 else ""))
             return
         if QMessageBox.question(
                 self, "削除の確認",

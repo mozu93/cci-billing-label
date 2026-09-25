@@ -224,7 +224,24 @@ def update_project_member_fields(session: Session, project_member_id: int,
     return pm
 
 
+def members_with_issuances(session: Session, project_member_ids: list[int]) -> list[int]:
+    """発行済みの書類（請求書・領収書）がある名簿行のIDを返す（渡した順）。"""
+    if not project_member_ids:
+        return []
+    found = {pm_id for (pm_id,) in
+             session.query(Issuance.project_member_id)
+             .filter(Issuance.project_member_id.in_(project_member_ids))
+             .distinct()}
+    return [i for i in project_member_ids if i in found]
+
+
 def remove_member_from_project(session: Session, project_member_id: int) -> None:
+    """名簿行を削除する。発行済みの書類がある行は削除しない（ValueError）。
+
+    削除すると書類が存在しない行を指したままになり、PostgreSQL では外部キー制約で
+    削除自体が失敗する。参加をやめた人は「参加キャンセル」で対象から外す。"""
+    if members_with_issuances(session, [project_member_id]):
+        raise ValueError("発行済みの請求書・領収書がある名簿行は削除できません。")
     pm = session.get(ProjectMember, project_member_id)
     if pm:
         session.query(ProjectMemberItemSetting).filter_by(

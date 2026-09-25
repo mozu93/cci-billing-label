@@ -318,3 +318,32 @@ def test_invoice_issued_counts_members_with_receipt_too(db_session):
     assert progress["invoice_issued"] == 1
     assert progress["receipt_issued"] == 1
     assert progress["pending"] == 0
+
+
+def _roster_with_issuance(db_session):
+    from app.database.models import Issuance
+    p = create_project(db_session, "視察研修会", None, 2026, "list")
+    issued, plain = add_roster_entries(db_session, p.id, [
+        {"organization_name": "発行済み商店"}, {"organization_name": "未発行商店"}])
+    db_session.add(Issuance(project_id=p.id, project_member_id=issued.id,
+                            doc_type="invoice", doc_number="INV-2026-0001",
+                            status="発行済み", amount=10000))
+    db_session.commit()
+    return issued.id, plain.id
+
+
+def test_member_with_issuance_cannot_be_removed(db_session):
+    """発行済みの書類がある名簿行は削除しない（書類が存在しない行を指したままになるため）。"""
+    import pytest
+    from app.database.models import ProjectMember
+    issued_id, _ = _roster_with_issuance(db_session)
+    with pytest.raises(ValueError):
+        remove_member_from_project(db_session, issued_id)
+    assert db_session.get(ProjectMember, issued_id) is not None
+
+
+def test_members_with_issuances(db_session):
+    from app.services.project_service import members_with_issuances
+    issued_id, plain_id = _roster_with_issuance(db_session)
+    assert members_with_issuances(db_session, [issued_id, plain_id]) == [issued_id]
+    remove_member_from_project(db_session, plain_id)   # 発行のない行は削除できる

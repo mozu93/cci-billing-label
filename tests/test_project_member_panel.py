@@ -259,3 +259,54 @@ def test_roster_excel_export_writes_displayed_rows(qtbot, memory_db, monkeypatch
     assert len(rows) == 2                 # 見出し＋絞り込んだ1行
     assert rows[1][1] == "0001" and rows[1][2] == "○○商店"
     assert "a@example.invalid" in rows[1]
+
+
+def _panel_with_issued_row(qtbot):
+    from app.database.connection import get_session
+    from app.database.models import Issuance
+    from app.services.project_service import add_roster_entries, create_project
+    from app.ui.project_member_panel import ProjectMemberPanel
+    s = get_session()
+    pid = create_project(s, "視察研修会", None, 2026, "list").id
+    issued, plain = add_roster_entries(s, pid, [
+        {"organization_name": "発行済み商店"}, {"organization_name": "未発行商店"}])
+    s.add(Issuance(project_id=pid, project_member_id=issued.id, doc_type="invoice",
+                   doc_number="INV-2026-0001", status="発行済み", amount=10000))
+    s.commit()
+    ids = issued.id, plain.id
+    s.close()
+    panel = ProjectMemberPanel(pid)
+    qtbot.addWidget(panel)
+    return panel, ids
+
+
+def _check(panel, pm_ids):
+    from PyQt6.QtCore import Qt
+    for r in range(panel._table.rowCount()):
+        item = panel._table.item(r, 0)
+        if item.data(Qt.ItemDataRole.UserRole) in pm_ids:
+            item.setCheckState(Qt.CheckState.Checked)
+
+
+def test_delete_is_blocked_when_issued_rows_are_checked(qtbot, memory_db, monkeypatch):
+    """発行済みの行を含むと削除全体を止め、該当する事業所と参加キャンセルを案内する。"""
+    from PyQt6.QtWidgets import QMessageBox
+    panel, (issued_id, plain_id) = _panel_with_issued_row(qtbot)
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    _check(panel, {issued_id, plain_id})
+    panel._btn_del.click()
+    assert warned and "発行済み商店" in warned[0] and "参加キャンセル" in warned[0]
+    assert panel._table.rowCount() == 2          # 一部だけ消えることもない
+
+
+def test_rows_without_issuance_can_be_deleted(qtbot, memory_db, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+    panel, (_issued_id, plain_id) = _panel_with_issued_row(qtbot)
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    _check(panel, {plain_id})
+    panel._btn_del.click()
+    assert panel._table.rowCount() == 1
