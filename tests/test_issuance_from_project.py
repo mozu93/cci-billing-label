@@ -397,6 +397,8 @@ def test_issue_checked_skips_voided_invoice(qtbot, memory_db, monkeypatch):
     assert w._table.rowCount() == 1
     # 行をチェックして請求書を発行
     w._table.item(0, COL_CHK).setCheckState(Qt.CheckState.Checked)
+    # 発行方法・支払期日の確認ダイアログは「発行する」を押した扱いにする
+    monkeypatch.setattr(w, "_confirm_issue", lambda count: True)
     w._issue_checked()
 
     # 無効なので請求書は作られない

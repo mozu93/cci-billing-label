@@ -39,9 +39,8 @@ def test_settings_are_collapsed_to_summary(qtbot, memory_db):
     w = _make(qtbot)
     assert not w._settings_panel.isVisible()
     summary = _summary(w)
-    # 発行方法は前回の設定を復元するので、固定値ではなく現在値で確かめる
-    assert w._delivery_combo.currentText() in summary
-    assert w._due_date.date().toString("yyyy/MM/dd") in summary
+    # 発行方法と支払期日は発行時のダイアログで決めるので、要約には出さない
+    assert "発行元：" in summary
     assert "個別PDF" in summary
 
 
@@ -49,7 +48,7 @@ def test_change_button_opens_all_settings(qtbot, memory_db):
     w = _make(qtbot)
     w._btn_settings_toggle.click()
     assert w._settings_panel.isVisible()
-    for field in (w._delivery_combo, w._due_date, w._issuer_combo, w._bank_combo,
+    for field in (w._issuer_combo, w._bank_combo,
                   w._seal_combo, w._pdf_output_combo, w._window_envelope_chk,
                   w._show_person_chk):
         assert w._settings_panel.isAncestorOf(field)
@@ -60,10 +59,10 @@ def test_change_button_opens_all_settings(qtbot, memory_db):
 
 def test_summary_follows_changes(qtbot, memory_db):
     w = _make(qtbot)
-    w._delivery_combo.setCurrentText("メール送付")
+    w._pdf_output_combo.setCurrentIndex(w._pdf_output_combo.findData("merged"))
     w._window_envelope_chk.setChecked(True)
     summary = _summary(w)
-    assert "メール送付" in summary
+    assert "一括PDF＋個別PDF" in summary
     assert "窓あき封筒" in summary
 
 
@@ -83,9 +82,10 @@ def test_preview_and_issue_share_bottom_row(qtbot, memory_db):
     assert _x(w, preview) < _x(w, w._btn_issue)
 
 
-def test_receipt_summary_shows_issue_date(qtbot, memory_db):
+def test_receipt_summary_has_no_invoice_options(qtbot, memory_db):
+    """領収書には窓あき封筒などの請求書だけの設定がなく、発行日は発行時に聞く。"""
     w = _make(qtbot, doc_type="receipt")
-    assert "発行日" in _summary(w)
+    assert "発行日" not in _summary(w)
     assert not hasattr(w, "_window_envelope_chk")
     _button(w, "チェックした領収書をプレビュー")
 

@@ -17,6 +17,22 @@ def _no_update_check_network(monkeypatch):
     monkeypatch.setattr(updater, "check_latest_version", lambda: None)
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "real_mail_test_mode: テスト送信モードの設定を本来どおり読む")
+
+
+@pytest.fixture(autouse=True)
+def _mail_test_mode_off(request, monkeypatch):
+    """開発機でテスト送信モードをオンにしていても、テスト結果が変わらないようにする。
+
+    テスト送信モード自体のテストは real_mail_test_mode マーカーで本来の処理を使う。"""
+    if request.node.get_closest_marker("real_mail_test_mode"):
+        return
+    import app.utils.app_config as app_config
+    monkeypatch.setattr(app_config, "get_m365_test_mode", lambda: False)
+
+
 @pytest.fixture
 def db_session():
     engine = create_engine("sqlite:///:memory:")

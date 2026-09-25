@@ -174,13 +174,13 @@ class IssuanceFromProjectWidget(QWidget):
             self._window_envelope_chk = QCheckBox("窓あき封筒モード")
             self._show_person_chk = QCheckBox("役職名・氏名を印字")
             self._show_person_chk.setChecked(True)
-            date_label, date_edit = "支払期日：", self._due_date
+            date_edit = self._due_date
         else:
             today = date.today()
             self._issued_date = QDateEdit(QDate(today.year, today.month, today.day))
             self._issued_date.setCalendarPopup(True)
             self._issued_date.setDisplayFormat("yyyy/MM/dd")
-            date_label, date_edit = "発行日：", self._issued_date
+            date_edit = self._issued_date
 
         self._pdf_output_combo = QComboBox()
         self._pdf_output_combo.addItem(
@@ -213,7 +213,8 @@ class IssuanceFromProjectWidget(QWidget):
         head.addWidget(self._settings_summary, 1)
         self._btn_settings_toggle = QPushButton("▼ 変更")
         self._btn_settings_toggle.setToolTip(
-            "発行方法・日付・発行元・PDF出力などを変更します")
+            "発行元・口座・印鑑・PDF出力などを変更します"
+            "（発行方法と支払期日は「発行する」のときに確認します）")
         self._btn_settings_toggle.clicked.connect(self._toggle_settings_panel)
         head.addWidget(self._btn_settings_toggle, 0, Qt.AlignmentFlag.AlignTop)
         box_layout.addLayout(head)
@@ -229,29 +230,30 @@ class IssuanceFromProjectWidget(QWidget):
             lb.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             return lb
 
-        grid.addWidget(_lbl("発行方法："), 0, 0)
-        grid.addWidget(self._delivery_combo, 0, 1)
-        grid.addWidget(_lbl(date_label), 0, 2)
-        grid.addWidget(date_edit, 0, 3)
-        grid.addWidget(_lbl("発行元："), 1, 0)
-        grid.addWidget(self._issuer_combo, 1, 1)
-        grid.addWidget(_lbl("口座："), 1, 2)
-        grid.addWidget(self._bank_combo, 1, 3)
-        grid.addWidget(_lbl("印鑑："), 2, 0)
-        grid.addWidget(self._seal_combo, 2, 1)
-        grid.addWidget(_lbl("PDF出力："), 2, 2)
+        # 発行方法と支払期日（発行日）は発行のたびに「発行する」のダイアログで決める。
+        # 部品は発行処理が値を読むので残し、画面には出さない
+        for hidden in (self._delivery_combo, date_edit):
+            hidden.setParent(self)
+            hidden.setVisible(False)
+        grid.addWidget(_lbl("発行元："), 0, 0)
+        grid.addWidget(self._issuer_combo, 0, 1)
+        grid.addWidget(_lbl("口座："), 0, 2)
+        grid.addWidget(self._bank_combo, 0, 3)
+        grid.addWidget(_lbl("印鑑："), 1, 0)
+        grid.addWidget(self._seal_combo, 1, 1)
+        grid.addWidget(_lbl("PDF出力："), 1, 2)
         pdf_row = QHBoxLayout()
         pdf_row.setSpacing(6)
         pdf_row.addWidget(self._pdf_output_combo, 1)
         pdf_row.addWidget(btn_filename)
-        grid.addLayout(pdf_row, 2, 3)
+        grid.addLayout(pdf_row, 1, 3)
         if self._doc_type == "invoice":
             opts = QHBoxLayout()
             opts.addWidget(self._window_envelope_chk)
             opts.addSpacing(12)
             opts.addWidget(self._show_person_chk)
             opts.addStretch()
-            grid.addLayout(opts, 3, 1, 1, 3)
+            grid.addLayout(opts, 2, 1, 1, 3)
         grid.setColumnStretch(4, 1)
         self._settings_panel.setVisible(False)
         box_layout.addWidget(self._settings_panel)
@@ -259,10 +261,9 @@ class IssuanceFromProjectWidget(QWidget):
         self._reload_issuers()
 
         # 設定を変えたら要約を更新する
-        for combo in (self._delivery_combo, self._issuer_combo, self._bank_combo,
+        for combo in (self._issuer_combo, self._bank_combo,
                       self._seal_combo, self._pdf_output_combo):
             combo.currentIndexChanged.connect(self._update_settings_summary)
-        date_edit.dateChanged.connect(self._update_settings_summary)
         if self._doc_type == "invoice":
             self._window_envelope_chk.toggled.connect(self._update_settings_summary)
             self._show_person_chk.toggled.connect(self._update_settings_summary)
@@ -347,12 +348,7 @@ class IssuanceFromProjectWidget(QWidget):
         def _name(combo):
             return combo.currentText().replace("★", "").strip() or "（なし）"
 
-        parts = [self._delivery_combo.currentText()]
-        if self._doc_type == "invoice":
-            parts.append(f"支払期日 {self._due_date.date().toString('yyyy/MM/dd')}")
-        else:
-            parts.append(f"発行日 {self._issued_date.date().toString('yyyy/MM/dd')}")
-        parts.append(f"発行元：{_name(self._issuer_combo)}")
+        parts = [f"発行元：{_name(self._issuer_combo)}"]
         parts.append(f"口座：{_name(self._bank_combo)}")
         parts.append(f"印鑑：{_name(self._seal_combo)}")
         parts.append("個別PDF" if self._pdf_output_combo.currentData() == "individual"
@@ -565,6 +561,11 @@ class IssuanceFromProjectWidget(QWidget):
                     }
                     for pt in pts
                 ]
+                # その名簿で前回使った支払期日を、プレビューと発行ダイアログの初期値にする
+                proj = get_project_by_id(session, project_id)
+                if self._doc_type == "invoice" and proj and proj.due_date:
+                    d = proj.due_date
+                    self._due_date.setDate(QDate(d.year, d.month, d.day))
             finally:
                 session.close()
         for btn in (self._btn_issue, self._btn_preview,
@@ -1576,11 +1577,44 @@ class IssuanceFromProjectWidget(QWidget):
             QMessageBox.information(self, "メール送信", msg)
         return reverted
 
+    def _confirm_issue(self, count: int) -> bool:
+        """発行方法と支払期日（領収書は発行日）をダイアログで確かめる。
+
+        支払期日の初期値は、その名簿で前回使った支払期日（なければ今の値＝翌月末）。
+        キャンセルなら False（何もしない）。"""
+        from PyQt6.QtWidgets import QDialog
+        from app.ui import batch_issue_confirm_dialog
+        if self._doc_type == "invoice":
+            doc_date = self._due_date.date().toPyDate()
+            project_id = self._proj_combo.currentData()
+            if project_id is not None:
+                session = get_session()
+                try:
+                    proj = get_project_by_id(session, project_id)
+                    if proj and proj.due_date:
+                        doc_date = proj.due_date
+                finally:
+                    session.close()
+        else:
+            doc_date = date.today()
+        dlg = batch_issue_confirm_dialog.BatchIssueConfirmDialog(
+            self, count=count, doc_type=self._doc_type,
+            delivery=self._delivery_combo.currentText(), doc_date=doc_date)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return False
+        self._delivery_combo.setCurrentText(dlg.delivery())
+        chosen = dlg.doc_date()
+        target = self._due_date if self._doc_type == "invoice" else self._issued_date
+        target.setDate(QDate(chosen.year, chosen.month, chosen.day))
+        return True
+
     def _issue_checked(self):
         targets = self._checked_rows()
         if not targets:
             QMessageBox.information(self, "未選択",
                                     "発行する行のチェックボックスにチェックを入れてください。")
+            return
+        if not self._confirm_issue(len(targets)):
             return
         errors, notify_items = self._do_issue_rows(targets)
         if errors:
@@ -1605,6 +1639,8 @@ class IssuanceFromProjectWidget(QWidget):
             data_item = self._table.item(r, COL_ORG)
             if data_item:
                 all_rows.append((r, data_item.data(Qt.ItemDataRole.UserRole)))
+        if not self._confirm_issue(len(all_rows)):
+            return
         errors, notify_items = self._do_issue_rows(all_rows)
         if errors:
             QMessageBox.critical(self, "PDF生成エラー", "\n".join(errors))

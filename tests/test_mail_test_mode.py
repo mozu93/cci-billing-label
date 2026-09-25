@@ -6,6 +6,9 @@
 """
 import pytest
 
+# このファイルではテスト送信モードの設定を本来どおり読む（conftest の強制オフを外す）
+pytestmark = pytest.mark.real_mail_test_mode
+
 
 @pytest.fixture
 def cfg(monkeypatch):
