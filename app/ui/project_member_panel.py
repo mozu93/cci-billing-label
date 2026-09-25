@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from app.database.connection import get_session
 from app.database.models import ProjectMember
+from app.services.category_service import get_category_names
 from app.services.project_service import (
     get_project_members, add_roster_entries, remove_member_from_project,
     set_project_members_cancelled,
@@ -158,14 +159,16 @@ class ProjectMemberPanel(QWidget):
     def _build(self):
         layout = QVBoxLayout(self)
         heading_row = QHBoxLayout()
-        # どの件名の名簿かを見出しで示す（上の件名の一覧と区別する）
+        # どの名簿かを「業務名　件名」の見出しで示す（同じ件名でも業務名で見分けられる）
         session = get_session()
         try:
             proj = get_project_by_id(session, self._project_id)
             proj_name = proj.name if proj else ""
+            cat_name = (get_category_names(session).get(proj.category_id, "")
+                        if proj and proj.category_id else "")
         finally:
             session.close()
-        title = QLabel(f"名簿：{proj_name}")
+        title = QLabel("名簿：" + "　".join(x for x in (cat_name, proj_name) if x))
         title.setStyleSheet("font-weight: bold; color: #1D4ED8;")
         heading_row.addWidget(title)
         heading_row.addSpacing(16)

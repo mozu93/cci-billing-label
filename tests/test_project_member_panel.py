@@ -204,3 +204,26 @@ def test_panel_buttons_fit_780px_without_truncation(qtbot, memory_db):
         assert b.width() >= b.sizeHint().width(), f"「{text}」が縮められている"
         assert b.mapTo(panel, b.rect().topRight()).x() < 780, f"「{text}」がはみ出した"
         assert b.toolTip(), f"「{text}」に説明がない"
+
+
+def test_panel_title_shows_business_and_project_name(qtbot, memory_db):
+    """見出しは「名簿：業務名　件名」。同じ件名の名簿を業務名で見分けられる。"""
+    from PyQt6.QtWidgets import QLabel
+    from app.database.connection import get_session
+    from app.services.category_service import create_category
+    from app.services.project_service import create_project
+    from app.ui.project_member_panel import ProjectMemberPanel
+    s = get_session()
+    cat = create_category(s, "不動産部会")
+    with_cat = create_project(s, "視察研修会", cat.id, 2026, "list").id
+    no_cat = create_project(s, "新年会", None, 2026, "list").id
+    s.close()
+
+    def _title(pid):
+        panel = ProjectMemberPanel(pid)
+        qtbot.addWidget(panel)
+        return next(lb.text() for lb in panel.findChildren(QLabel)
+                    if lb.text().startswith("名簿："))
+
+    assert _title(with_cat) == "名簿：不動産部会　視察研修会"
+    assert _title(no_cat) == "名簿：新年会"
