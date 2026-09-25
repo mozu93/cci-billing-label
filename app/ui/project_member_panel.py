@@ -2,7 +2,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QLabel, QHeaderView, QMessageBox, QDialog,
-    QFormLayout, QLineEdit, QComboBox,
+    QFormLayout, QLineEdit,
     QDialogButtonBox, QStyledItemDelegate, QCheckBox
 )
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
@@ -10,7 +10,7 @@ from app.database.connection import get_session
 from app.database.models import ProjectMember
 from app.services.project_service import (
     get_project_members, add_roster_entries, remove_member_from_project,
-    copy_roster_from_project, get_projects, set_project_members_cancelled,
+    set_project_members_cancelled,
     get_project_member, update_project_member_fields, EDITABLE_MEMBER_FIELDS,
     get_project_by_id,
 )
@@ -144,47 +144,6 @@ class RosterEntryDialog(QDialog):
         return {key: self._fields[key].text() for key, _ in self.FIELDS}
 
 
-class ProjectCopyDialog(QDialog):
-    """他の名簿からコピーするダイアログ"""
-
-    def __init__(self, current_project_id: int, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("他の名簿からコピー")
-        self.resize(360, 120)
-        self._selected_id: int | None = None
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("コピー元の名簿を選択してください："))
-
-        self._combo = QComboBox()
-        session = get_session()
-        try:
-            projects = get_projects(session)
-        finally:
-            session.close()
-        for p in projects:
-            if p.id == current_project_id:
-                continue
-            label = f"{p.fiscal_year}年度 {p.name}"
-            self._combo.addItem(label, p.id)
-        layout.addWidget(self._combo)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        ok_btn.setText("コピー")
-        cancel_btn = buttons.button(QDialogButtonBox.StandardButton.Cancel)
-        cancel_btn.setText("キャンセル")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def selected_project_id(self) -> int | None:
-        return self._combo.currentData()
-
-
 class ProjectMemberPanel(QWidget):
     #: 名簿の件数が変わったときに発火（一覧側の集計を更新するため）
     roster_changed = pyqtSignal()
@@ -234,9 +193,6 @@ class ProjectMemberPanel(QWidget):
             "Excelファイルや貼り付けたデータを、いまの名簿を消さずに追加します。\n"
             "すでに名簿にある行は重複としてスキップできます。",
             self._open_import)
-        btn_copy = _btn("他名簿から追加",
-                        "ほかの名簿の行を、この名簿にコピーして追加します。",
-                        self._copy_from_project)
         btn_edit = _btn("編集", "選んだ行の内容を編集します（行のダブルクリックでも開けます）。",
                         self._edit_entry)
         btn_cancel = _btn("参加キャンセル",
@@ -249,7 +205,7 @@ class ProjectMemberPanel(QWidget):
                              self._remove_checked)
 
         btn_row = QHBoxLayout()
-        for b in (btn_add, btn_import, btn_copy):
+        for b in (btn_add, btn_import):
             btn_row.addWidget(b)
         btn_row.addStretch()
         for b in (btn_edit, btn_cancel, btn_restore, self._btn_del):
@@ -452,20 +408,6 @@ class ProjectMemberPanel(QWidget):
         finally:
             session.close()
         self._load()
-
-    def _copy_from_project(self):
-        dlg = ProjectCopyDialog(self._project_id, self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            src_id = dlg.selected_project_id()
-            if src_id is None:
-                return
-            session = get_session()
-            try:
-                copy_roster_from_project(session, src_id, self._project_id)
-            finally:
-                session.close()
-            self._load()
-            self.roster_changed.emit()
 
     def _open_import(self):
         """いまの名簿を残したまま、Excel／貼り付けから行を追加する。"""

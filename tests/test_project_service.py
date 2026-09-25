@@ -5,7 +5,6 @@ from app.services.project_service import (
     create_project, get_projects,
     add_template_to_project, add_roster_entries,
     get_project_members, get_project_progress, remove_member_from_project,
-    copy_roster_from_project,
     save_member_item_setting, get_member_item_settings,
 )
 
@@ -118,22 +117,6 @@ def test_add_roster_entries_and_get(db_session):
     assert [p.organization_name for p in pms] == ["○○商事", "△△産業"]
     assert pms[1].email == "suzuki@example.com"
     assert pms[0].sort_order == 0 and pms[1].sort_order == 1
-
-
-def test_copy_roster_from_project_snapshot(db_session):
-    src = _mk_project(db_session, "2025 青年部")
-    add_roster_entries(db_session, src.id, [
-        {"organization_name": "○○商事", "representative_name": "田中"},
-    ])
-    dst = _mk_project(db_session, "2026 青年部")
-    copy_roster_from_project(db_session, src.id, dst.id)
-    dst_pms = get_project_members(db_session, dst.id)
-    assert len(dst_pms) == 1
-    assert dst_pms[0].organization_name == "○○商事"
-    dst_pms[0].organization_name = "改名"
-    db_session.commit()
-    src_pms = get_project_members(db_session, src.id)
-    assert src_pms[0].organization_name == "○○商事"
 
 
 def test_get_project_progress(db_session):

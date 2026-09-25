@@ -34,7 +34,9 @@ def test_panel_has_add_and_copy_buttons(qtbot, memory_db):
     qtbot.addWidget(panel)
     texts = _button_texts(panel)
     assert "1件追加" in texts
-    assert "他名簿から追加" in texts
+    # 他の名簿からのコピーは分かりにくく使われていないため廃止
+    assert "他名簿から追加" not in texts
+    assert "他の名簿からコピー" not in texts
 
 
 def test_member_panel_has_registration_date_column(qtbot, memory_db):
@@ -196,7 +198,7 @@ def test_panel_buttons_fit_780px_without_truncation(qtbot, memory_db):
     panel.resize(780, 500)
     panel.show()
     qtbot.waitExposed(panel)
-    for text in ("1件追加", "Excel・貼付で追加", "他名簿から追加", "編集",
+    for text in ("1件追加", "Excel・貼付で追加", "編集",
                  "参加キャンセル", "キャンセル解除", "削除"):
         b = next(x for x in panel.findChildren(QPushButton) if x.text() == text)
         assert b.width() >= b.sizeHint().width(), f"「{text}」が縮められている"

@@ -183,27 +183,6 @@ def add_roster_entries(session: Session, project_id: int,
     return pms
 
 
-def copy_roster_from_project(session: Session, src_project_id: int,
-                             dst_project_id: int) -> list[ProjectMember]:
-    src = get_project_members(session, src_project_id)
-    entries = [{
-        "roster_no": p.roster_no,
-        "member_number": p.member_number,
-        "organization_name": p.organization_name,
-        "organization_kana": p.organization_kana,
-        "representative_name": p.representative_name,
-        "representative_kana": p.representative_kana,
-        "department": p.department,
-        "postal_code": p.postal_code,
-        "address": p.address,
-        "address2": p.address2,
-        "phone": p.phone,
-        "email": p.email,
-        "notes": p.notes,
-    } for p in src]
-    return add_roster_entries(session, dst_project_id, entries)
-
-
 def get_project_members(session: Session, project_id: int,
                         newest_first: bool = False) -> list[ProjectMember]:
     q = session.query(ProjectMember).filter_by(project_id=project_id)
