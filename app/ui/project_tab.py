@@ -87,7 +87,7 @@ class ProjectTab(QWidget):
         top_layout = QVBoxLayout(top_area)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(4)
-        top_title = QLabel("件名の一覧（発行・入金の状況）")
+        top_title = QLabel("ダッシュボード（発行・入金の状況）")
         top_title.setStyleSheet("font-weight: bold; color: #1D4ED8;")
         top_layout.addWidget(top_title)
         top_layout.addWidget(self._table)

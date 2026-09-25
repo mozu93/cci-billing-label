@@ -183,12 +183,12 @@ def test_roster_shows_right_after_import_on_create(qtbot, memory_db, monkeypatch
 
 
 def test_top_area_has_title(qtbot, memory_db):
-    """上のエリア（件名の一覧）にも見出しを付け、下の名簿と区別する。"""
+    """上のエリア（件名ごとの集計）にも見出しを付け、下の名簿と区別する。"""
     from PyQt6.QtWidgets import QLabel
     from app.ui.project_tab import ProjectTab
     w = ProjectTab()
     qtbot.addWidget(w)
-    assert "件名の一覧（発行・入金の状況）" in [lb.text() for lb in w.findChildren(QLabel)]
+    assert "ダッシュボード（発行・入金の状況）" in [lb.text() for lb in w.findChildren(QLabel)]
 
 
 def test_title_column_stays_readable_when_narrow(qtbot, memory_db):
