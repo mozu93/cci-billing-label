@@ -128,3 +128,55 @@ def test_export_buttons_share_the_year_row(qtbot, memory_db):
         b = buttons[text]
         assert abs(b.mapTo(w, b.rect().center()).y() - row_y) <= 2, text
         assert b.mapTo(w, b.rect().topRight()).x() < 780, text
+
+
+def test_roster_shows_right_after_import_on_create(qtbot, memory_db, monkeypatch):
+    """「保存して名簿を取り込む」で取り込んだ名簿が、その場で一覧・名簿に表示される。
+
+    以前は取り込み前に選んだ行を選び直すだけで、選択が変わらないため
+    名簿の表示と件数が更新されず、取り込めたのか分からなかった。
+    """
+    from PyQt6.QtWidgets import QDialog
+    import app.ui.project_tab as project_tab
+    import app.ui.roster_import as roster_import
+    from app.database.connection import get_session
+    from app.services.issuance_service import fiscal_year_of
+    from app.services.project_service import add_roster_entries, create_project
+    from app.ui.project_member_panel import ProjectMemberPanel
+    from datetime import date
+
+    year = fiscal_year_of(date.today())
+
+    class _FakeForm:
+        def __init__(self, parent=None, **kwargs):
+            s = get_session()
+            self.created_project_id = create_project(s, "新しい名簿", None, year, "list").id
+            s.close()
+            self.saved_fiscal_year = year
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    class _FakeImport:
+        def __init__(self, project_id, parent=None):
+            self._pid = project_id
+
+        def exec(self):
+            s = get_session()
+            add_roster_entries(s, self._pid, [{"organization_name": "○○商店"},
+                                              {"organization_name": "△△工業"}])
+            s.close()
+            return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(project_tab, "ProjectFormDialog", _FakeForm)
+    monkeypatch.setattr(roster_import, "RosterImportDialog", _FakeImport)
+    w = project_tab.ProjectTab()
+    qtbot.addWidget(w)
+    w._add()
+
+    assert w._table.item(w._table.currentRow(), 2).text() == "2"   # 全件
+    # 作り直す前の名簿欄は deleteLater で片付くので、片付けてから確かめる
+    from PyQt6.QtCore import QCoreApplication, QEvent
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    panels = w.findChildren(ProjectMemberPanel)
+    assert len(panels) == 1 and panels[0]._table.rowCount() == 2

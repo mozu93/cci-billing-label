@@ -234,13 +234,20 @@ class ProjectTab(QWidget):
                 from app.ui.roster_import import RosterImportDialog
                 import_dlg = RosterImportDialog(dlg.created_project_id, self)
                 if import_dlg.exec() == QDialog.DialogCode.Accepted:
+                    # 取り込んだ名簿を一覧の件数と名簿欄にすぐ反映する
+                    self._refresh_project_row(dlg.created_project_id)
                     self._select_project(dlg.created_project_id)
 
     def _select_project(self, project_id: int):
         for row in range(self._table.rowCount()):
             item = self._table.item(row, 0)
             if item and item.data(Qt.ItemDataRole.UserRole) == project_id:
-                self._table.setCurrentCell(row, 0)
+                if row == self._table.currentRow():
+                    # 同じ行を選び直しても選択変更が起きず名簿欄が更新されないため、
+                    # 明示的に読み直す（取り込み直後に名簿が空のままに見えていた）
+                    self._on_select(row)
+                else:
+                    self._table.setCurrentCell(row, 0)
                 return
 
     def _edit(self):
