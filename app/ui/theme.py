@@ -98,6 +98,15 @@ QLineEdit, QComboBox, QDateEdit, QTextEdit, QPlainTextEdit, QSpinBox {{
     padding: 4px 6px; background: {SURFACE}; color: {TEXT};
     font-size: {SIZE_BODY}px;
 }}
+/* 候補一覧は入力欄の下に普通の一覧として開く。Fusion の「現在の項目に重ねて
+   開く」方式は、入力欄にかぶさるうえ、行の高さの計算がスタイルとずれて候補が
+   切れていた（2件に54px必要なところ42pxしかなかった） */
+QComboBox {{ combobox-popup: 0; }}
+QComboBox QAbstractItemView {{
+    border: 1px solid {BORDER_STRONG}; background: {SURFACE}; outline: 0;
+    selection-background-color: #DBEAFE; selection-color: {TEXT};
+}}
+QComboBox QAbstractItemView::item {{ min-height: 26px; padding: 2px 8px; }}
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus,
 QTextEdit:focus, QPlainTextEdit:focus, QSpinBox:focus {{
     border: 1px solid {PRIMARY};
