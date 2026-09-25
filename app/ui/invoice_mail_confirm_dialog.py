@@ -45,9 +45,15 @@ class InvoiceMailConfirmDialog(QDialog):
         amount_text: str = "",
         template_kind: str = "",
         template_context: dict[str, str] | None = None,
+        bulk_count: int = 0,
     ):
         super().__init__(parent)
-        self.setWindowTitle("請求書メール送信確認")
+        # bulk_count>0：まとめて発行の一括送信。1件目を見本に1回だけ確認し、
+        # ここで直した件名・本文のテンプレートを各書類に差し込んで送る
+        self._bulk_count = bulk_count
+        self.setWindowTitle(
+            f"メール一括送信の確認（{bulk_count} 件）" if bulk_count
+            else "請求書メール送信確認")
         # 1366x768 のノートPCでは有効高さが約728pxしかない。固定で 1180x800 を
         # 指定していたため下部が画面外に出て、送信ボタンに手が届かなかった。
         _screen = QApplication.primaryScreen()
@@ -104,6 +110,15 @@ class InvoiceMailConfirmDialog(QDialog):
         address_form.addRow(
             "送信者（M365）", _label(sender or "サインイン中のユーザー"))
         address_form.addRow("宛先", self._to_edit)
+        if bulk_count:
+            # 一括送信では宛先は各事業所のアドレス。見本の宛先を直しても意味がない
+            self._to_edit.setReadOnly(True)
+            note = _label(
+                f"この内容で {bulk_count} 件に一括送信します。宛先は各事業所のメール"
+                "アドレスになります（ここに表示しているのは1件目の見本です）。"
+                "件名・本文のタグは1件ずつ置き換わり、CC・BCC は全件に付きます。")
+            note.setStyleSheet("color: #B45309; font-weight: bold;")
+            address_form.addRow("", note)
         address_form.addRow("CC", self._cc_edit)
         address_form.addRow("BCC", self._bcc_edit)
 
@@ -378,6 +393,10 @@ class InvoiceMailConfirmDialog(QDialog):
             QMessageBox.warning(self, "入力エラー", "本文を入力してください。")
             return
 
+        if self._bulk_count:
+            # 一括送信の最終確認は、件数を示して呼び出し元で1回だけ行う
+            self.accept()
+            return
         answer = QMessageBox.question(
             self,
             "メール送信確認",

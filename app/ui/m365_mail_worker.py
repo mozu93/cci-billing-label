@@ -74,7 +74,8 @@ class M365ReminderBatchWorker(QObject):
                  sender_address: str | None = None,
                  parent=None):
         """items: [{"to": str, "subject": str, "body_html": str,
-                    "pdf_path": str|None, "doc_number": str}, ...]"""
+                    "pdf_path": str|None, "doc_number": str,
+                    "cc": list[str]（任意）, "bcc": list[str]（任意）}, ...]"""
         super().__init__(parent)
         self._client_id = client_id
         self._tenant_id = tenant_id
@@ -125,6 +126,8 @@ class M365ReminderBatchWorker(QObject):
                     subject=item["subject"],
                     body_html=item["body_html"],
                     pdf_path=item.get("pdf_path"),
+                    cc_recipients=item.get("cc") or None,
+                    bcc_recipients=item.get("bcc") or None,
                 )
                 sent += 1
                 consecutive_errors = 0

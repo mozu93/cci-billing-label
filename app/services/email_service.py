@@ -330,7 +330,14 @@ def _body_to_html(body: str) -> str:
     )
 
 
-TEST_MAIL_NOTE = "※これはテスト送信です。請求書は発行されていません。"
+def render_issuance_email(context: dict[str, str], subject_template: str,
+                          body_template: str) -> tuple[str, str]:
+    """タグ付きの件名・本文テンプレートに差し込んで (件名, 本文HTML) を返す。"""
+    return (render_email_template(subject_template, context),
+            _body_to_html(render_email_template(body_template, context)))
+
+
+TEST_MAIL_NOTE ="※これはテスト送信です。請求書は発行されていません。"
 
 
 def build_test_issuance_email(session, issuance, project_name: str = ""

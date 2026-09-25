@@ -1429,28 +1429,36 @@ class IssuanceFromProjectWidget(QWidget):
         return errors, notify_items
 
     def _send_issue_emails(self, issued_issuances: list, errors: list[str]) -> list[str]:
-        """発行方法「メール送付」で発行した分のPDFを1件ずつ確認してM365で送信する。
+        """発行方法「メール送付」で発行した分を、確認1回で一括送信する。
 
         issued_issuances は (書類, セッション, 以前から発行済みだったか) の一覧。
-        キャンセルしたら残りもまとめて中止できる（66件を1件ずつ閉じずに済む）。
-        送らなかった書類のうち、今回はじめて発行済みにしたものは「準備中」に戻す
-        （番号はそのまま。次に発行するときに使われる）。戻した番号を返す。
+        1件目を見本に送信確認画面を1回だけ出し、そこで直した件名・本文のテンプレートを
+        各書類に差し込んで送る（以前は1件ずつ確認画面と最終確認が出ていた）。
+        送らなかった書類（宛先なし・キャンセル・中止・失敗）のうち、今回はじめて
+        発行済みにしたものは「準備中」に戻す。戻した番号を返す。
         """
         from PyQt6.QtCore import QThread
         from PyQt6.QtWidgets import QApplication, QDialog
-        from app.services.email_service import (
-            get_issuance_email_context,
-            prepare_issuance_email,
-        )
+        from app.services import email_service
         from app.services.issuance_service import revert_to_prepared
         from app.services.operation_log_service import add_log
-        from app.ui.invoice_mail_confirm_dialog import InvoiceMailConfirmDialog
-        from app.ui.m365_mail_worker import M365MailWorker
+        from app.ui import invoice_mail_confirm_dialog, m365_mail_worker
         from app.utils.app_config import get_m365_client_id, get_m365_tenant_id
         label = "請求書" if self._doc_type == "invoice" else "領収書"
 
-        not_sent: list = []
-        sent = 0
+        def _finish(sent: int, not_sent: list) -> list[str]:
+            reverted: list[str] = []
+            for iss, sess, was_issued in not_sent:
+                if not was_issued:
+                    revert_to_prepared(sess, iss)
+                    reverted.append(iss.doc_number)
+            msg = f"{sent} 件のメールを送信しました。"
+            if reverted:
+                msg += (f"\n送信しなかった {len(reverted)} 件は「準備中」に戻しました"
+                        "（番号はそのままで、次に発行するときに使われます）。")
+            QMessageBox.information(self, "メール送信", msg)
+            return reverted
+
         client_id = get_m365_client_id()
         tenant_id = get_m365_tenant_id()
         if not client_id or not tenant_id:
@@ -1458,124 +1466,105 @@ class IssuanceFromProjectWidget(QWidget):
                 self, "設定エラー",
                 "Microsoft 365 の Client ID / Tenant ID が設定されていません。\n"
                 "設定 → メール送信設定から入力してください。")
-            not_sent = list(issued_issuances)
-        else:
-            abort_rest = False
-            for idx, item in enumerate(issued_issuances):
-                iss, sess, _was_issued = item
-                if abort_rest:
-                    not_sent.append(item)
-                    continue
-                email = ""
-                if iss.project_member_id:
-                    pm = get_project_member(sess, iss.project_member_id)
-                    email = (pm.email or "").strip() if pm else ""
+            return _finish(0, list(issued_issuances))
 
-                try:
-                    to_addr, subject, body_html, pdf_path = prepare_issuance_email(
-                        sess, iss, to_addr=email or None)
-                except Exception as prep_err:
-                    errors.append(f"メール準備失敗：{prep_err}")
-                    add_log(sess, "メール送信失敗", "issuance", iss.id,
-                            f"{label} {iss.doc_number}：{prep_err}")
-                    not_sent.append(item)
-                    continue
+        # 宛先とPDFを用意する。宛先のない書類はこの時点で送信対象から外す
+        sendable: list = []     # (item, to_addr, pdf_path)
+        not_sent: list = []
+        for item in issued_issuances:
+            iss, sess, _was_issued = item
+            email = ""
+            if iss.project_member_id:
+                pm = get_project_member(sess, iss.project_member_id)
+                email = (pm.email or "").strip() if pm else ""
+            try:
+                to_addr, _s, _b, pdf_path = email_service.prepare_issuance_email(
+                    sess, iss, to_addr=email or None)
+            except Exception as prep_err:
+                errors.append(f"メール準備失敗：{prep_err}")
+                add_log(sess, "メール送信失敗", "issuance", iss.id,
+                        f"{label} {iss.doc_number}：{prep_err}")
+                not_sent.append(item)
+                continue
+            sendable.append((item, to_addr, pdf_path))
+        if not sendable:
+            return _finish(0, not_sent)
 
-                dlg = InvoiceMailConfirmDialog(
-                    self,
-                    to_recipients=[to_addr],
-                    subject=subject,
-                    body_html=body_html,
-                    pdf_path=pdf_path,
-                    invoice_no=iss.doc_number,
-                    customer_name=(iss.recipient_organization
-                                   or iss.recipient_name or ""),
-                    amount_text=f"¥{iss.amount:,}" if iss.amount else "",
-                    template_kind=iss.doc_type,
-                    template_context=get_issuance_email_context(sess, iss),
-                )
-                if dlg.exec() != QDialog.DialogCode.Accepted:
-                    not_sent.append(item)
-                    remaining = len(issued_issuances) - idx - 1
-                    if remaining and QMessageBox.question(
-                            self, "送信の中止",
-                            f"この1件の送信をやめました。\n"
-                            f"残り {remaining} 件もすべて送信をやめますか？\n\n"
-                            "「いいえ」で次の1件の確認に進みます。"
-                    ) == QMessageBox.StandardButton.Yes:
-                        abort_rest = True
-                    continue
+        # 1件目を見本に、送信確認画面を1回だけ出す
+        (first, first_sess, _), first_to, first_pdf = sendable[0]
+        dlg = invoice_mail_confirm_dialog.InvoiceMailConfirmDialog(
+            self,
+            to_recipients=[first_to],
+            pdf_path=first_pdf,
+            invoice_no=first.doc_number,
+            customer_name=first.recipient_organization or first.recipient_name or "",
+            amount_text=f"¥{first.amount:,}" if first.amount else "",
+            template_kind=first.doc_type,
+            template_context=email_service.get_issuance_email_context(first_sess, first),
+            bulk_count=len(sendable),
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return _finish(0, not_sent + [s[0] for s in sendable])
+        skipped = f"（メールアドレスがない {len(not_sent)} 件は送りません）" if not_sent else ""
+        if QMessageBox.question(
+                self, "一括送信の確認",
+                f"{len(sendable)} 件に{label}のメールを送信します{skipped}。\n"
+                "よろしいですか？"
+        ) != QMessageBox.StandardButton.Yes:
+            return _finish(0, not_sent + [s[0] for s in sendable])
 
-                to_recipients = dlg.to_recipients()
-                cc_recipients = dlg.cc_recipients()
-                bcc_recipients = dlg.bcc_recipients()
-                to_addr = to_recipients[0]
-                subject = dlg.subject()
-                body_html = dlg.body_html()
+        subject_t, body_t = dlg.template_subject(), dlg.template_body()
+        cc, bcc = dlg.cc_recipients(), dlg.bcc_recipients()
+        mails = []
+        for (iss, sess, _), to_addr, pdf_path in sendable:
+            subject, body_html = email_service.render_issuance_email(
+                email_service.get_issuance_email_context(sess, iss), subject_t, body_t)
+            mails.append({"to": to_addr, "subject": subject, "body_html": body_html,
+                          "pdf_path": pdf_path, "doc_number": iss.doc_number,
+                          "cc": cc, "bcc": bcc, "iss_id": iss.id})
+
+        # 進み具合を表示しながら一括送信（「中止」で止められる）
+        thread = QThread(self)
+        worker = m365_mail_worker.M365ReminderBatchWorker(client_id, tenant_id, mails)
+        worker.moveToThread(thread)
+        progress = QProgressDialog(
+            f"{label}のメールを送信中…", "送信を中止", 0, len(mails), self)
+        progress.setWindowTitle("メール一括送信")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        worker.progress.connect(lambda cur, _tot: progress.setValue(cur))
+        progress.canceled.connect(worker.cancel)
+        worker.done.connect(lambda _sent, errs: (errors.extend(errs), thread.quit()))
+        thread.started.connect(worker.run)
+        thread.start()
+        # 待ち画面（WindowModal）の間はメイン画面を閉じられないので、
+        # スレッドが動作中に破棄されることはない
+        while thread.isRunning():
+            QApplication.processEvents()
+        progress.setValue(len(mails))
+        thread.deleteLater()
+
+        # 結果を書類に反映する。送れなかった分（失敗・中止で未送信）は準備中に戻す
+        from datetime import datetime
+        succeeded = {r["item"]["iss_id"] for r in worker.results if r["success"]}
+        sent = 0
+        for (iss, sess, was_issued), to_addr, _pdf in sendable:
+            if iss.id in succeeded:
+                mail = next(m for m in mails if m["iss_id"] == iss.id)
                 iss.recipient_email = to_addr
+                iss.mail_subject = mail["subject"]
+                iss.mail_sent_at = datetime.now()
+                iss.mail_delivery_status = "pending"
+                iss.mail_delivery_message = "Microsoft 365の配信結果を確認してください。"
+                iss.mail_delivery_checked_at = None
                 sess.commit()
-
-                thread = QThread(self)
-                worker = M365MailWorker(
-                    client_id, tenant_id, to_recipients,
-                    subject, body_html, pdf_path,
-                    cc_recipients=cc_recipients,
-                    bcc_recipients=bcc_recipients,
-                )
-                worker.moveToThread(thread)
-                prog = QProgressDialog(
-                    f"送信中（{iss.doc_number}）…", None, 0, 0, self)
-                prog.setWindowTitle("メール送信")
-                prog.setWindowModality(Qt.WindowModality.WindowModal)
-                prog.show()
-                _result: dict = {}
-                def _on_done(r, _r=_result, _t=thread):
-                    _r["ok"] = r
-                    _t.quit()
-                def _on_err(msg, _r=_result, _t=thread):
-                    _r["err"] = msg
-                    _t.quit()
-                worker.finished.connect(_on_done)
-                worker.failed.connect(_on_err)
-                thread.started.connect(worker.run)
-                thread.finished.connect(prog.close)
-                thread.finished.connect(thread.deleteLater)
-                thread.start()
-                while thread.isRunning():
-                    QApplication.processEvents()
-
-                if "ok" in _result:
-                    from datetime import datetime
-                    iss.mail_subject = subject
-                    iss.mail_sent_at = datetime.now()
-                    iss.mail_delivery_status = "pending"
-                    iss.mail_delivery_message = "Microsoft 365の配信結果を確認してください。"
-                    iss.mail_delivery_checked_at = None
-                    sess.commit()
-                    sent += 1
-                    add_log(sess, "メール送信", "issuance", iss.id,
-                            f"{label} {iss.doc_number} → {to_addr}")
-                else:
-                    err_msg = _result.get("err", "不明なエラー")
-                    errors.append(f"メール送信失敗：{err_msg}")
-                    add_log(sess, "メール送信失敗", "issuance", iss.id,
-                            f"{label} {iss.doc_number}：{err_msg}")
-                    not_sent.append(item)
-
-        # 送らなかった書類のうち、今回はじめて発行済みにしたものは準備中に戻す
-        reverted: list[str] = []
-        for iss, sess, was_issued in not_sent:
-            if not was_issued:
-                revert_to_prepared(sess, iss)
-                reverted.append(iss.doc_number)
-
-        if sent or not_sent:
-            msg = f"{sent} 件のメールを送信しました。"
-            if reverted:
-                msg += (f"\n送信しなかった {len(reverted)} 件は「準備中」に戻しました"
-                        "（番号はそのままで、次に発行するときに使われます）。")
-            QMessageBox.information(self, "メール送信", msg)
-        return reverted
+                add_log(sess, "メール送信", "issuance", iss.id,
+                        f"{label} {iss.doc_number} → {to_addr}")
+                sent += 1
+            else:
+                not_sent.append((iss, sess, was_issued))
+        return _finish(sent, not_sent)
 
     def _confirm_issue(self, count: int) -> bool:
         """発行方法と支払期日（領収書は発行日）をダイアログで確かめる。
