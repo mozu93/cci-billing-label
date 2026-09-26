@@ -114,7 +114,8 @@ class MainWindow(QMainWindow):
 
         ページ本体は従来のタブウィジェットをそのまま流用する。QStackedWidget は
         ページ切替時に QShowEvent を発行するため、各ページの showEvent による
-        自動リロードは従来どおり機能する。
+        自動リロードは従来どおり機能する（ページ自体の生成が遅延されるだけで、
+        生成された後の挙動は変わらない）。
         """
         from app.ui.nav_shell import (
             NavRail, PageShell, COMPACT_THRESHOLD,
@@ -160,15 +161,30 @@ class MainWindow(QMainWindow):
                             footer_count=1)
         body.addWidget(self._nav)
 
+        # 既定表示の1ページ目だけをその場で作り、残りは選択されるまで作らない。
+        # 表示していないページの初期化（DB問い合わせ・外部ライブラリ初期化など）が
+        # 起動時間に乗ってしまっていたため。
+        self._page_factories: dict[int, type[QWidget]] = {}
         self._stack = QStackedWidget()
-        for title, _glyph, factory in pages:
-            self._stack.addWidget(PageShell(title, factory()))
+        for index, (title, _glyph, factory) in enumerate(pages):
+            if index == 0:
+                content = factory()
+            else:
+                content = QWidget()
+                self._page_factories[index] = factory
+            self._stack.addWidget(PageShell(title, content))
         self._stack.setCurrentIndex(0)
         body.addWidget(self._stack, 1)
 
         self._compact_threshold = COMPACT_THRESHOLD
-        self._nav.currentChanged.connect(self._stack.setCurrentIndex)
+        self._nav.currentChanged.connect(self._on_nav_changed)
         self._nav.toggleRequested.connect(self._toggle_pane)
+
+    def _on_nav_changed(self, index: int):
+        factory = self._page_factories.pop(index, None)
+        if factory is not None:
+            self._stack.widget(index).set_content(factory())
+        self._stack.setCurrentIndex(index)
 
     def _toggle_pane(self):
         """ハンバーガーボタンによる手動切替。以降は自動切替を抑止する。"""

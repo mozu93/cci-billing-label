@@ -215,10 +215,10 @@ class PageShell(QWidget):
 
         body = QWidget()
         body.setObjectName("pageBody")
-        body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(PAGE_MARGIN, 0, PAGE_MARGIN, PAGE_MARGIN)
-        body_layout.setSpacing(0)
-        body_layout.addWidget(content)
+        self._body_layout = QVBoxLayout(body)
+        self._body_layout.setContentsMargins(PAGE_MARGIN, 0, PAGE_MARGIN, PAGE_MARGIN)
+        self._body_layout.setSpacing(0)
+        self._body_layout.addWidget(content)
         root.addWidget(body, 1)
 
     def title(self) -> str:
@@ -226,3 +226,11 @@ class PageShell(QWidget):
 
     def content(self) -> QWidget:
         return self._content
+
+    def set_content(self, content: QWidget) -> None:
+        """本体を差し替える（選択されるまで生成しない遅延ページ用）。"""
+        old = self._content
+        self._body_layout.removeWidget(old)
+        old.deleteLater()
+        self._content = content
+        self._body_layout.addWidget(content)
