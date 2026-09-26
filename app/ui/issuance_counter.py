@@ -1305,6 +1305,10 @@ class IssuanceCounterWidget(QWidget):
             _save_cfg(_cfg)
 
         doc_type = self._doc_type_str
+        due_date = None
+        if doc_type == "invoice":
+            qd = self._due_date.date()
+            due_date = date(qd.year(), qd.month(), qd.day())
         session  = get_session()
         try:
             from app.services.operation_log_service import add_log as _add_log
@@ -1329,6 +1333,7 @@ class IssuanceCounterWidget(QWidget):
                     bank_account_id       = bank_account_id,
                     seal_image_id         = seal_image_id,
                     show_recipient_person = show_recipient_person,
+                    due_date              = due_date,
                 )
                 _add_log(session, "内容修正", "issuance", iss.id,
                          f"{label} {iss.doc_number} 宛先：{iss.recipient_organization or iss.recipient_name}")
@@ -1357,18 +1362,16 @@ class IssuanceCounterWidget(QWidget):
                     bank_account_id       = bank_account_id,
                     seal_image_id         = seal_image_id,
                     show_recipient_person = show_recipient_person,
+                    due_date              = due_date,
                 )
                 _add_log(session, "発行", "issuance", iss.id,
                          f"{label} {iss.doc_number} 宛先：{iss.recipient_organization or iss.recipient_name}")
             issued_no = iss.doc_number   # セッションを閉じた後も表示に使う
             from app.utils import pdf_helpers
             _delivery_text = self._delivery.currentText()
-            due_date = None
             window_envelope = False
             postal_code = address1 = address2 = ""
             if doc_type == "invoice":
-                qd = self._due_date.date()
-                due_date = date(qd.year(), qd.month(), qd.day())
                 window_envelope = self._window_envelope_chk.isChecked()
                 if window_envelope:
                     postal_code = self._postal_code_edit.text().strip()

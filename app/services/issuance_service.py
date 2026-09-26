@@ -318,7 +318,8 @@ def create_direct_issuance(session: Session, lines_data: list[dict],
                             company_settings_id: int | None = None,
                             bank_account_id: int | None = None,
                             seal_image_id: int | None = None,
-                            show_recipient_person: bool = True) -> Issuance:
+                            show_recipient_person: bool = True,
+                            due_date=None) -> Issuance:
     from app.database.models import Project
     sys_proj = (session.query(Project)
                 .filter_by(name=project_name, project_type="counter")
@@ -353,6 +354,7 @@ def create_direct_issuance(session: Session, lines_data: list[dict],
         status="支払済み" if is_receipt else "発行済み",
         amount=total,
         issued_at=now,
+        due_date=due_date,
         staff_id=staff_id,
         staff_name=staff_name,
         delivery_method=delivery_method,
@@ -477,7 +479,8 @@ def update_direct_issuance(session: Session, issuance_id: int,
                             company_settings_id: int | None = None,
                             bank_account_id: int | None = None,
                             seal_image_id: int | None = None,
-                            show_recipient_person: bool = True) -> Issuance:
+                            show_recipient_person: bool = True,
+                            due_date=None) -> Issuance:
     issuance = session.get(Issuance, issuance_id)
     if issuance is None:
         raise ValueError("発行データが見つかりません。")
@@ -498,6 +501,7 @@ def update_direct_issuance(session: Session, issuance_id: int,
     issuance.bank_account_id = bank_account_id
     issuance.seal_image_id = seal_image_id
     issuance.show_recipient_person = show_recipient_person
+    issuance.due_date = due_date
     issuance.amount = total
     if staff_id is not None:
         issuance.staff_id = staff_id

@@ -97,7 +97,7 @@ def test_filter_row_fits_780px(qtbot, memory_db):
     w.resize(780, 500)
     w.show()
     qtbot.waitExposed(w)
-    for combo in (w._year_combo, w._proj_combo, w._doctype_combo, w._status_combo):
+    for combo in (w._year_combo, w._proj_combo, w._status_combo):
         right = combo.mapTo(w, combo.rect().topRight()).x()
         assert right < 780, f"右端 {right}px が 780px を超えた"
     # 名簿名は欄では省略されても、開いた一覧では読める幅にする

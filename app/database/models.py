@@ -243,6 +243,8 @@ class Issuance(Base):
     seal_image_id = Column(Integer, ForeignKey("seal_images.id"), nullable=True)
     show_recipient_person = Column(Boolean, default=True)
     issued_at = Column(DateTime, nullable=True)
+    # 単発発行の支払期限。名簿発行は Project.due_date を使うため通常は空。
+    due_date = Column(Date, nullable=True)
     mail_subject = Column(String(500), default="")
     mail_sent_at = Column(DateTime, nullable=True)
     mail_delivery_status = Column(String(30), default="")

@@ -166,6 +166,7 @@ def _migrate(engine):
             ("mail_delivery_status", "VARCHAR(30) DEFAULT ''"),
             ("mail_delivery_message", "TEXT DEFAULT ''"),
             ("mail_delivery_checked_at", "TIMESTAMP"),
+            ("due_date", "DATE"),
         ]:
             if col not in iss_cols:
                 conn.execute(text(f"ALTER TABLE issuances ADD COLUMN {col} {ddl}"))

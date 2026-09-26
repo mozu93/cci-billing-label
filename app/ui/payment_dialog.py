@@ -85,10 +85,6 @@ class PaymentManagementWidget(QWidget):
         self._proj_combo.view().setMinimumWidth(400)
         self._proj_combo.currentIndexChanged.connect(self._load)
 
-        self._doctype_combo = QComboBox()
-        self._doctype_combo.addItems(["請求書のみ", "すべて"])
-        self._doctype_combo.currentIndexChanged.connect(self._load)
-
         self._status_combo = QComboBox()
         self._status_combo.addItems(["発行済み", "支払済み", "すべて"])
         self._status_combo.currentIndexChanged.connect(self._load)
@@ -97,8 +93,6 @@ class PaymentManagementWidget(QWidget):
         filter_row.addWidget(self._year_combo)
         filter_row.addWidget(QLabel("名簿："))
         filter_row.addWidget(self._proj_combo)
-        filter_row.addWidget(QLabel("種別："))
-        filter_row.addWidget(self._doctype_combo)
         filter_row.addWidget(QLabel("状態："))
         filter_row.addWidget(self._status_combo)
         filter_row.addStretch()
@@ -244,7 +238,6 @@ class PaymentManagementWidget(QWidget):
         project_id = self._proj_combo.currentData()
         status_text = self._status_combo.currentText()
         status = None if status_text == "すべて" else status_text
-        invoice_only = self._doctype_combo.currentText() == "請求書のみ"
 
         session = get_session()
         try:
@@ -261,7 +254,8 @@ class PaymentManagementWidget(QWidget):
             self._table.setHorizontalHeaderItem(_COL_CHK, hdr_chk)
 
             for iss in issuances:
-                if invoice_only and iss.doc_type != "invoice":
+                # 領収書は発行と同時に支払済みになるため、入金管理は請求書のみ扱う
+                if iss.doc_type != "invoice":
                     continue
                 # 名簿側で参加キャンセルになった人は、発行済み請求書を
                 # 履歴として残しつつ入金管理の対象から外す。
@@ -290,13 +284,15 @@ class PaymentManagementWidget(QWidget):
                         org_kana = pm.organization_kana or ""
                         email_addr = (pm.email or "").strip()
                 proj = get_project_by_id(session, iss.project_id)
-                due_str = proj.due_date.strftime("%Y/%m/%d") if (proj and proj.due_date) else ""
                 if proj and proj.project_type == "counter":
                     cat_label = proj.name or ""
                     proj_label = _DIRECT_ISSUANCE_LABEL
+                    due = iss.due_date
                 else:
                     cat_label = cat_names.get(proj.category_id, "") if proj else ""
                     proj_label = proj.name if proj else ""
+                    due = proj.due_date if proj else None
+                due_str = due.strftime("%Y/%m/%d") if due else ""
                 for col, val in [
                     (_COL_NUM,    iss.doc_number),
                     (_COL_DUE,    due_str),
@@ -379,7 +375,8 @@ class PaymentManagementWidget(QWidget):
                     if iss is None or iss.doc_type != "invoice":
                         continue
                     proj = get_project_by_id(session, iss.project_id)
-                    due  = proj.due_date if proj else None
+                    due  = (iss.due_date if proj and proj.project_type == "counter"
+                            else proj.due_date if proj else None)
                     email = ""
                     if iss.project_member_id:
                         pm = get_project_member(session, iss.project_member_id)
