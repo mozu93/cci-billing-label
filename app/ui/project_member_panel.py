@@ -15,8 +15,13 @@ from app.services.project_service import (
     get_project_member, update_project_member_fields, EDITABLE_MEMBER_FIELDS,
     get_project_by_id, members_with_issuances,
 )
+from app.ui.table_column_utils import hide_empty_columns
 
 COL_CHK = 0  # チェックボックス列
+
+# ウィンドウ幅を無駄にしないよう、この名簿でデータが無ければ列ごと隠す
+# （会員番号・フリガナ・所属役職名・氏名フリガナ・郵便番号・住所１・住所２・電話・メール）
+_OPTIONAL_COLS = (2, 4, 5, 7, 8, 9, 10, 11, 12)
 
 
 class _CompactDelegate(QStyledItemDelegate):
@@ -367,6 +372,7 @@ class ProjectMemberPanel(QWidget):
 
         self._table.setSortingEnabled(True)
         self._table.blockSignals(False)
+        hide_empty_columns(self._table, _OPTIONAL_COLS)
         if self._search.text().strip():
             self._count_label.setText(
                 f"{len(pms)} 件を表示（全 {len(self._members)} 件）")
