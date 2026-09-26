@@ -744,7 +744,11 @@ class IssuanceCounterWidget(QWidget):
         _outer_scroll = QScrollArea()
         _outer_scroll.setWidgetResizable(True)
         _outer_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        _outer_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # 発行設定・発行項目は幅が900px近く必要になることがあり、狭い画面では
+        # 横スクロールを無効にしていると内容が見切れて二度と見えなくなる。
+        # AsNeeded にして、はみ出したときだけ横スクロールで辿り着けるようにする。
+        _outer_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # 横スクロールバーの太さ・色は全画面共通（app/ui/theme.py の QScrollBar:horizontal）
         _outer_scroll.setWidget(_content)
         layout.addWidget(_outer_scroll, 1)
 

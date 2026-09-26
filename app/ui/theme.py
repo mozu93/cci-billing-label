@@ -181,11 +181,13 @@ QScrollBar::handle:vertical {{
     background: {BORDER_STRONG}; border-radius: 3px; min-height: 24px;
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QScrollBar:horizontal {{ height: 6px; background: transparent; }}
+QScrollBar:horizontal {{ height: 14px; background: {NAV_BG}; border-top: 1px solid {BORDER}; }}
 QScrollBar::handle:horizontal {{
-    background: {BORDER_STRONG}; border-radius: 3px; min-width: 24px;
+    background: {BORDER_STRONG}; border-radius: 6px; min-width: 30px;
 }}
+QScrollBar::handle:horizontal:hover {{ background: {TEXT_MUTED}; }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: transparent; }}
 
 /* ── ステータスバー ───────────────────────────────────────── */
 QStatusBar {{
