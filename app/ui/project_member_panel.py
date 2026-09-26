@@ -93,7 +93,7 @@ class RosterEntryDialog(QDialog):
     FIELDS = [
         ("roster_no",            "NO."),
         ("member_number",        "会員番号"),
-        ("organization_name",    "事業所名"),
+        ("organization_name",    "事業所名※"),
         ("organization_kana",    "フリガナ（事業所）"),
         ("department",           "所属・役職名"),
         ("representative_name",  "氏名"),
@@ -137,11 +137,10 @@ class RosterEntryDialog(QDialog):
 
     def _on_save(self):
         org = self._fields["organization_name"].text().strip()
-        rep = self._fields["representative_name"].text().strip()
-        if not org and not rep:
+        if not org:
             QMessageBox.warning(
                 self, "入力エラー",
-                "事業所名または代表者名のいずれかを入力してください。"
+                "事業所名を入力してください。"
             )
             return
         self.accept()

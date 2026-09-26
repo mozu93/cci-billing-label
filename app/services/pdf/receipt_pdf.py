@@ -72,6 +72,42 @@ def generate_receipt_pdf(issuance, company, output_path: str,
     return output_path
 
 
+def generate_receipt_originals_pdf(issuances: list, company, output_path: str,
+                                   seal_image=None) -> str:
+    """控え不要のとき、原本だけをA5用紙に2件（上下）ずつ詰めて印刷する。
+
+    件数が奇数の場合、最後のページは下段を空けたまま出力する。"""
+    register_fonts()
+    parent = os.path.dirname(os.path.abspath(output_path))
+    os.makedirs(parent, exist_ok=True)
+
+    page_w, page_h = A5
+    margin = 3 * mm
+    slot_h = page_h / 2
+    draw_w = page_w - 2 * margin
+    draw_h = slot_h - 2 * margin
+
+    c = Canvas(output_path, pagesize=(page_w, page_h))
+    c.setAuthor(getattr(company, "name", "") or "")
+
+    n_pages = (len(issuances) + 1) // 2
+    for page_idx in range(n_pages):
+        top_iss = issuances[page_idx * 2]
+        bottom_iss = (issuances[page_idx * 2 + 1]
+                     if page_idx * 2 + 1 < len(issuances) else None)
+        c.setTitle(f"領収書_{top_iss.doc_number}")
+        _draw_one(c, top_iss, company, seal_image,
+                  margin, slot_h + margin, draw_w, draw_h, is_copy=False)
+        if bottom_iss is not None:
+            _draw_one(c, bottom_iss, company, seal_image,
+                      margin, margin, draw_w, draw_h, is_copy=False)
+        if page_idx < n_pages - 1:
+            c.showPage()
+
+    c.save()
+    return output_path
+
+
 # ── 1面を描画 ─────────────────────────────────────────────
 
 def _draw_one(c, issuance, company, seal_image, x0, y0, w, h,
@@ -88,10 +124,69 @@ def _draw_one(c, issuance, company, seal_image, x0, y0, w, h,
     c.rect(x0, y0, w, h)
 
     top = y0 + h
-    cur = top - TM
+
+    TITLE_H = 13.0 * mm
+    NAME_H  = 11.0 * mm
+    AMT_H   = 14.0 * mm
+    UEKI_H  = 7.0 * mm
+    SEP_GAP = 5.0 * mm
+
+    # ── 但し書きの折り返し行数を先に決める（内容量から縦位置を決めるため） ──
+    inv_lines = getattr(issuance, "lines", []) or []
+
+    def _breakdown(l) -> str:
+        price = int(l.unit_price or 0)
+        qty   = float(l.quantity or 1)
+        qty_s = str(int(qty)) if qty == int(qty) else str(qty)
+        unit  = (l.unit or "").strip()
+        return f"@{price:,}×{qty_s}{unit}"
+
+    def _item(l) -> str:
+        name = l.item_name or ""
+        return f"{name}（{_breakdown(l)}）"
+
+    if len(inv_lines) == 1:
+        desc = _item(inv_lines[0]) + "として"
+    elif len(inv_lines) > 1:
+        parts = "、".join(_item(l) for l in inv_lines if l.item_name)
+        desc = (parts or "別紙のとおり") + "として"
+    else:
+        desc = ""
+
+    tada_label = "但し、"
+    text_x     = x0 + P + INDENT
+    avail_w    = (x0 + w - P) - text_x
+
+    if desc:
+        for tada_fs in (10, 9.5, 9, 8.5, 8, 7.5, 7, 6.5, 6):
+            prefix_w = stringWidth(tada_label, FONT_NORMAL, tada_fs)
+            d_lines  = _wrap_to_lines(desc, FONT_NORMAL, tada_fs, avail_w - prefix_w)
+            if len(d_lines) <= 2:
+                break
+        else:
+            tada_fs = 6.0
+            prefix_w = stringWidth(tada_label, FONT_NORMAL, tada_fs)
+            d_lines  = _wrap_to_lines(desc, FONT_NORMAL, tada_fs, avail_w - prefix_w)[:2]
+    else:
+        tada_fs, d_lines = 10, []
+        prefix_w = stringWidth(tada_label, FONT_NORMAL, tada_fs)
+
+    TADA_LINE_H = 6.5 * mm
+    tada_n_lines = max(1, len(d_lines))
+    TADA_H = TADA_LINE_H * tada_n_lines
+
+    # ── 枠の上下中央に近づける：内容量に対して枠が広いぶんを
+    #    上下に等分の余白として振り分ける（狭いときは詰めて崩れないようにする） ──
+    top_block_h = TM + TITLE_H + NAME_H + AMT_H + TADA_H + UEKI_H + SEP_GAP
+    lower_natural_h = max(
+        _naiwa_row_count(inv_lines) * 5.0 * mm,
+        _company_info_natural_height(company, seal_image))
+    slack = h - top_block_h - lower_natural_h
+    shift = max(0.0, slack / 2)
+
+    cur = top - TM - shift
 
     # ── タイトル + No. + 発行日 ───────────────────────────
-    TITLE_H = 13.0 * mm
     cur -= TITLE_H
 
     c.setFillColor(black)
@@ -131,26 +226,27 @@ def _draw_one(c, issuance, company, seal_image, x0, y0, w, h,
     c.drawString(_d + 29 * mm, cur + TITLE_H * 0.25, "日")
 
     # ── 宛名 ─────────────────────────────────────────────
-    NAME_H = 11.0 * mm
     cur -= NAME_H
 
     recipient = (issuance.recipient_organization or issuance.recipient_name or "").strip()
     name_rx   = x0 + w * 0.75
-    _line(c, x0 + P, cur + NAME_H * 0.25,
-          name_rx - 5 * mm, cur + NAME_H * 0.25, black, 0.5)
+    name_line_lx = x0 + P
+    name_line_rx = name_line_lx + (name_rx - 5 * mm - name_line_lx) * 0.8
+    _line(c, name_line_lx, cur + NAME_H * 0.25,
+          name_line_rx, cur + NAME_H * 0.25, black, 0.5)
 
-    name_max_w = (name_rx - 5 * mm) - (x0 + P + 2 * mm)
+    name_max_w = name_line_rx - (x0 + P + 2 * mm)
     name_fs    = 14
     while name_fs > 6 and stringWidth(recipient, FONT_NORMAL, name_fs) > name_max_w:
         name_fs -= 0.5
     c.setFillColor(black)
     c.setFont(FONT_NORMAL, name_fs)
     c.drawString(x0 + P + 2 * mm, cur + NAME_H * 0.38, recipient)
-    c.setFont(FONT_NORMAL, 14)
-    c.drawString(name_rx - 4.5 * mm, cur + NAME_H * 0.33, "様")
+    if recipient:
+        c.setFont(FONT_NORMAL, 14)
+        c.drawString(name_rx - 4.5 * mm, cur + NAME_H * 0.33, "様")
 
     # ── 金額 + 収入印紙枠 ─────────────────────────────────
-    AMT_H = 14.0 * mm
     cur  -= AMT_H
 
     amount  = int(issuance.amount or 0)
@@ -203,60 +299,18 @@ def _draw_one(c, issuance, company, seal_image, x0, y0, w, h,
     c.drawCentredString(stamp_x + stamp_w / 2, stamp_y + stamp_h * 0.46, "により")
     c.drawCentredString(stamp_x + stamp_w / 2, stamp_y + stamp_h * 0.20, "非課税")
 
-    # ── 但し書き ──────────────────────────────────────────
-    inv_lines = getattr(issuance, "lines", []) or []
-
-    def _breakdown(l) -> str:
-        price = int(l.unit_price or 0)
-        qty   = float(l.quantity or 1)
-        qty_s = str(int(qty)) if qty == int(qty) else str(qty)
-        unit  = (l.unit or "").strip()
-        return f"@{price:,}×{qty_s}{unit}"
-
-    def _item(l) -> str:
-        name = l.item_name or ""
-        return f"{name}（{_breakdown(l)}）"
-
-    if len(inv_lines) == 1:
-        desc = _item(inv_lines[0]) + "として"
-    elif len(inv_lines) > 1:
-        parts = "、".join(_item(l) for l in inv_lines if l.item_name)
-        desc = (parts or "別紙のとおり") + "として"
-    else:
-        desc = ""
-
-    tada_label = "但し、"
-    text_x     = x0 + P + INDENT
-    avail_w    = (x0 + w - P) - text_x
-
-    if desc:
-        for fs in (10, 9.5, 9, 8.5, 8, 7.5, 7, 6.5, 6):
-            prefix_w = stringWidth(tada_label, FONT_NORMAL, fs)
-            d_lines  = _wrap_to_lines(desc, FONT_NORMAL, fs, avail_w - prefix_w)
-            if len(d_lines) <= 2:
-                break
-        else:
-            fs = 6.0
-            prefix_w = stringWidth(tada_label, FONT_NORMAL, fs)
-            d_lines  = _wrap_to_lines(desc, FONT_NORMAL, fs, avail_w - prefix_w)[:2]
-    else:
-        fs, d_lines = 10, []
-        prefix_w = stringWidth(tada_label, FONT_NORMAL, fs)
-
-    LINE_H  = 6.5 * mm
-    n_lines = max(1, len(d_lines))
-    TADA_H  = LINE_H * n_lines
-    cur    -= TADA_H
+    # ── 但し書き（行数・フォントサイズは冒頭で計算済み） ──────────
+    cur -= TADA_H
 
     c.setFillColor(black)
-    c.setFont(FONT_NORMAL, fs)
+    c.setFont(FONT_NORMAL, tada_fs)
     content_x = text_x + prefix_w
 
     if not d_lines:
-        c.drawString(text_x, cur + LINE_H * 0.28, tada_label)
+        c.drawString(text_x, cur + TADA_LINE_H * 0.28, tada_label)
     else:
         for i, line in enumerate(d_lines):
-            y = cur + LINE_H * (n_lines - 1 - i + 0.28)
+            y = cur + TADA_LINE_H * (tada_n_lines - 1 - i + 0.28)
             if i == 0:
                 c.drawString(text_x, y, tada_label)
                 c.drawString(content_x, y, line)
@@ -264,29 +318,53 @@ def _draw_one(c, issuance, company, seal_image, x0, y0, w, h,
                 c.drawString(content_x, y, line)
 
     # ── 上記正に領収いたしました ──────────────────────────
-    UEKI_H = 7.0 * mm
     cur   -= UEKI_H
     c.setFont(FONT_NORMAL, 9.5)
     c.drawString(x0 + P + INDENT, cur + UEKI_H * 0.32, "上記正に領収いたしました")
 
     # 区切り線
-    cur -= 5.0 * mm
+    cur -= SEP_GAP
     _line(c, x0, cur, x0 + w, cur, C_LINE, 0.5)
 
     # ── 内訳（左） + 会社情報・印鑑（右） ────────────────
+    # 内容量ぶんの高さだけを使い、余った分は下側にも均等に残す（上下中央寄せ）
     section_top = cur
+    content_y0  = y0 + shift
     left_w  = w * 0.39
     right_w = w - left_w
+    # 区切り線は枠の底（y0）まで届かせ、内容が中央寄りでも枠が途切れて
+    # 見えないようにする
     _line(c, x0 + left_w, y0, x0 + left_w, section_top, C_LINE, 0.4)
 
-    _draw_naiwa(c, issuance, x0, y0, left_w, section_top)
+    _draw_naiwa(c, issuance, x0, content_y0, left_w, section_top)
     _draw_company_info(c, company, seal_image,
-                       x0 + left_w, y0, right_w, section_top)
+                       x0 + left_w, content_y0, right_w, section_top)
+
+    if not recipient:
+        # 枠内を圧迫しないよう、枠の外側（用紙の余白）に注記する。
+        # 和文フォントは字面（アセント）が大きく、下線ぎりぎりだと枠と重なるため
+        # ベースラインを字の高さ分下げる
+        c.setFont(FONT_NORMAL, 6)
+        c.setFillColor(C_TEXT_SUB)
+        c.drawString(x0 + P, y0 - 2.2 * mm, "※簡易インボイス")
+        c.setFillColor(black)
 
     c.restoreState()
 
 
 # ── 内訳テーブル（左側） ─────────────────────────────────
+
+def _naiwa_row_count(lines) -> int:
+    """内訳テーブルの行数（見出し1行 + 税率ごとの内訳2行×該当税率数 + 課税対象外1行）。"""
+    tax10 = sum(int(l.line_total) for l in lines if l.tax_rate == 10)
+    tax8  = sum(int(l.line_total) for l in lines if l.tax_rate == 8)
+    exempt = sum(int(l.line_total) for l in lines if l.tax_rate in (0, -1))
+    n = 1
+    if tax10 > 0: n += 2
+    if tax8  > 0: n += 2
+    if exempt > 0: n += 1
+    return n
+
 
 def _draw_naiwa(c, issuance, x0, y0, w, top):
     P = 1.5 * mm
@@ -302,13 +380,12 @@ def _draw_naiwa(c, issuance, x0, y0, w, top):
 
     exempt = sum(int(l.line_total) for l in lines if l.tax_rate in (0, -1))
 
-    n_rows = 1
-    if tax10_incl > 0: n_rows += 2
-    if tax8_incl  > 0: n_rows += 2
-    if exempt     > 0: n_rows += 1
+    n_rows = _naiwa_row_count(lines)
     ROW = min(5.0 * mm, (top - y0) / max(n_rows, 1))
-
-    cur = top
+    # 行数が少なく空きができる場合は、枠の途中で切れて見えないよう
+    # テーブルごと欄の上下中央に寄せる
+    leftover = (top - y0) - ROW * n_rows
+    cur = top - max(0.0, leftover / 2)
 
     cur -= ROW
     c.setFillColor(black)
@@ -351,6 +428,37 @@ def _draw_naiwa(c, issuance, x0, y0, w, top):
 
 
 # ── 会社情報 + 印鑑（右側） ──────────────────────────────
+
+def _company_info_natural_height(company, seal_image) -> float:
+    """会社情報ブロックの自然な高さ（_draw_company_info の縦位置決めと同じ計算）。"""
+    LINE_H = 5.0 * mm
+    co_name   = getattr(company, "name",             "") or ""
+    co_postal = getattr(company, "postal_code",       "") or ""
+    co_addr   = getattr(company, "address",           "") or ""
+    co_phone  = getattr(company, "phone",             "") or ""
+    co_reg    = getattr(company, "invoice_reg_number", "") or ""
+    has_seal  = _seal_source(seal_image) is not None
+
+    used = 1.5 * mm
+    if co_reg:
+        used += LINE_H
+    if co_name:
+        used += LINE_H * 1.3
+    if co_postal:
+        used += LINE_H
+    if co_addr:
+        max_c = 15
+        n = 0
+        remaining = co_addr
+        while remaining:
+            n += 1
+            remaining = remaining[max_c:]
+        used += LINE_H * 0.9 * n
+    if co_phone:
+        used += LINE_H
+    seal_reserve = 24.5 * mm if has_seal else 0.0
+    return max(used, seal_reserve)
+
 
 def _draw_company_info(c, company, seal_image, x0, y0, w, top):
     P      = 2.0 * mm

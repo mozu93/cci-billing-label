@@ -13,5 +13,6 @@ class CounterIssuanceTab(QWidget):
 
         inner.addTab(IssuanceCounterWidget("invoice"), "請求書")
         inner.addTab(IssuanceCounterWidget("receipt"), "領収書")
+        inner.addTab(IssuanceCounterWidget("receipt", simplified=True), "簡易インボイス")
 
         layout.addWidget(inner)

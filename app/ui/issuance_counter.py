@@ -21,6 +21,7 @@ from app.services.issuance_service import (
     create_direct_issuance, update_direct_issuance, get_issuance_with_lines
 )
 from app.services.project_service import get_project_by_id
+from app.ui.item_template_management import TAX_RATE_OPTIONS
 from app.utils import current_user
 from app.utils.applog import get_logger
 
@@ -31,6 +32,7 @@ W_CAT   = 120
 W_PRICE = 90
 W_QTY   = 80
 W_UNIT  = 60
+W_TAX   = 110
 W_SUB   = 90
 W_SAVE  = 70
 W_DEL   = 40
@@ -100,6 +102,12 @@ class _LineRow(QFrame):
         self.unit_edit.setFixedHeight(FIELD_H)
         self.unit_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.unit_edit.setMaxLength(8)
+        # 税区分（テンプレート選択時はその税率を初期値にし、その場で変更できる）
+        self.tax_combo = QComboBox()
+        self.tax_combo.setFixedWidth(W_TAX)
+        self.tax_combo.setFixedHeight(FIELD_H)
+        for label, value in TAX_RATE_OPTIONS:
+            self.tax_combo.addItem(label, value)
         # 小計
         self.sub_label = QLabel("¥0")
         self.sub_label.setFixedWidth(W_SUB)
@@ -125,7 +133,7 @@ class _LineRow(QFrame):
             "QPushButton:hover { color: #ff0000; }")
 
         for w in (self.cat_combo, self.tmpl_combo, self.price_edit,
-                  self.qty_spin, self.unit_edit):
+                  self.qty_spin, self.unit_edit, self.tax_combo):
             if style:
                 w.setStyle(style)
             w.setStyleSheet(_SS_FIELD)
@@ -135,6 +143,7 @@ class _LineRow(QFrame):
         lay.addWidget(self.price_edit)
         lay.addWidget(self.qty_spin)
         lay.addWidget(self.unit_edit)
+        lay.addWidget(self.tax_combo)
         lay.addWidget(self.sub_label)
         lay.addWidget(self.btn_save_tmpl)
         lay.addWidget(self.btn_del)
@@ -195,9 +204,11 @@ class _PostalWorker(QThread):
 class IssuanceCounterWidget(QWidget):
     edit_completed = pyqtSignal()
 
-    def __init__(self, doc_type: str = "receipt", edit_issuance_id: int | None = None):
+    def __init__(self, doc_type: str = "receipt", edit_issuance_id: int | None = None,
+                 simplified: bool = False):
         super().__init__()
         self._doc_type_str = doc_type
+        self._simplified = simplified
         self._edit_issuance_id = edit_issuance_id
         self._edit_loaded = False
         self._categories = []
@@ -389,6 +400,9 @@ class IssuanceCounterWidget(QWidget):
             row.qty_spin.setValue(int(line.quantity))
             row.qty_spin.blockSignals(False)
             row.unit_edit.setText(line.unit or "式")
+            idx = row.tax_combo.findData(line.tax_rate)
+            if idx >= 0:
+                row.tax_combo.setCurrentIndex(idx)
             return
 
         tmpl = next((t for t in self._templates if t.id == line.item_template_id), None)
@@ -419,8 +433,11 @@ class IssuanceCounterWidget(QWidget):
         row.qty_spin.setValue(int(line.quantity))
         row.qty_spin.blockSignals(False)
 
-        # テンプレートの現在の単位ではなく、発行時に保存した単位を出す。
+        # テンプレートの現在の単位・税率ではなく、発行時に保存した値を出す。
         row.unit_edit.setText(line.unit or "式")
+        idx = row.tax_combo.findData(line.tax_rate)
+        if idx >= 0:
+            row.tax_combo.setCurrentIndex(idx)
 
     def _tmpls_for_cat(self, cat_id) -> list:
         if cat_id is None:
@@ -470,7 +487,7 @@ class IssuanceCounterWidget(QWidget):
         top_row = QHBoxLayout()
         top_row.setSpacing(12)
 
-        grp_dest = QGroupBox("宛先")
+        grp_dest = QGroupBox("宛先（空欄可）" if self._simplified else "宛先")
         dest_vbox = QVBoxLayout(grp_dest)
         dest_vbox.setContentsMargins(10, 8, 10, 8)
         dest_vbox.setSpacing(4)
@@ -495,7 +512,7 @@ class IssuanceCounterWidget(QWidget):
 
         self._org_name = QLineEdit()
         self._org_name.setFixedHeight(FIELD_H)
-        self._org_name.setPlaceholderText("必須")
+        self._org_name.setPlaceholderText("任意（空欄可）" if self._simplified else "必須")
         self._kana_edit = QLineEdit()
         self._kana_edit.setFixedHeight(FIELD_H)
         self._kana_edit.setPlaceholderText("フリガナ（並び替え・検索用）")
@@ -592,7 +609,7 @@ class IssuanceCounterWidget(QWidget):
         opts_form.setVerticalSpacing(3)
         opts_form.setHorizontalSpacing(8)
         self._delivery = QComboBox()
-        self._delivery.addItems(["印刷", "メール送付"])
+        self._delivery.addItems(["印刷"] if self._simplified else ["印刷", "メール送付"])
         opts_form.addRow("発行方法", self._delivery)
         if self._doc_type_str == "invoice":
             self._issuer_combo = QComboBox()
@@ -631,18 +648,28 @@ class IssuanceCounterWidget(QWidget):
             opts_form.addRow("発行元", self._issuer_combo)
             opts_form.addRow("印鑑",   self._seal_combo)
             from app.utils.app_config import get_config as _gcfg
-            _last_rcp = _gcfg().get("last_issuance_counter_receipt", {})
+            _cfg_key = "last_issuance_counter_simplified" if self._simplified else "last_issuance_counter_receipt"
+            _last_rcp = _gcfg().get(_cfg_key, {})
             self._reload_issuer_combo(
                 select_company_id=_last_rcp.get("company_id"),
                 select_seal_id=_last_rcp.get("seal_image_id"),
             )
-            _rcp_method = _last_rcp.get("delivery_method", "印刷")
-            _idx = self._delivery.findText(_rcp_method)
-            if _idx >= 0:
-                self._delivery.setCurrentIndex(_idx)
+            if not self._simplified:
+                _rcp_method = _last_rcp.get("delivery_method", "印刷")
+                _idx = self._delivery.findText(_rcp_method)
+                if _idx >= 0:
+                    self._delivery.setCurrentIndex(_idx)
             fmt_note = QLabel("印刷形式：A5縦（固定）")
             fmt_note.setStyleSheet("color: #666; font-size: 11px;")
             opts_form.addRow("", fmt_note)
+            if self._simplified:
+                self._count_spin = QSpinBox()
+                self._count_spin.setRange(1, 999)
+                self._count_spin.setValue(1)
+                opts_form.addRow("発行枚数", self._count_spin)
+                self._copy_chk = QCheckBox("控えを出力する")
+                self._copy_chk.setChecked(_last_rcp.get("include_copy", True))
+                opts_form.addRow("", self._copy_chk)
         top_row.addWidget(grp_opts, 3)
 
         _cl.addLayout(top_row)
@@ -827,8 +854,8 @@ class IssuanceCounterWidget(QWidget):
         lay.setContentsMargins(6, 0, 6, 0)
         lay.setSpacing(6)
         specs = [("業務名", W_CAT), ("項目", None), ("単価（円）", W_PRICE),
-                 ("数量", W_QTY), ("単位", W_UNIT), ("小計", W_SUB),
-                 ("", W_SAVE), ("", W_DEL)]
+                 ("数量", W_QTY), ("単位", W_UNIT), ("税区分", W_TAX),
+                 ("小計", W_SUB), ("", W_SAVE), ("", W_DEL)]
         for text, w in specs:
             lbl = QLabel(text)
             lbl.setStyleSheet("font-weight: bold; color: #333; background: transparent;")
@@ -961,6 +988,9 @@ class IssuanceCounterWidget(QWidget):
         if tmpl is not None:
             row.price_edit.setText(str(int(tmpl.unit_price)))
             row.unit_edit.setText(tmpl.unit or "式")
+            idx = row.tax_combo.findData(tmpl.tax_rate)
+            if idx >= 0:
+                row.tax_combo.setCurrentIndex(idx)
         self._update_total()
 
     def _collect_lines_data(self) -> list[dict]:
@@ -978,7 +1008,7 @@ class IssuanceCounterWidget(QWidget):
                     "quantity":         row.qty_spin.value(),
                     "unit":             row.unit(),
                     "unit_price":       price,
-                    "tax_rate":         tmpl.tax_rate,
+                    "tax_rate":         row.tax_combo.currentData(),
                 })
             else:
                 name = row.tmpl_combo.currentText().strip()
@@ -989,7 +1019,7 @@ class IssuanceCounterWidget(QWidget):
                         "quantity":         row.qty_spin.value(),
                         "unit":             row.unit(),
                         "unit_price":       row.price(),
-                        "tax_rate":         10,
+                        "tax_rate":         row.tax_combo.currentData(),
                     })
         return lines_data
 
@@ -1162,7 +1192,7 @@ class IssuanceCounterWidget(QWidget):
 
         入力に不足があれば警告して (None, None) を返す。"""
         org = self._org_name.text().strip()
-        if not org:
+        if not org and not self._simplified:
             QMessageBox.warning(self, "入力エラー", "事業所名を入力してください。")
             return None, None
         lines_data = self._issuable_lines()
@@ -1219,7 +1249,153 @@ class IssuanceCounterWidget(QWidget):
             return
         open_pdf(path)
 
+    def _issue_simplified(self):
+        """簡易インボイス：宛先なしで、指定枚数ぶん連番発行する。
+
+        請求書化・メール送付・修正再発行は対象外の、印刷専用の簡易な発行経路。
+        既存の _issue() は分岐が多いため、混ぜずに独立させている。"""
+        lines_data = self._issuable_lines()
+        if lines_data is None:
+            return
+        total = sum(int(l["unit_price"]) * int(l["quantity"]) for l in lines_data)
+        if total == 0 and QMessageBox.question(
+                self, "合計0円の確認",
+                "合計が0円です。このまま発行しますか？"
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
+        from app.utils.pdf_helpers import get_company_and_bank
+        _check_session = get_session()
+        try:
+            _company, _ = get_company_and_bank(_check_session)
+        finally:
+            _check_session.close()
+        if not _company:
+            QMessageBox.warning(
+                self, "発行不可",
+                "自社情報（会社設定）が未登録のため発行できません。\n"
+                "設定 → 会社情報 から登録してください。")
+            return
+
+        org        = self._org_name.text().strip()
+        member_no  = self._member_number_edit.text().strip()
+        kana       = self._kana_edit.text().strip()
+        dept       = self._dept_edit.text().strip()
+        rep        = self._rep_name_edit.text().strip()
+        rep_kana   = self._rep_kana_edit.text().strip()
+        phone      = self._phone_edit.text().strip()
+        email      = self._email.text().strip()
+        issuer_company_id = self._issuer_combo.currentData()
+        seal_image_id     = self._seal_combo.currentData()
+        count         = self._count_spin.value()
+        include_copy  = self._copy_chk.isChecked()
+
+        from app.utils.app_config import get_config as _get_cfg, save_config as _save_cfg
+        _cfg = _get_cfg()
+        _cfg["last_issuance_counter_simplified"] = {
+            "company_id": issuer_company_id,
+            "seal_image_id": seal_image_id,
+            "include_copy": include_copy,
+        }
+        _save_cfg(_cfg)
+
+        from app.services.operation_log_service import add_log as _add_log
+        from app.services.print_service import open_pdf
+        from app.utils import pdf_helpers
+
+        session = get_session()
+        issuances: list = []
+        issued_numbers: list[str] = []
+        paths: list[str] = []
+        merged_path: str | None = None
+        try:
+            today = date.today()
+            project_name = self._derive_project_name()
+            for _ in range(count):
+                iss = create_direct_issuance(
+                    session,
+                    lines_data             = lines_data,
+                    recipient_organization = org,
+                    recipient_name         = rep,
+                    doc_type               = "receipt",
+                    fiscal_year            = today.year,
+                    month                  = today.month,
+                    staff_id               = current_user.get_id(),
+                    staff_name             = current_user.get_name(),
+                    delivery_method        = "印刷",
+                    project_name           = project_name,
+                    member_number          = member_no,
+                    recipient_kana         = kana,
+                    recipient_department   = dept,
+                    recipient_name_kana    = rep_kana,
+                    recipient_phone        = phone,
+                    recipient_email        = email,
+                    company_settings_id   = issuer_company_id,
+                    seal_image_id         = seal_image_id,
+                )
+                issuances.append(iss)
+                issued_numbers.append(iss.doc_number)
+                _add_log(session, "発行", "issuance", iss.id,
+                         f"領収書 {iss.doc_number} 宛先："
+                         f"{iss.recipient_organization or '（簡易インボイス）'}")
+
+            if include_copy or len(issuances) == 1:
+                for iss in issuances:
+                    path = pdf_helpers.generate_and_open(
+                        iss, session, open_file=False,
+                        receipt_include_copy=include_copy,
+                        project=get_project_by_id(session, iss.project_id))
+                    if not path:
+                        QMessageBox.warning(
+                            self, "発行不可",
+                            "自社情報（会社設定）が未登録のため発行できません。\n"
+                            "設定 → 会社情報 から登録してください。")
+                        return
+                    paths.append(path)
+            else:
+                # 控え不要・複数枚：原本のみを2件（上下）ずつA5にまとめて印刷する
+                from app.services.pdf.receipt_pdf import generate_receipt_originals_pdf
+                project = get_project_by_id(session, issuances[0].project_id)
+                company, _bank, seal = pdf_helpers.get_issuer_for_project(
+                    session, project, issuance=issuances[0])
+                if not company:
+                    QMessageBox.warning(
+                        self, "発行不可",
+                        "自社情報（会社設定）が未登録のため発行できません。\n"
+                        "設定 → 会社情報 から登録してください。")
+                    return
+                filename = f"{issuances[0].doc_number}-{issuances[-1].doc_number}.pdf"
+                merged_path = pdf_helpers.available_pdf_path(
+                    pdf_helpers.get_pdf_output_dir(), filename)
+                generate_receipt_originals_pdf(
+                    issuances, company, merged_path, seal_image=seal)
+                for iss in issuances:
+                    iss.pdf_path = merged_path
+                session.commit()
+        except Exception as e:
+            QMessageBox.critical(self, "発行エラー", str(e))
+            return
+        finally:
+            session.close()
+
+        if merged_path:
+            open_pdf(merged_path)
+        elif len(paths) == 1:
+            open_pdf(paths[0])
+        else:
+            pdf_helpers.merge_and_open(paths, "簡易インボイス")
+
+        if len(issued_numbers) == 1:
+            self._issued_label.setText(f"{issued_numbers[0]} を発行しました")
+        else:
+            self._issued_label.setText(
+                f"{issued_numbers[0]}〜{issued_numbers[-1]}"
+                f"（{len(issued_numbers)}枚）を発行しました")
+
     def _issue(self):
+        if self._simplified:
+            self._issue_simplified()
+            return
         org = self._org_name.text().strip()
         if not org:
             QMessageBox.warning(self, "入力エラー", "事業所名を入力してください。")

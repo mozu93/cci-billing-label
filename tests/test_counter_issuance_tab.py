@@ -12,7 +12,7 @@ def test_counter_issuance_subtabs(qtbot, memory_db):
     qtbot.addWidget(w)
     inner = w.findChild(QTabWidget)
     assert inner is not None
-    assert _tab_titles(inner) == ["請求書", "領収書"]
+    assert _tab_titles(inner) == ["請求書", "領収書", "簡易インボイス"]
 
 
 def _seed_duplicate_named_templates():
@@ -57,6 +57,53 @@ def test_freeissue_groups_by_item_category(qtbot, memory_db):
     # 業務名コンボは未選択（None）のまま
     assert row.cat_combo.currentData() is None
     assert w._derive_project_name() == "建設部会"
+
+
+def test_line_row_tax_rate_defaults_from_template_and_is_overridable(qtbot, memory_db):
+    """税区分はテンプレートの値を初期値にしつつ、その場で変更できる。"""
+    from app.database.connection import get_session
+    from app.services.category_service import create_category
+    from app.services.item_template_service import create_item_template
+    from app.ui.issuance_counter import IssuanceCounterWidget
+
+    s = get_session()
+    cat = create_category(s, "検定")
+    tmpl = create_item_template(s, cat.id, "受験料", 3000, "人", 8, "receipt", "")
+    tmpl_id = tmpl.id
+    s.close()
+
+    w = IssuanceCounterWidget("receipt")
+    qtbot.addWidget(w)
+    w._reload_master()
+    row = w._rows[0]
+    idx = next(i for i in range(row.tmpl_combo.count())
+               if row.tmpl_combo.itemData(i) == tmpl_id)
+    row.tmpl_combo.setCurrentIndex(idx)
+    assert row.tax_combo.currentData() == 8
+
+    # その場で非課税に変更できる
+    non_taxable_idx = row.tax_combo.findData(0)
+    row.tax_combo.setCurrentIndex(non_taxable_idx)
+    lines = w._collect_lines_data()
+    assert lines[0]["tax_rate"] == 0
+
+
+def test_line_row_direct_input_tax_rate_defaults_to_ten_percent(qtbot, memory_db):
+    """テンプレート未選択（直接入力）行は10%が初期値。以前は変更不可・固定だった。"""
+    from app.ui.issuance_counter import IssuanceCounterWidget
+
+    w = IssuanceCounterWidget("receipt")
+    qtbot.addWidget(w)
+    w._reload_master()
+    row = w._rows[0]
+    row.tmpl_combo.setEditText("駐車場代")
+    assert row.tax_combo.currentData() == 10
+
+    idx = row.tax_combo.findData(8)
+    row.tax_combo.setCurrentIndex(idx)
+    lines = w._collect_lines_data()
+    assert lines[0]["item_name"] == "駐車場代"
+    assert lines[0]["tax_rate"] == 8
 
 
 def test_issue_invoice_warns_when_no_company_settings(qtbot, memory_db, monkeypatch):
@@ -338,4 +385,164 @@ def test_edit_issuance_restores_issuer_and_display_setting(qtbot, memory_db):
     assert w._issuer_combo.currentData() == cs2_id
     assert w._show_person_chk.isChecked() is False
     assert w._email.text() == "billing@example.com"
+
+
+def test_simplified_invoice_tab_has_count_and_copy_option(qtbot, memory_db, monkeypatch):
+    import app.utils.app_config as cfg_mod
+    monkeypatch.setattr(cfg_mod, "get_config", lambda: {})
+    from app.ui.issuance_counter import IssuanceCounterWidget
+    w = IssuanceCounterWidget("receipt", simplified=True)
+    qtbot.addWidget(w)
+    assert w._count_spin.minimum() == 1
+    assert w._count_spin.maximum() == 999
+    assert w._count_spin.value() == 1
+    assert w._copy_chk.isChecked() is True
+    assert w._delivery.findText("メール送付") == -1
+
+
+def test_simplified_invoice_issues_without_organization_name(qtbot, memory_db, monkeypatch):
+    """簡易インボイスは事業所名が空でも発行できる。"""
+    from app.database.connection import get_session
+    from app.database.models import CompanySettings, Issuance
+    from app.services.category_service import create_category
+    from app.services.item_template_service import create_item_template
+    import app.ui.issuance_counter as ic
+    import app.utils.pdf_helpers as pdf_helpers
+    import app.utils.app_config as cfg_mod
+    monkeypatch.setattr(cfg_mod, "get_config", lambda: {})
+    monkeypatch.setattr(cfg_mod, "save_config", lambda c: None)
+
+    s = get_session()
+    s.add(CompanySettings(name="発行元", is_default=True))
+    s.commit()
+    cat = create_category(s, "検定")
+    create_item_template(s, cat.id, "受験料", 3000, "人", 0, "receipt", "")
+    s.close()
+
+    monkeypatch.setattr(ic.QMessageBox, "warning", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("事業所名なしで警告が出た")))
+    generated = []
+    monkeypatch.setattr(pdf_helpers, "generate_and_open",
+                        lambda iss, session, **k: generated.append(k) or f"/tmp/{iss.doc_number}.pdf")
+    monkeypatch.setattr(pdf_helpers, "merge_and_open", lambda paths, name: None)
+    import app.services.print_service as print_service
+    monkeypatch.setattr(print_service, "open_pdf", lambda path: None)
+
+    w = ic.IssuanceCounterWidget("receipt", simplified=True)
+    qtbot.addWidget(w)
+    w._reload_master()
+    row = w._rows[0]
+    idx = next(i for i in range(row.tmpl_combo.count()) if row.tmpl_combo.itemData(i) is not None)
+    row.tmpl_combo.setCurrentIndex(idx)
+
+    w._issue()
+
+    s = get_session()
+    issuances = s.query(Issuance).order_by(Issuance.id).all()
+    assert len(issuances) == 1
+    assert issuances[0].recipient_organization == ""
+    s.close()
+    assert generated[0]["receipt_include_copy"] is True
+
+
+def test_simplified_invoice_issues_sequential_numbers_for_count(qtbot, memory_db, monkeypatch):
+    """発行枚数ぶん、連番の発行番号で発行する（控えありのときは1件ずつ生成して結合）。"""
+    from app.database.connection import get_session
+    from app.database.models import CompanySettings, Issuance
+    from app.services.category_service import create_category
+    from app.services.item_template_service import create_item_template
+    import app.ui.issuance_counter as ic
+    import app.utils.pdf_helpers as pdf_helpers
+    import app.utils.app_config as cfg_mod
+    monkeypatch.setattr(cfg_mod, "get_config", lambda: {})
+    monkeypatch.setattr(cfg_mod, "save_config", lambda c: None)
+
+    s = get_session()
+    s.add(CompanySettings(name="発行元", is_default=True))
+    s.commit()
+    cat = create_category(s, "検定")
+    create_item_template(s, cat.id, "受験料", 3000, "人", 0, "receipt", "")
+    s.close()
+
+    generated = []
+    monkeypatch.setattr(pdf_helpers, "generate_and_open",
+                        lambda iss, session, **k: generated.append(k) or f"/tmp/{iss.doc_number}.pdf")
+    merged = []
+    monkeypatch.setattr(pdf_helpers, "merge_and_open",
+                        lambda paths, name: merged.append(paths) or None)
+    import app.services.print_service as print_service
+    monkeypatch.setattr(print_service, "open_pdf", lambda path: None)
+
+    w = ic.IssuanceCounterWidget("receipt", simplified=True)
+    qtbot.addWidget(w)
+    w._reload_master()
+    row = w._rows[0]
+    idx = next(i for i in range(row.tmpl_combo.count()) if row.tmpl_combo.itemData(i) is not None)
+    row.tmpl_combo.setCurrentIndex(idx)
+    w._count_spin.setValue(3)
+    w._copy_chk.setChecked(True)
+
+    w._issue()
+
+    s = get_session()
+    issuances = s.query(Issuance).order_by(Issuance.id).all()
+    assert len(issuances) == 3
+    numbers = [i.doc_number for i in issuances]
+    assert len(set(numbers)) == 3  # 連番で重複なし
+    s.close()
+    assert len(generated) == 3
+    assert all(k["receipt_include_copy"] is True for k in generated)
+    assert len(merged) == 1  # 複数枚は結合PDFで開く
+
+
+def test_simplified_invoice_without_copy_packs_two_originals_per_sheet(
+        qtbot, memory_db, monkeypatch, tmp_path):
+    """控え不要・複数枚のときは、原本のみを2件ずつA5にまとめた1つのPDFにする。"""
+    from app.database.connection import get_session
+    from app.database.models import CompanySettings, Issuance
+    from app.services.category_service import create_category
+    from app.services.item_template_service import create_item_template
+    import app.ui.issuance_counter as ic
+    import app.utils.pdf_helpers as pdf_helpers
+    import app.services.pdf.receipt_pdf as receipt_pdf_mod
+    import app.utils.app_config as cfg_mod
+    monkeypatch.setattr(cfg_mod, "get_config", lambda: {})
+    monkeypatch.setattr(cfg_mod, "save_config", lambda c: None)
+    monkeypatch.setattr(pdf_helpers, "get_pdf_output_dir", lambda: str(tmp_path))
+
+    s = get_session()
+    s.add(CompanySettings(name="発行元", is_default=True))
+    s.commit()
+    cat = create_category(s, "検定")
+    create_item_template(s, cat.id, "受験料", 3000, "人", 0, "receipt", "")
+    s.close()
+
+    calls = []
+    def _fake_generate(issuances, company, path, seal_image=None):
+        calls.append(([i.id for i in issuances], path))
+        return path
+    monkeypatch.setattr(receipt_pdf_mod, "generate_receipt_originals_pdf", _fake_generate)
+    opened = []
+    import app.services.print_service as print_service
+    monkeypatch.setattr(print_service, "open_pdf", lambda path: opened.append(path))
+
+    w = ic.IssuanceCounterWidget("receipt", simplified=True)
+    qtbot.addWidget(w)
+    w._reload_master()
+    row = w._rows[0]
+    idx = next(i for i in range(row.tmpl_combo.count()) if row.tmpl_combo.itemData(i) is not None)
+    row.tmpl_combo.setCurrentIndex(idx)
+    w._count_spin.setValue(3)
+    w._copy_chk.setChecked(False)
+
+    w._issue()
+
+    s = get_session()
+    issuances = s.query(Issuance).order_by(Issuance.id).all()
+    assert len(issuances) == 3
+    assert all(i.pdf_path == calls[0][1] for i in issuances)
+    s.close()
+    assert len(calls) == 1
+    assert calls[0][0] == [i.id for i in issuances]
+    assert len(opened) == 1
 

@@ -84,7 +84,8 @@ def _norm(value: str | None) -> str:
 
 
 def _dup_keys(row) -> list[tuple]:
-    """重複判定に使うキー。会員番号と「事業所名＋氏名」の両方で照合する。
+    """重複判定に使うキー。基本は事業所名で照合し、会員番号・氏名があれば
+    それぞれ単独でも照合する（いずれか一致すれば重複扱い）。
 
     row は dict でも ProjectMember でも可。
     """
@@ -97,9 +98,11 @@ def _dup_keys(row) -> list[tuple]:
     if number:
         keys.append(("number", number))
     org = _norm(get("organization_name", ""))
+    if org:
+        keys.append(("org", org))
     rep = _norm(get("representative_name", ""))
-    if org or rep:
-        keys.append(("name", org, rep))
+    if rep:
+        keys.append(("rep", rep))
     return keys
 
 
@@ -197,7 +200,9 @@ class RosterImportDialog(QDialog):
         map_layout.setColumnStretch(1, 1)
         map_layout.setColumnStretch(3, 1)
 
-        note = QLabel("※「事業所名」「代表者名」のいずれかが必要です。")
+        note = QLabel(
+            "※「事業所名」は必須です。それ以外の項目は、必要な場合だけ列を割り当ててください。")
+        note.setWordWrap(True)
         note.setStyleSheet("color: #666; font-size: 11px;")
         map_layout.addWidget(note, 1 + (len(ROSTER_COLUMNS) + 1) // 2, 0, 1, 4)
         self._map_group.setEnabled(False)

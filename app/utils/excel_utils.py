@@ -33,8 +33,8 @@ FIELD_LABELS = {
     "email": "メール",
 }
 
-# 必須（このいずれかが空の行は取り込まない）
-REQUIRED_ANY = ("organization_name", "representative_name")
+# 必須（事業所名だけあれば発行できるため、これが空の行は取り込まない）
+REQUIRED_ANY = ("organization_name",)
 
 
 def parse_tsv_text(text: str) -> list[dict]:
@@ -47,7 +47,7 @@ def parse_tsv_text(text: str) -> list[dict]:
         while len(cells) < len(MEMBER_COLUMNS):
             cells.append("")
         row = {col: cells[i].strip() for i, col in enumerate(MEMBER_COLUMNS)}
-        if not row["organization_name"] and not row["representative_name"]:
+        if not any(row[f] for f in REQUIRED_ANY):
             continue
         rows.append(row)
     return rows
@@ -66,7 +66,7 @@ def parse_excel_file(file_path: str, sheet_name: str | None = None,
         while len(cells) < len(MEMBER_COLUMNS):
             cells.append("")
         data = {col: cells[j] for j, col in enumerate(MEMBER_COLUMNS)}
-        if not data["organization_name"] and not data["representative_name"]:
+        if not any(data[f] for f in REQUIRED_ANY):
             continue
         rows.append(data)
     wb.close()
@@ -133,7 +133,7 @@ def build_member_rows(raw_rows: list[list[str]],
     """マッピングに従って会員データ（dict）のリストを組み立てる。
 
     has_header=True なら先頭行を見出しとして除外。
-    必須（事業所名・代表者名のいずれか）が空の行は除外。
+    必須（事業所名）が空の行は除外。
     """
     data_rows = raw_rows[1:] if has_header else raw_rows
     result = []
