@@ -183,6 +183,17 @@ def generate_label_pdf(
     return output_path
 
 
+def _is_individual_proprietor(company: str, person: str) -> bool:
+    """事業所名と代表者名が同一（屋号のない個人事業主）かどうか。
+
+    空白（半角・全角）の差は無視して比較する。
+    """
+    def _norm(s: str) -> str:
+        return (s or "").strip().replace(" ", "").replace("　", "")
+    c, p = _norm(company), _norm(person)
+    return bool(c) and c == p
+
+
 def _fit_text(text: str, font: str, max_size: float,
               max_width: float, min_size: float = 5.5) -> float:
     size = max_size
@@ -233,15 +244,20 @@ def _draw_label(c, entry, x0: float, y0: float, w: float, h: float, mode: str,
     person       = entry.person_name  or ""
     barcode_addr = getattr(entry, 'barcode_address', '') or ""
 
+    sole_proprietor = _is_individual_proprietor(company, person)
+
     if mode == "simple":
         _draw_simple(c, xs, ys, ws, hs, company, font)
     elif mode == "no_person":
         _draw_no_person(c, xs, ys, ws, hs, company, postal, addr1, addr2, font,
-                        barcode_enabled, barcode_addr)
+                        barcode_enabled, barcode_addr,
+                        use_sama=sole_proprietor)
     elif mode == "nametag":
-        _draw_nametag(c, xs, ys, ws, hs, company, title, person, font)
+        co_for_draw = "" if sole_proprietor else company
+        _draw_nametag(c, xs, ys, ws, hs, co_for_draw, title, person, font)
     else:
-        _draw_normal(c, xs, ys, ws, hs, company, postal, addr1, addr2, title, person, font,
+        co_for_draw = "" if sole_proprietor else company
+        _draw_normal(c, xs, ys, ws, hs, co_for_draw, postal, addr1, addr2, title, person, font,
                      barcode_enabled, barcode_addr)
 
     c.restoreState()
@@ -362,7 +378,8 @@ def _draw_normal(c, x0, y0, w, h,
 def _draw_no_person(c, x0, y0, w, h, company, postal, addr1, addr2,
                     font: str = "MSPGothic",
                     barcode_enabled: bool = False,
-                    barcode_addr: str = ""):
+                    barcode_addr: str = "",
+                    use_sama: bool = False):
     _BC_MARGIN = 1.5 * mm
     _BC_TOP_MARGIN = 1.0 * mm
     use_barcode = barcode_enabled and bool(postal) and bool(barcode_addr)
@@ -404,7 +421,7 @@ def _draw_no_person(c, x0, y0, w, h, company, postal, addr1, addr2,
         return
 
     c.setFillColor(black)
-    gochu = " 御中"
+    gochu = " 様" if use_sama else " 御中"
 
     if "\n" not in company and stringWidth(company + gochu, font, 10.0) <= co_avail:
         fs = _fit_text(company + gochu, font, co_max_fs, co_avail, min_size=10.0)
