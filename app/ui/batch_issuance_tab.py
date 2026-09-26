@@ -15,7 +15,7 @@ class BatchIssuanceTab(QWidget):
         layout = QVBoxLayout(self)
         self._tabs = QTabWidget()
         self._project_tab = ProjectTab()
-        self._tabs.addTab(self._project_tab, "名簿・請求内容")
+        self._tabs.addTab(self._project_tab, "名簿・請求内容登録")
         self._tabs.addTab(IssuanceFromProjectWidget("invoice"), "請求書を発行")
         self._tabs.addTab(IssuanceFromProjectWidget("receipt"), "領収書を発行")
         self._tabs.currentChanged.connect(self._on_tab_changed)
