@@ -22,14 +22,14 @@
 
 ## 最新バージョン
 
-v2.5.3
+v2.5.4
 
 変更内容は [RELEASE_NOTES.md](RELEASE_NOTES.md) を参照してください。
 
 ## インストール
 
 [GitHub Releases](https://github.com/mozu93/cci-billing-label-releases/releases) から
-`CCIBillingLabel_Setup_2.5.3.exe` をダウンロードして実行してください。
+`CCIBillingLabel_Setup_2.5.4.exe` をダウンロードして実行してください。
 管理者権限は不要です。
 
 ## データの保存先
