@@ -91,6 +91,9 @@ class ProjectTab(QWidget):
         self._member_panel_container = QWidget()
         from PyQt6.QtWidgets import QVBoxLayout as VL
         self._member_panel_layout = VL(self._member_panel_container)
+        # 上のダッシュボード（top_layout）は余白ゼロなので、幅・高さをそろえるため
+        # ここも余白ゼロにする。既定の余白のままだと名簿側だけ左右合計約18px狭くなる。
+        self._member_panel_layout.setContentsMargins(0, 0, 0, 0)
         self._member_panel_container.setMinimumHeight(300)
         self._empty_label = QLabel(_EMPTY_TEXT)
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)

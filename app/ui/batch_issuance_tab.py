@@ -13,6 +13,10 @@ class BatchIssuanceTab(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
+        # ここは単なる入れ物。PageShell 側の余白（app/ui/nav_shell.py の
+        # PAGE_MARGIN）に、中の ProjectTab 自身の既定余白が乗るだけで十分な
+        # ため、ここでも既定余白を持つと二重になり不要な空白が増える。
+        layout.setContentsMargins(0, 0, 0, 0)
         self._tabs = QTabWidget()
         self._project_tab = ProjectTab()
         self._tabs.addTab(self._project_tab, "名簿・請求内容登録")

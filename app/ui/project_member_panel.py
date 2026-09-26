@@ -162,6 +162,9 @@ class ProjectMemberPanel(QWidget):
 
     def _build(self):
         layout = QVBoxLayout(self)
+        # 既定の余白のままだと、この上に置かれるダッシュボード（余白ゼロ）より
+        # 名簿の表が左右合計約18px狭くなり、境界がずれて見える。
+        layout.setContentsMargins(0, 0, 0, 0)
         heading_row = QHBoxLayout()
         # どの名簿かを「業務名　件名」の見出しで示す（同じ件名でも業務名で見分けられる）
         session = get_session()
