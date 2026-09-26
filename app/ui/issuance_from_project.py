@@ -298,6 +298,7 @@ class IssuanceFromProjectWidget(QWidget):
         self._table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
         self._table.horizontalHeader().setSortIndicatorShown(True)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.cellDoubleClicked.connect(self._on_row_double_clicked)
         # ヘッダー左端に本物のチェックボックスを配置
         self._header_chk = QCheckBox(self._table.horizontalHeader())

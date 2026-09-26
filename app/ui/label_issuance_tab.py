@@ -232,6 +232,7 @@ class LabelIssuanceTab(QWidget):
             QTableWidget.EditTrigger.DoubleClicked |
             QTableWidget.EditTrigger.SelectedClicked
         )
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         _delegate = _MultilineDelegate(self._table)
         for col in (COL_ORG, COL_REP, COL_DEPT):
             self._table.setItemDelegateForColumn(col, _delegate)
