@@ -588,6 +588,28 @@ def get_latest_issuance_for_member(session: Session, project_member_id: int,
             .first())
 
 
+def get_latest_issuances_for_members(session: Session, project_member_ids,
+                                     doc_type: str) -> dict[int, Issuance]:
+    """複数の名簿会員について、その種別で最も新しい発行データをまとめて取得する。
+
+    名簿会員ごとに get_latest_issuance_for_member() を呼ぶと会員数に比例して
+    問い合わせが増えるため（請求書・領収書を発行する名簿のN+1解消用）、
+    1回のクエリで取得してからPython側で会員ごとの最新1件を選ぶ。
+    """
+    pm_ids = list(project_member_ids)
+    if not pm_ids:
+        return {}
+    rows = (session.query(Issuance)
+            .filter(Issuance.project_member_id.in_(pm_ids),
+                    Issuance.doc_type == doc_type)
+            .order_by(Issuance.created_at.desc())
+            .all())
+    result: dict[int, Issuance] = {}
+    for iss in rows:
+        result.setdefault(iss.project_member_id, iss)
+    return result
+
+
 def get_all_issuances(session: Session,
                       status: str | None = None) -> list[Issuance]:
     """名簿を問わず発行データを新しい順に返す。入金管理の絞り込みなし表示用。"""

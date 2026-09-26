@@ -715,3 +715,27 @@ def test_get_latest_issuance_for_member_returns_none(db_session):
 
     proj, tmpl, pm = _setup(db_session)
     assert get_latest_issuance_for_member(db_session, pm.id, "invoice") is None
+
+
+def test_get_latest_issuances_for_members_matches_single_lookup(db_session):
+    """請求書・領収書を発行する名簿のN+1解消：まとめて取得しても結果は同じ。"""
+    from app.services.issuance_service import (
+        get_latest_issuance_for_member, get_latest_issuances_for_members,
+    )
+
+    proj, pm, issued, pending, receipt = _mk_reissue_data(db_session)
+
+    bulk = get_latest_issuances_for_members(db_session, [pm.id], "invoice")
+    assert bulk[pm.id].id == get_latest_issuance_for_member(
+        db_session, pm.id, "invoice").id == pending.id
+
+    bulk_receipt = get_latest_issuances_for_members(db_session, [pm.id], "receipt")
+    assert bulk_receipt[pm.id].id == receipt.id
+
+
+def test_get_latest_issuances_for_members_omits_members_without_issuance(db_session):
+    from app.services.issuance_service import get_latest_issuances_for_members
+
+    proj, tmpl, pm = _setup(db_session)
+    assert get_latest_issuances_for_members(db_session, [pm.id], "invoice") == {}
+    assert get_latest_issuances_for_members(db_session, [], "invoice") == {}

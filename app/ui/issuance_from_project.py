@@ -24,9 +24,10 @@ from app.services.issuance_service import (
     mark_as_issued,
     update_issuance_lines_from_project,
     get_issuance,
-    get_latest_issuance_for_member,
+    get_latest_issuances_for_members,
 )
 from app.utils import current_user
+from app.ui.table_column_utils import hide_empty_columns
 
 
 COL_CHK  = 0
@@ -686,40 +687,44 @@ class IssuanceFromProjectWidget(QWidget):
 
         session = get_session()
         try:
-            pm_data = []
-            issued_count = 0
+            all_members = []
             for pid in project_ids:
                 for pm in get_project_members(session, pid):
-                    if pm.is_cancelled:
+                    if not pm.is_cancelled:
+                        all_members.append((pid, pm))
+            pm_ids = [pm.id for _pid, pm in all_members]
+            inv_map = get_latest_issuances_for_members(session, pm_ids, "invoice")
+            rcp_map = get_latest_issuances_for_members(session, pm_ids, "receipt")
+
+            pm_data = []
+            issued_count = 0
+            for pid, pm in all_members:
+                inv = inv_map.get(pm.id)
+                rcp = rcp_map.get(pm.id)
+                voided = inv is None and rcp is not None
+                sel = inv if doc_type == "invoice" else rcp
+                sel_status = sel.status if sel else "未発行"
+                hide_issued = sel_status in ("発行済み", "支払済み")
+                hide_voided = doc_type == "invoice" and voided
+                if hide_issued:
+                    issued_count += 1
+                if not show_all and (hide_issued or hide_voided):
+                    continue
+                if query:
+                    targets = [
+                        pm.organization_name or "",
+                        pm.representative_name or "",
+                        pm.organization_kana or "",
+                    ]
+                    if not any(query in t.lower() for t in targets):
                         continue
-                    inv = get_latest_issuance_for_member(
-                        session, pm.id, "invoice")
-                    rcp = get_latest_issuance_for_member(
-                        session, pm.id, "receipt")
-                    voided = inv is None and rcp is not None
-                    sel = inv if doc_type == "invoice" else rcp
-                    sel_status = sel.status if sel else "未発行"
-                    hide_issued = sel_status in ("発行済み", "支払済み")
-                    hide_voided = doc_type == "invoice" and voided
-                    if hide_issued:
-                        issued_count += 1
-                    if not show_all and (hide_issued or hide_voided):
-                        continue
-                    if query:
-                        targets = [
-                            pm.organization_name or "",
-                            pm.representative_name or "",
-                            pm.organization_kana or "",
-                        ]
-                        if not any(query in t.lower() for t in targets):
-                            continue
-                    inv_text = "無効" if voided else self._cell_text(inv)
-                    pm_data.append((
-                        pm.id, pm,
-                        inv_text, self._cell_text(rcp),
-                        inv.id if inv else None, rcp.id if rcp else None,
-                        proj_name_map.get(pid, ""),
-                    ))
+                inv_text = "無効" if voided else self._cell_text(inv)
+                pm_data.append((
+                    pm.id, pm,
+                    inv_text, self._cell_text(rcp),
+                    inv.id if inv else None, rcp.id if rcp else None,
+                    proj_name_map.get(pid, ""),
+                ))
             member_settings = get_member_item_settings(
                 session, [item[0] for item in pm_data])
         finally:
@@ -844,6 +849,7 @@ class IssuanceFromProjectWidget(QWidget):
         else:
             hdr.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
         self._table.resizeRowsToContents()
+        hide_empty_columns(self._table, (COL_NUM, COL_KANA, COL_DEPT))
         doc_label = "請求書" if doc_type == "invoice" else "領収書"
         if show_all:
             self._status_label.setText(

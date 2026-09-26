@@ -13,10 +13,12 @@ from app.services.issuance_service import (
     get_payment_fiscal_years, count_unpaid_invoices_before, fiscal_year_of,
 )
 from app.services.project_service import (
-    get_projects, get_project_by_id, get_project_member
+    get_projects, get_project_by_id, get_project_member,
+    get_project_members_by_ids,
 )
 from app.services.category_service import get_category_names
 from app.utils import current_user
+from app.ui.table_column_utils import hide_empty_columns
 
 
 _COL_CHK    = 0
@@ -245,6 +247,9 @@ class PaymentManagementWidget(QWidget):
                 session, fiscal_year=self._year_combo.currentData(),
                 project_id=project_id, status=status)
             cat_names = get_category_names(session)
+            pm_map = get_project_members_by_ids(
+                session, {iss.project_member_id for iss in issuances
+                         if iss.project_member_id})
             self._table.setSortingEnabled(False)
             self._table.setRowCount(0)
 
@@ -257,12 +262,11 @@ class PaymentManagementWidget(QWidget):
                 # 領収書は発行と同時に支払済みになるため、入金管理は請求書のみ扱う
                 if iss.doc_type != "invoice":
                     continue
+                pm = pm_map.get(iss.project_member_id) if iss.project_member_id else None
                 # 名簿側で参加キャンセルになった人は、発行済み請求書を
                 # 履歴として残しつつ入金管理の対象から外す。
-                if iss.project_member_id:
-                    pm = get_project_member(session, iss.project_member_id)
-                    if pm and pm.is_cancelled:
-                        continue
+                if pm and pm.is_cancelled:
+                    continue
                 row = self._table.rowCount()
                 self._table.insertRow(row)
 
@@ -274,15 +278,9 @@ class PaymentManagementWidget(QWidget):
 
                 recipient = iss.recipient_organization or iss.recipient_name or ""
                 issued = iss.issued_at.strftime("%Y/%m/%d") if iss.issued_at else ""
-                member_number = ""
-                org_kana = ""
-                email_addr = ""
-                if iss.project_member_id:
-                    pm = get_project_member(session, iss.project_member_id)
-                    if pm:
-                        member_number = pm.member_number or ""
-                        org_kana = pm.organization_kana or ""
-                        email_addr = (pm.email or "").strip()
+                member_number = pm.member_number or "" if pm else ""
+                org_kana = pm.organization_kana or "" if pm else ""
+                email_addr = (pm.email or "").strip() if pm else ""
                 proj = get_project_by_id(session, iss.project_id)
                 if proj and proj.project_type == "counter":
                     cat_label = proj.name or ""
@@ -312,6 +310,7 @@ class PaymentManagementWidget(QWidget):
         finally:
             session.close()
         self._table.setSortingEnabled(True)
+        hide_empty_columns(self._table, (_COL_MEMBER, _COL_MAIL))
         self._apply_search()
 
     # ── 支払済み更新 ───────────────────────────────────────────────

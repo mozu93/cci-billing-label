@@ -2,7 +2,6 @@
 import os
 from sqlalchemy.orm import Session
 from app.database.models import Issuance, ProjectMember, Project, Payment
-from app.services.project_service import get_project_progress
 
 
 def get_project_amount_summary(session: Session, project_id: int) -> dict:
@@ -25,6 +24,31 @@ def get_project_amount_summary(session: Session, project_id: int) -> dict:
     paid = sum(int(p.amount) for p in payments)
     return {"total": total, "paid": paid, "unpaid": total - paid,
             "paid_count": len(payments)}
+
+
+def get_project_amount_summary_bulk(session: Session,
+                                    project_ids: list[int]) -> dict[int, dict]:
+    """複数名簿の請求金額集計をまとめて取得する（名簿一覧・レポート画面のN+1解消用）。"""
+    if not project_ids:
+        return {}
+    from sqlalchemy import func
+    totals = dict(
+        session.query(Issuance.project_id, func.sum(Issuance.amount))
+        .filter(Issuance.project_id.in_(project_ids), Issuance.doc_type == "invoice")
+        .group_by(Issuance.project_id).all())
+    payment_rows = (
+        session.query(Issuance.project_id, func.sum(Payment.amount), func.count(Payment.id))
+        .join(Issuance, Payment.issuance_id == Issuance.id)
+        .filter(Issuance.project_id.in_(project_ids), Issuance.doc_type == "invoice")
+        .group_by(Issuance.project_id).all())
+    paid_map = {pid: (int(s or 0), c) for pid, s, c in payment_rows}
+    result = {}
+    for pid in project_ids:
+        total = int(totals.get(pid, 0) or 0)
+        paid, paid_count = paid_map.get(pid, (0, 0))
+        result[pid] = {"total": total, "paid": paid, "unpaid": total - paid,
+                       "paid_count": paid_count}
+    return result
 
 
 def get_unpaid_report(session: Session,
@@ -88,16 +112,23 @@ def get_payment_report(session: Session,
 
 def get_project_summary(session: Session,
                          fiscal_year: int | None = None) -> list[dict]:
+    from app.services.project_service import get_project_progress_bulk
+
     q = session.query(Project).filter(Project.status.in_(["active", "closed"]))
     if fiscal_year:
         q = q.filter(Project.fiscal_year == fiscal_year)
 
+    projects = q.order_by(Project.fiscal_year.desc(), Project.name).all()
+    progress_map = get_project_progress_bulk(session, projects)
+    # 名簿一覧と同じ集計を使う。全種別を合算すると、同じ会員の請求書と
+    # 領収書が重複して計上され、請求総額が実際より大きくなる。
+    amount_map = get_project_amount_summary_bulk(
+        session, [proj.id for proj in projects])
+
     rows = []
-    for proj in q.order_by(Project.fiscal_year.desc(), Project.name).all():
-        p = get_project_progress(session, proj.id)
-        # 名簿一覧と同じ集計を使う。全種別を合算すると、同じ会員の請求書と
-        # 領収書が重複して計上され、請求総額が実際より大きくなる。
-        amounts = get_project_amount_summary(session, proj.id)
+    for proj in projects:
+        p = progress_map[proj.id]
+        amounts = amount_map[proj.id]
         total_amount = amounts["total"]
         paid_amount = amounts["paid"]
         rows.append({

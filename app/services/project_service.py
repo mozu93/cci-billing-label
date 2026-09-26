@@ -201,6 +201,18 @@ EDITABLE_MEMBER_FIELDS = frozenset({
 })
 
 
+def get_project_members_by_ids(session: Session,
+                               project_member_ids) -> dict[int, ProjectMember]:
+    """名簿会員IDごとの ProjectMember をまとめて取得する（入金管理のN+1解消用）。"""
+    pm_ids = list(project_member_ids)
+    if not pm_ids:
+        return {}
+    members = (session.query(ProjectMember)
+              .filter(ProjectMember.id.in_(pm_ids))
+              .all())
+    return {m.id: m for m in members}
+
+
 def get_project_member(session: Session,
                        project_member_id: int) -> ProjectMember | None:
     return session.get(ProjectMember, project_member_id)
@@ -263,6 +275,68 @@ def set_project_members_cancelled(session: Session, project_member_ids: list[int
      .filter(ProjectMember.id.in_(project_member_ids))
      .update({ProjectMember.is_cancelled: cancelled}, synchronize_session=False))
     session.commit()
+
+
+def get_project_progress_bulk(session: Session, projects: list) -> dict[int, dict]:
+    """複数名簿の進捗をまとめて取得する（名簿一覧・レポート画面のN+1解消用）。
+
+    名簿数ぶん get_project_progress() を呼ぶと名簿数に比例して問い合わせが
+    増えるため、名簿を持つプロジェクトは一括クエリでまとめる。会員名簿を
+    持たない（窓口/フリー発行）プロジェクトは元々件数が少ないので、
+    従来どおり個別に計算する。
+    """
+    result: dict[int, dict] = {}
+    list_projects = [p for p in projects if p.project_type != "counter"]
+    for p in projects:
+        if p.project_type == "counter":
+            result[p.id] = get_project_progress(session, p.id)
+    if not list_projects:
+        return result
+
+    list_ids = [p.id for p in list_projects]
+    members = (session.query(ProjectMember)
+              .filter(ProjectMember.project_id.in_(list_ids),
+                      ProjectMember.is_cancelled.is_(False))
+              .all())
+    pm_project = {m.id: m.project_id for m in members}
+    totals: dict[int, int] = {}
+    for m in members:
+        totals[m.project_id] = totals.get(m.project_id, 0) + 1
+
+    pm_has_invoice: dict[int, set] = {}
+    pm_has_receipt: dict[int, set] = {}
+    paid_counts: dict[int, int] = {}
+    pm_ids = list(pm_project.keys())
+    if pm_ids:
+        rows = (session.query(Issuance.project_member_id, Issuance.doc_type, Issuance.status)
+                .filter(Issuance.project_member_id.in_(pm_ids),
+                        Issuance.status.in_(["発行済み", "支払済み"]))
+                .all())
+        for pm_id, doc_type, status in rows:
+            pid = pm_project[pm_id]
+            if doc_type == "receipt":
+                pm_has_receipt.setdefault(pid, set()).add(pm_id)
+            elif doc_type == "invoice":
+                pm_has_invoice.setdefault(pid, set()).add(pm_id)
+        paid_pm_ids = {row[0] for row in
+                      session.query(Issuance.project_member_id)
+                      .filter(Issuance.project_member_id.in_(pm_ids),
+                              Issuance.status == "支払済み").all()}
+        for pm_id in paid_pm_ids:
+            pid = pm_project[pm_id]
+            paid_counts[pid] = paid_counts.get(pid, 0) + 1
+
+    for p in list_projects:
+        total = totals.get(p.id, 0)
+        invoice_set = pm_has_invoice.get(p.id, set())
+        receipt_set = pm_has_receipt.get(p.id, set())
+        issued = len(invoice_set | receipt_set)
+        result[p.id] = {
+            "total": total, "issued": issued, "paid": paid_counts.get(p.id, 0),
+            "invoice_issued": len(invoice_set), "receipt_issued": len(receipt_set),
+            "pending": total - issued,
+        }
+    return result
 
 
 def get_project_progress(session: Session, project_id: int) -> dict:

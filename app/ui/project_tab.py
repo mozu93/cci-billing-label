@@ -8,11 +8,14 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from app.database.connection import get_session
 from app.services.project_service import (
-    get_projects, get_project_progress, get_project_by_id
+    get_projects, get_project_progress, get_project_progress_bulk,
+    get_project_by_id
 )
 from app.services.category_service import get_category_names
 from app.services.issuance_service import fiscal_year_of
-from app.services.report_service import get_project_amount_summary
+from app.services.report_service import (
+    get_project_amount_summary, get_project_amount_summary_bulk,
+)
 from app.ui.project_form import ProjectFormDialog
 from app.ui.project_member_panel import ProjectMemberPanel
 
@@ -106,11 +109,14 @@ class ProjectTab(QWidget):
         try:
             cat_name = get_category_names(session)
             projects = get_projects(session, fiscal_year=year)
+            progress_map = get_project_progress_bulk(session, projects)
+            amount_map = get_project_amount_summary_bulk(
+                session, [proj.id for proj in projects])
             self._table.setRowCount(0)
             for proj in projects:
-                p = get_project_progress(session, proj.id)
+                p = progress_map[proj.id]
                 pending = p["pending"]
-                amounts = get_project_amount_summary(session, proj.id)
+                amounts = amount_map[proj.id]
                 total_amount = amounts["total"]
                 paid_count = amounts["paid_count"]
                 paid_amount = amounts["paid"]
