@@ -34,6 +34,7 @@ from app.services.email_service import (
     set_default_email_template,
 )
 from app.utils.app_config import (
+    get_email_signature,
     get_m365_account_username,
     get_m365_client_id,
     get_m365_sender_address,
@@ -41,6 +42,7 @@ from app.utils.app_config import (
     get_m365_test_recipient,
     get_m365_trace_client_secret,
     get_m365_tenant_id,
+    save_email_signature,
     save_m365_config,
     set_m365_test_mode,
 )
@@ -405,6 +407,23 @@ class EmailSettingsWidget(QWidget):
         form.addRow("", note)
         layout.addWidget(group)
 
+        sig_group = QGroupBox("メール署名（この端末のみ）")
+        sig_layout = QVBoxLayout(sig_group)
+        sig_note = QLabel(
+            "請求書・領収書・督促・テストメールなど、送信するすべてのメール本文の"
+            "末尾に自動で付きます。この設定はこの端末だけに保存され、"
+            "config.jsonを他端末へコピーしても引き継がれません。")
+        sig_note.setWordWrap(True)
+        sig_note.setStyleSheet("color: #666; font-size: 11px;")
+        sig_layout.addWidget(sig_note)
+        self._signature = QTextEdit()
+        self._signature.setAcceptRichText(False)
+        self._signature.setPlaceholderText(
+            "例：\n南工業会議所\n水谷\nTEL 000-000-0000")
+        self._signature.setMaximumHeight(120)
+        sig_layout.addWidget(self._signature)
+        layout.addWidget(sig_group)
+
         button_row = QHBoxLayout()
         save_button = QPushButton("メール送信設定を保存")
         save_button.clicked.connect(self._save)
@@ -423,6 +442,7 @@ class EmailSettingsWidget(QWidget):
         self._test_mode_chk.blockSignals(True)
         self._test_mode_chk.setChecked(get_m365_test_mode())
         self._test_mode_chk.blockSignals(False)
+        self._signature.setPlainText(get_email_signature())
 
     def _on_test_mode_toggled(self, on: bool):
         if on:
@@ -529,13 +549,18 @@ class EmailSettingsWidget(QWidget):
             return
 
         self._save_m365_fields()
+        save_email_signature(self._signature.toPlainText())
         sender = self._m365_sender.text().strip()
         sender_label = sender or self._m365_account.currentText().strip()
+        signature = self._signature.toPlainText().strip()
+        signature_html = (
+            "<p>" + signature.replace("\n", "<br>") + "</p>" if signature else "")
         body = (
             "<div style='font-family:sans-serif;font-size:14px;line-height:1.8;'>"
             "<p>CCI請求書発行システムからのテストメールです。</p>"
             f"<p>送信元：{sender_label}</p>"
             "<p>このメールを受信できれば、メール送信設定は正常です。</p>"
+            f"{signature_html}"
             "</div>"
         )
         from app.ui.m365_mail_worker import M365MailWorker
@@ -582,5 +607,6 @@ class EmailSettingsWidget(QWidget):
 
     def _save(self):
         self._save_m365_fields()
+        save_email_signature(self._signature.toPlainText())
         QMessageBox.information(
             self, "保存", "メール送信設定を保存しました。")

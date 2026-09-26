@@ -1,9 +1,8 @@
 # app/services/email_service.py
-import html as _html
 import os
 import re
 from uuid import uuid4
-from app.utils.app_config import get_config, save_config
+from app.utils.app_config import get_config, save_config, get_email_signature
 
 
 _ADDR_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -318,11 +317,14 @@ def prepare_issuance_email(session, issuance,
     subject_t, body_t = get_email_template(issuance.doc_type)
     subject = render_email_template(subject_t, context)
     body = render_email_template(body_t, context)
-    return to_addr, subject, _body_to_html(body), issuance.pdf_path
+    return to_addr, subject, render_body_html(body), issuance.pdf_path
 
 
-def _body_to_html(body: str) -> str:
+def render_body_html(body: str) -> str:
     import html as _html
+    signature = get_email_signature().strip()
+    if signature:
+        body = body + "\n\n" + signature
     return (
         "<div style='font-family:sans-serif; font-size:14px; line-height:1.8;'>"
         + _html.escape(body).replace("\n", "<br>")
@@ -334,7 +336,7 @@ def render_issuance_email(context: dict[str, str], subject_template: str,
                           body_template: str) -> tuple[str, str]:
     """タグ付きの件名・本文テンプレートに差し込んで (件名, 本文HTML) を返す。"""
     return (render_email_template(subject_template, context),
-            _body_to_html(render_email_template(body_template, context)))
+            render_body_html(render_email_template(body_template, context)))
 
 
 TEST_MAIL_NOTE ="※これはテスト送信です。請求書は発行されていません。"
@@ -354,7 +356,7 @@ def build_test_issuance_email(session, issuance, project_name: str = ""
     subject_t, body_t = get_email_template(issuance.doc_type)
     subject = "【テスト】" + render_email_template(subject_t, context)
     body = TEST_MAIL_NOTE + "\n\n" + render_email_template(body_t, context)
-    return subject, _body_to_html(body)
+    return subject, render_body_html(body)
 
 
 def prepare_reminder_email(session, issuance, due_date=None,
@@ -396,11 +398,7 @@ def prepare_reminder_email(session, issuance, due_date=None,
         subject, body = build_issuance_email(
             issuance, company_name, project_name,
             kind="reminder", extra_context=extra)
-    body_html = (
-        "<div style='font-family:sans-serif; font-size:14px; line-height:1.8;'>"
-        + _html.escape(body).replace("\n", "<br>")
-        + "</div>"
-    )
+    body_html = render_body_html(body)
     pdf = (issuance.pdf_path
            if issuance.pdf_path and os.path.exists(issuance.pdf_path)
            else None)

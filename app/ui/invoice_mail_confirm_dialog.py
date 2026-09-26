@@ -1,6 +1,5 @@
 # app/ui/invoice_mail_confirm_dialog.py
 from pathlib import Path
-import html
 import re
 
 from PyQt6.QtCore import QEvent, Qt, QUrl
@@ -287,12 +286,8 @@ class InvoiceMailConfirmDialog(QDialog):
         return self._render(self.template_body())
 
     def body_html(self) -> str:
-        return (
-            "<div style='font-family:sans-serif; font-size:14px; "
-            "line-height:1.8;'>"
-            + html.escape(self.rendered_body()).replace("\n", "<br>")
-            + "</div>"
-        )
+        from app.services.email_service import render_body_html
+        return render_body_html(self.rendered_body())
 
     def eventFilter(self, watched, event):
         if (
@@ -315,8 +310,13 @@ class InvoiceMailConfirmDialog(QDialog):
         target.setFocus()
 
     def _update_preview(self) -> None:
+        from app.services.email_service import get_email_signature
         self._preview_subject.setText(self.subject())
-        self._preview_body.setPlainText(self.rendered_body())
+        body = self.rendered_body()
+        signature = get_email_signature().strip()
+        if signature:
+            body = body + "\n\n" + signature
+        self._preview_body.setPlainText(body)
 
     def _on_template_changed(self) -> None:
         template = self._template_choice.currentData()

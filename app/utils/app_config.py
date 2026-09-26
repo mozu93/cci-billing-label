@@ -8,6 +8,10 @@ from sqlalchemy.engine import URL
 CONFIG_DIR = Path.home() / ".cci-billing-label"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
+# config.json は利用者が端末間で手動コピーして共有運用している（マニュアル参照）。
+# 署名は端末ごとに変えたいので、コピーの対象にならない別ファイルに保存する。
+SIGNATURE_FILE = CONFIG_DIR / "email_signature.txt"
+
 # 派生元の cci-billing とデータを共有していたため、初回だけ引き継ぐ。
 LEGACY_CONFIG_DIR = Path.home() / ".cci-billing"
 
@@ -118,6 +122,18 @@ def set_m365_test_mode(enabled: bool) -> None:
 
 def get_m365_trace_client_secret() -> str:
     return get_m365_config().get("trace_client_secret", "")
+
+
+def get_email_signature() -> str:
+    """この端末専用のメール署名。config.json とは別ファイルに保存する。"""
+    if SIGNATURE_FILE.exists():
+        return SIGNATURE_FILE.read_text(encoding="utf-8")
+    return ""
+
+
+def save_email_signature(text: str) -> None:
+    CONFIG_DIR.mkdir(exist_ok=True)
+    SIGNATURE_FILE.write_text(text, encoding="utf-8")
 
 
 def get_label_print_offset(layout_key: str) -> tuple[float, float]:
