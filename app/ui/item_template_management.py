@@ -45,6 +45,7 @@ class ItemTemplateManagementWidget(QWidget):
         for col in range(5):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.cellDoubleClicked.connect(lambda row, _: self._open_edit(row))
         layout.addWidget(self._table)
 

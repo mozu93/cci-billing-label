@@ -221,6 +221,7 @@ class RosterImportDialog(QDialog):
             1 + ROSTER_COLUMNS.index("organization_name"),
             QHeaderView.ResizeMode.Stretch)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self._table)
 
         self._status_label = QLabel("")

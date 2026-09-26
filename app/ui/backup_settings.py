@@ -49,6 +49,7 @@ class BackupSettingsWidget(QWidget):
         self._table.setHorizontalHeaderLabels(["ファイル名", "作成日時", "サイズ"])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self._table)
         btn_row2 = QHBoxLayout()
         btn_restore = QPushButton("選択したバックアップを復元")

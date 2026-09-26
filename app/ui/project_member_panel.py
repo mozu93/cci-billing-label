@@ -234,6 +234,7 @@ class ProjectMemberPanel(QWidget):
         vhdr.setDefaultSectionSize(26)
         vhdr.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         self._table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setItemDelegate(_CompactDelegate(self._table))
         self._table.setSortingEnabled(True)
         self._table.itemChanged.connect(self._on_item_changed)

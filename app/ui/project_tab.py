@@ -71,6 +71,7 @@ class ProjectTab(QWidget):
         self._table.setColumnWidth(1, 180)
         hdr.setStretchLastSection(True)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setMinimumHeight(140)
         self._table.currentCellChanged.connect(self._on_select)
         # 上は件名ごとの集計、下は選んだ件名の名簿。見出しで区別する

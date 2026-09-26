@@ -42,6 +42,7 @@ class CompanySettingsWidget(QWidget):
         self._issuer_table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.ResizeToContents)
         self._issuer_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._issuer_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._issuer_table.setFixedHeight(155)
         self._issuer_table.currentCellChanged.connect(
             lambda cur_row, _cc, prev_row, _pc: (
@@ -85,6 +86,7 @@ class CompanySettingsWidget(QWidget):
         self._bank_table.horizontalHeader().setSectionResizeMode(
             6, QHeaderView.ResizeMode.ResizeToContents)
         self._bank_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._bank_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._bank_table.setFixedHeight(155)
         bank_layout.addWidget(self._bank_table)
 
@@ -125,6 +127,7 @@ class CompanySettingsWidget(QWidget):
         self._seal_table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.ResizeToContents)
         self._seal_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._seal_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._seal_table.setFixedHeight(155)
         seal_layout.addWidget(self._seal_table)
 
