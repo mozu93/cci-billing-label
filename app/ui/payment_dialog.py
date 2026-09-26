@@ -15,10 +15,22 @@ from app.services.issuance_service import (
 from app.services.project_service import (
     get_projects, get_project_by_id, get_project_member
 )
+from app.services.category_service import get_category_names
 from app.utils import current_user
 
 
-_COL_CHK = 0
+_COL_CHK    = 0
+_COL_NUM    = 1
+_COL_DUE    = 2
+_COL_STATUS = 3
+_COL_MEMBER = 4
+_COL_DEST   = 5
+_COL_CAT    = 6
+_COL_PROJ   = 7
+_COL_KANA   = 8   # 表示は隠すが、検索対象には残す
+_COL_AMT    = 9
+_COL_ISSUED = 10
+_COL_MAIL   = 11
 
 _PAY_COLS = [
     ("",          30),   # 0: チェックボックス
@@ -27,11 +39,16 @@ _PAY_COLS = [
     ("状態",      80),   # 3
     ("会員番号",  90),   # 4
     ("宛先",     200),   # 5
-    ("フリガナ", 160),   # 6
-    ("金額",      90),   # 7
-    ("発行日",    90),   # 8
-    ("メール",   180),   # 9
+    ("業務名",   140),   # 6
+    ("件名",     160),   # 7
+    ("フリガナ", 160),   # 8: 非表示（検索は有効）
+    ("金額",      90),   # 9
+    ("発行日",    90),   # 10
+    ("メール",   180),   # 11
 ]
+
+# 単発発行は件名に相当するものがないため、件名列にはこの目印を表示する
+_DIRECT_ISSUANCE_LABEL = "※単発発行"
 
 
 class PaymentManagementWidget(QWidget):
@@ -117,7 +134,9 @@ class PaymentManagementWidget(QWidget):
                 else QHeaderView.ResizeMode.Interactive
             )
             self._table.setColumnWidth(i, w)
+        self._table.setColumnHidden(_COL_KANA, True)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._table.setSortingEnabled(True)
@@ -148,7 +167,7 @@ class PaymentManagementWidget(QWidget):
                 self._table.setRowHidden(r, False)
                 continue
             targets = []
-            for col in (2, 4, 5, 6):  # 書類種別, 会員番号, 宛先, フリガナ
+            for col in (_COL_MEMBER, _COL_DEST, _COL_KANA):  # 会員番号, 事業所名, フリガナ
                 it = self._table.item(r, col)
                 if it:
                     targets.append(it.text().lower())
@@ -232,6 +251,7 @@ class PaymentManagementWidget(QWidget):
             issuances = get_payment_issuances(
                 session, fiscal_year=self._year_combo.currentData(),
                 project_id=project_id, status=status)
+            cat_names = get_category_names(session)
             self._table.setSortingEnabled(False)
             self._table.setRowCount(0)
 
@@ -271,12 +291,26 @@ class PaymentManagementWidget(QWidget):
                         email_addr = (pm.email or "").strip()
                 proj = get_project_by_id(session, iss.project_id)
                 due_str = proj.due_date.strftime("%Y/%m/%d") if (proj and proj.due_date) else ""
-                for col, val in enumerate([
-                    iss.doc_number, due_str, iss.status, member_number, recipient,
-                    org_kana, f"¥{int(iss.amount):,}", issued,
-                    email_addr,
-                ], start=1):
-                    item = QTableWidgetItem(val)
+                if proj and proj.project_type == "counter":
+                    cat_label = proj.name or ""
+                    proj_label = _DIRECT_ISSUANCE_LABEL
+                else:
+                    cat_label = cat_names.get(proj.category_id, "") if proj else ""
+                    proj_label = proj.name if proj else ""
+                for col, val in [
+                    (_COL_NUM,    iss.doc_number),
+                    (_COL_DUE,    due_str),
+                    (_COL_STATUS, iss.status),
+                    (_COL_MEMBER, member_number),
+                    (_COL_DEST,   recipient),
+                    (_COL_CAT,    cat_label),
+                    (_COL_PROJ,   proj_label),
+                    (_COL_KANA,   org_kana),
+                    (_COL_AMT,    f"¥{int(iss.amount):,}"),
+                    (_COL_ISSUED, issued),
+                    (_COL_MAIL,   email_addr),
+                ]:
+                    item = QTableWidgetItem(val or "")
                     item.setData(Qt.ItemDataRole.UserRole, iss.id)
                     self._table.setItem(row, col, item)
         finally:
@@ -440,6 +474,7 @@ class _ReminderDialog(QDialog):
                 else QHeaderView.ResizeMode.Interactive)
             self._table.setColumnWidth(i, w)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         for iss_id, doc_number, recipient, amount, email, due_date in targets:
             row = self._table.rowCount()
             self._table.insertRow(row)

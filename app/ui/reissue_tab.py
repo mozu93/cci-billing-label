@@ -13,20 +13,23 @@ from app.services.project_service import (
 from app.services.issuance_service import (
     get_issuance, get_issuance_with_lines, search_reissuable_issuances
 )
-from app.services.category_service import get_active_categories
+from app.services.category_service import get_active_categories, get_category_names
 
 COL_CHK  = 0
 COL_NUM  = 1
 COL_DATE = 2
-COL_PROJ = 3
-COL_DEST = 4
-COL_AMT  = 5
-COL_TYPE = 6
-COL_STAT = 7
-COL_MAIL = 8
-COL_DELIVERY = 9
+COL_CAT  = 3
+COL_PROJ = 4
+COL_DEST = 5
+COL_AMT  = 6
+COL_TYPE = 7
+COL_STAT = 8
+COL_MAIL = 9
+COL_DELIVERY = 10
 
 _TYPE_LABEL = {"invoice": "請求書", "receipt": "領収書"}
+# 単発発行は件名に相当するものがないため、件名列にはこの目印を表示する
+_DIRECT_ISSUANCE_LABEL = "※単発発行"
 
 
 class ReissueWidget(QWidget):
@@ -125,9 +128,9 @@ class ReissueWidget(QWidget):
         layout.addLayout(search_row)
 
         # ── テーブル ─────────────────────────────────────────────────
-        self._table = QTableWidget(0, 10)
+        self._table = QTableWidget(0, 11)
         self._table.setHorizontalHeaderLabels(
-            ["", "発行番号", "発行日", "件名", "宛先", "金額", "種別", "状態", "メール", "配信"])
+            ["", "発行番号", "発行日", "業務名", "件名", "宛先", "金額", "種別", "状態", "メール", "配信"])
         hdr = self._table.horizontalHeader()
         hdr.setSortIndicatorShown(True)
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -135,6 +138,7 @@ class ReissueWidget(QWidget):
         self._table.setColumnWidth(COL_CHK,  30)
         self._table.setColumnWidth(COL_NUM,  100)
         self._table.setColumnWidth(COL_DATE, 90)
+        self._table.setColumnWidth(COL_CAT,  140)
         self._table.setColumnWidth(COL_PROJ, 160)
         self._table.setColumnWidth(COL_DEST, 140)
         self._table.setColumnWidth(COL_AMT,  90)
@@ -221,6 +225,7 @@ class ReissueWidget(QWidget):
             # PM→メール有無をまとめて取得
             pm_ids = {iss.project_member_id for iss, _ in rows if iss.project_member_id}
             pm_email_map = get_member_emails(session, pm_ids)
+            cat_names = get_category_names(session)
         finally:
             session.close()
 
@@ -237,6 +242,13 @@ class ReissueWidget(QWidget):
                 or (pm_email_map.get(iss.project_member_id, "")
                     if iss.project_member_id else "")
             )
+            # 単発発行は Project.name に業務名が入っており、件名は無い
+            if proj.project_type == "counter":
+                cat_label = proj.name or ""
+                proj_label = _DIRECT_ISSUANCE_LABEL
+            else:
+                cat_label = cat_names.get(proj.category_id, "")
+                proj_label = proj.name or ""
 
             # チェックボックス列
             chk_item = QTableWidgetItem("")
@@ -251,7 +263,8 @@ class ReissueWidget(QWidget):
             for col, val in [
                 (COL_NUM,  iss.doc_number or ""),
                 (COL_DATE, issued),
-                (COL_PROJ, proj.name or ""),
+                (COL_CAT,  cat_label),
+                (COL_PROJ, proj_label),
                 (COL_DEST, dest),
                 (COL_AMT,  f"¥{int(iss.amount):,}"),
                 (COL_TYPE, _TYPE_LABEL.get(iss.doc_type, iss.doc_type)),
