@@ -487,7 +487,7 @@ class IssuanceCounterWidget(QWidget):
         top_row = QHBoxLayout()
         top_row.setSpacing(12)
 
-        grp_dest = QGroupBox("宛先（空欄可）" if self._simplified else "宛先")
+        grp_dest = QGroupBox("宛先（簡易インボイスでは使用しません）" if self._simplified else "宛先")
         dest_vbox = QVBoxLayout(grp_dest)
         dest_vbox.setContentsMargins(10, 8, 10, 8)
         dest_vbox.setSpacing(4)
@@ -600,6 +600,10 @@ class IssuanceCounterWidget(QWidget):
 
         self._detail_widget.setVisible(False)
         dest_vbox.addWidget(self._detail_widget)
+
+        if self._simplified:
+            # 簡易インボイスは宛先なしで発行するため、入力欄ごと使えなくする
+            grp_dest.setEnabled(False)
 
         top_row.addWidget(grp_dest, 6)
 
